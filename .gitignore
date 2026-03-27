@@ -26,3 +26,10 @@ backend/logs/
 # frontend
 frontend/node_modules/
 frontend/.next/
+
+# build artifacts
+frontend/.next_old*/
+frontend/playwright-report/
+frontend/test-results/
+frontend/tsconfig.tsbuildinfo
+backend/celerybeat-schedule
