@@ -1,0 +1,130 @@
+{
+  "info": {
+    "name": "БАЗА API",
+    "_postman_id": "c9a65af9-76f2-4f4f-93ff-915273b9bb35",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health Ready",
+      "request": {
+        "method": "GET",
+        "url": { "raw": "http://localhost:8000/ready", "host": ["http://localhost:8000"], "path": ["ready"] }
+      }
+    },
+    {
+      "name": "Auth Register",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"owner@example.com\",\n  \"full_name\": \"Owner\",\n  \"password\": \"password123\",\n  \"organization_name\": \"Acme\"\n}"
+        }
+      }
+    },
+    {
+      "name": "Auth Forgot Password",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/auth/forgot-password", "host": ["{{baseUrl}}"], "path": ["auth", "forgot-password"] },
+        "body": { "mode": "raw", "raw": "{\n  \"email\": \"owner@example.com\"\n}" }
+      }
+    },
+    {
+      "name": "Auth Verify Email",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": { "raw": "{{baseUrl}}/auth/verify-email", "host": ["{{baseUrl}}"], "path": ["auth", "verify-email"] },
+        "body": { "mode": "raw", "raw": "{\n  \"token\": \"VERIFY_TOKEN\"\n}" }
+      }
+    },
+    {
+      "name": "List Projects",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "X-Org-Id", "value": "{{orgId}}" }
+        ],
+        "url": { "raw": "{{baseUrl}}/projects", "host": ["{{baseUrl}}"], "path": ["projects"] }
+      }
+    },
+    {
+      "name": "Run Collect Job",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "X-Org-Id", "value": "{{orgId}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/leads/project/{{projectId}}/collect",
+          "host": ["{{baseUrl}}"],
+          "path": ["leads", "project", "{{projectId}}", "collect"]
+        },
+        "body": { "mode": "raw", "raw": "{\n  \"lead_limit\": 100\n}" }
+      }
+    },
+    {
+      "name": "Run Enrich Selected",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "X-Org-Id", "value": "{{orgId}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/leads/project/{{projectId}}/enrich-selected",
+          "host": ["{{baseUrl}}"],
+          "path": ["leads", "project", "{{projectId}}", "enrich-selected"]
+        },
+        "body": { "mode": "raw", "raw": "{\n  \"lead_ids\": [\"{{leadId}}\"]\n}" }
+      }
+    },
+    {
+      "name": "Export CSV",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "X-Org-Id", "value": "{{orgId}}" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/leads/project/{{projectId}}/export",
+          "host": ["{{baseUrl}}"],
+          "path": ["leads", "project", "{{projectId}}", "export"]
+        }
+      }
+    },
+    {
+      "name": "Billing Checkout Stub",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{token}}" },
+          { "key": "X-Org-Id", "value": "{{orgId}}" },
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/billing/checkout",
+          "host": ["{{baseUrl}}"],
+          "path": ["billing", "checkout"]
+        },
+        "body": { "mode": "raw", "raw": "{\n  \"plan\": \"pro\"\n}" }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000/api" },
+    { "key": "token", "value": "" },
+    { "key": "orgId", "value": "" },
+    { "key": "projectId", "value": "" },
+    { "key": "leadId", "value": "" }
+  ]
+}

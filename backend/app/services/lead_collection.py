@@ -1,0 +1,1087 @@
+import functools
+import random
+import time
+from html import unescape
+import logging
+import re
+from urllib.parse import quote_plus, urlparse
+from urllib.robotparser import RobotFileParser
+
+import httpx
+import pymorphy3
+
+_morph = pymorphy3.MorphAnalyzer()
+
+from app.core.config import get_settings
+from app.utils.contact_parser import extract_contacts
+from app.utils.url_tools import _is_safe_url, extract_domain, get_base_domain, is_aggregator_domain, is_junk_result, is_real_domain, normalize_url
+
+DEFAULT_USER_AGENT = "BAZA-Bot/1.0 (+https://localhost)"
+TAG_RE = re.compile(r"<[^>]+>")
+logger = logging.getLogger("baza.lead_collection")
+
+_YANDEX_SEARCH_URL = "https://search-maps.yandex.ru/v1/"
+_MIN_RELEVANCE_SCORE = 26
+
+_REJECT_TITLE_WORDS = [
+    "википедия", "wikipedia", "погода", "weather", "форум",
+    "рецепт", "скачать", "смотреть онлайн", "сериал", "фильм",
+    "расписание поездов", "расписание автобусов", "lyrics",
+    "значение слова", "толковый словарь", "энциклопедия",
+    "рейтинг", "лучших", "лучшие", "лучший", "топ-10", "топ 10",
+    "подборка", "обзор", "сравнение", "отзывы", "список компаний",
+    "каталог компаний", "каталог фирм", "адреса и телефоны",
+]
+
+_REJECT_DOMAIN_PARTS = [
+    "wiki", "forum", "blog", "news", "weather", "pogoda",
+    "otvet", "answers", "slovar", "review", "rating",
+]
+
+_EDITORIAL_OR_DIRECTORY_DOMAINS = {
+    "kp.ru",
+    "markakachestva.ru",
+    "oknatrade.ru",
+    "pravda.ru",
+    "dzen.ru",
+    "vc.ru",
+    "pikabu.ru",
+}
+
+_ARTICLE_OR_DIRECTORY_HINTS = [
+    "рейтинг", "лучших", "лучшие", "лучший", "топ 10", "топ-10",
+    "отзывы", "обзор", "сравнение", "подборка", "список компаний",
+    "каталог компаний", "каталог фирм", "справочник", "адреса и телефоны",
+]
+
+_PATH_DIRECTORY_HINTS = [
+    "/rating",
+    "/ratings",
+    "/review",
+    "/reviews",
+    "/otzyv",
+    "/otzyvy",
+    "/companies",
+    "/company",
+    "/catalog",
+    "/luchshie",
+    "/best",
+    "/top",
+]
+
+_BIZ_SIGNAL_WORDS = [
+    "купить", "заказать", "доставка", "прайс", "цена", "стоимость",
+    "ооо", "оао", "зао", "ип ", "компания", "предприятие",
+    "производств", "магазин", "услуг", "оптом", "каталог",
+    "склад", "оборудован", "продаж", "аренд", "монтаж",
+    "ремонт", "строительств", "поставщик", "подрядчик",
+    "прайс-лист", "распродаж", "акция", "скидк",
+    "официальный сайт", "официальный дилер",
+    "звоните", "наш адрес", "контакты", "телефон:",
+    "+7", "8 (", "info@", "sale@", "zakaz@",
+]
+
+_ALLOWED_TLDS = frozenset({
+    "ru", "com", "net", "org", "su", "by", "kz", "ua", "uz", "kg", "am", "ge", "az",
+    "info", "biz", "pro", "company", "online", "site", "clinic",
+    "xn--p1ai",  # .рф
+    "xn--p1acf",  # .рус
+})
+
+_SUSPICIOUS_RU_MARKET_TLDS = frozenset({
+    "aw", "bh", "bj", "bm", "bn", "cw", "iq", "km", "mz", "ne", "ps", "tm", "vc", "wf", "zw",
+})
+
+_SOURCE_WEIGHTS = {
+    "yandex_maps": 64,
+    "2gis": 52,
+    "maps_searxng": 40,
+    "searxng": 26,
+    "bing": 20,
+}
+
+_NEGATIVE_KEYWORDS = (
+    "-wikipedia -википедия -погода -форум -блог -рецепт -словарь "
+    "-реферат -скачать -рейтинг -лучшие -лучших -топ -обзор -отзывы -сравнение -список "
+    "-вакансия -вакансии -работа -резюме -hh.ru -superjob "
+    "-ликвидирован -ликвидация -банкрот -inn -огрн "
+    "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com"
+)
+
+
+def _normalize_match_text(value: str) -> str:
+    text = unescape(value or "").lower().replace("ё", "е")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _build_match_terms(*parts: str) -> list[str]:
+    seen: set[str] = set()
+    terms: list[str] = []
+    for part in parts:
+        normalized = _normalize_match_text(part)
+        for token in re.findall(r"[a-zа-я0-9]+", normalized):
+            if len(token) < 3:
+                continue
+            if token not in seen:
+                seen.add(token)
+                terms.append(token)
+            # Get normal form (lemma) via pymorphy3
+            parsed = _morph.parse(token)
+            if parsed:
+                lemma = parsed[0].normal_form.replace("ё", "е")
+                if lemma not in seen:
+                    seen.add(lemma)
+                    terms.append(lemma)
+                # Also add the stem (first 5+ chars of lemma) for partial matching
+                if len(lemma) >= 6:
+                    stem = lemma[:5]
+                    if stem not in seen:
+                        seen.add(stem)
+                        terms.append(stem)
+    return terms
+
+
+def _keyword_hits(text: str, terms: list[str]) -> int:
+    normalized = _normalize_match_text(text)
+    return sum(1 for term in terms if re.search(rf"(?<![а-яёa-z]){re.escape(term)}", normalized))
+
+
+def _extract_tld(domain: str) -> str:
+    parts = [part for part in (domain or "").lower().split(".") if part]
+    return parts[-1] if parts else ""
+
+
+def _looks_russian_market_geo(geography: str) -> bool:
+    normalized = _normalize_match_text(geography)
+    return bool(re.search(r"[а-я]", normalized)) or normalized in {"russia", "moscow", "saint petersburg"}
+
+
+def _is_candidate_domain_allowed(domain: str, geography: str, source: str) -> bool:
+    tld = _extract_tld(domain)
+    if not tld or tld not in _ALLOWED_TLDS:
+        return False
+    if source in {"yandex_maps", "2gis"}:
+        return True
+    if _looks_russian_market_geo(geography) and tld in _SUSPICIOUS_RU_MARKET_TLDS:
+        return False
+    return True
+
+
+def _strip_reference_terms(text: str, *parts: str) -> str:
+    normalized = _normalize_match_text(text)
+    for part in parts:
+        normalized_part = _normalize_match_text(part)
+        if not normalized_part:
+            continue
+        normalized = normalized.replace(normalized_part, " ")
+        for token in re.findall(r"[a-zа-я0-9]+", normalized_part):
+            if len(token) < 4:
+                continue
+            normalized = re.sub(rf"\b{re.escape(token)}\b", " ", normalized)
+    return re.sub(r"\s+", " ", normalized).strip()
+
+
+def _looks_synthetic_result(item: dict, niche: str, geography: str, segments: list[str] | None = None) -> bool:
+    if item.get("source") in {"yandex_maps", "2gis", "maps_searxng"}:
+        return False
+
+    stripped = _strip_reference_terms(
+        " ".join(filter(None, [item.get("company", ""), item.get("snippet", "")])),
+        niche,
+        geography,
+        *(segments or []),
+    )
+    if not stripped:
+        return False
+
+    lowered = stripped.lower()
+    latin_tokens = re.findall(r"\b[a-z]{4,}\b", lowered)
+    cyrillic_tokens = re.findall(r"\b[а-я]{4,}\b", lowered)
+    has_contact = bool(
+        re.search(r"\+7[\s\-(]?\d", lowered)
+        or re.search(r"[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z]{2,}", lowered)
+    )
+    has_business_signal = any(word in lowered for word in _BIZ_SIGNAL_WORDS)
+    unique_latin = {token for token in latin_tokens if len(token) >= 5}
+
+    return len(unique_latin) >= 6 and not cyrillic_tokens and not has_contact and not has_business_signal
+
+
+def _looks_like_article_or_directory(item: dict) -> bool:
+    if item.get("source") in {"yandex_maps", "2gis", "maps_searxng"}:
+        return False
+
+    text = _normalize_match_text(
+        " ".join(
+            filter(
+                None,
+                [
+                    item.get("company", ""),
+                    item.get("snippet", ""),
+                    item.get("source_url", ""),
+                ],
+            )
+        )
+    )
+    source_url = item.get("source_url", "")
+    source_domain = extract_domain(source_url)
+    source_path = urlparse(source_url).path.lower()
+
+    if source_domain in _EDITORIAL_OR_DIRECTORY_DOMAINS:
+        return True
+    if any(hint in text for hint in _ARTICLE_OR_DIRECTORY_HINTS):
+        return True
+    if any(hint in source_path for hint in _PATH_DIRECTORY_HINTS) and "официальный сайт" not in text:
+        return True
+    return False
+
+
+def _candidate_relevance_score(
+    item: dict,
+    niche: str,
+    geography: str = "",
+    segments: list[str] | None = None,
+) -> int:
+    domain = (item.get("domain") or extract_domain(item.get("website", ""))).lower()
+    source = item.get("source", "searxng")
+
+    if not domain or not is_real_domain(domain) or is_aggregator_domain(domain):
+        return -999
+    if not _is_candidate_domain_allowed(domain, geography, source):
+        return -999
+
+    company = _normalize_match_text(item.get("company", ""))
+    snippet = _normalize_match_text(item.get("snippet", ""))
+    address = _normalize_match_text(item.get("address", ""))
+    categories = _normalize_match_text(" ".join(item.get("categories") or []))
+    source_url = item.get("source_url", "")
+    source_domain = extract_domain(source_url)
+    combined = " ".join(filter(None, [company, snippet, address, categories, domain, source_domain]))
+
+    score = _SOURCE_WEIGHTS.get(source, 10)
+    if item.get("website"):
+        score += 8
+    else:
+        score -= 25
+
+    if _looks_like_article_or_directory(item):
+        score -= 120
+    if any(word in combined for word in _REJECT_TITLE_WORDS):
+        score -= 35
+    if any(part in domain for part in _REJECT_DOMAIN_PARTS):
+        score -= 25
+    biz_hits = sum(1 for word in _BIZ_SIGNAL_WORDS if word in combined)
+    if biz_hits:
+        score += 10
+    if _looks_synthetic_result(item, niche, geography, segments):
+        score -= 160
+
+    niche_phrase = _normalize_match_text(niche)
+    niche_terms = _build_match_terms(niche, *(segments or []))
+    title_hits = _keyword_hits(f"{company} {domain}", niche_terms)
+    context_hits = _keyword_hits(f"{snippet} {address} {categories}", niche_terms)
+
+    if niche_phrase and niche_phrase in combined:
+        score += 28
+    score += min(30, title_hits * 8 + context_hits * 3)
+    if niche_terms and title_hits + context_hits == 0:
+        score -= 24
+    elif niche_terms and title_hits == 0:
+        score -= 8
+
+    geo_terms = _build_match_terms(geography)
+    city_text = _normalize_match_text(item.get("city", ""))
+    geo_search_text = f"{company} {snippet} {address} {city_text}"
+    geo_hits = _keyword_hits(geo_search_text, geo_terms)
+    score += min(14, geo_hits * 5)
+    if geography and geo_hits == 0:
+        if source not in {"yandex_maps", "2gis"}:
+            score -= 30
+        else:
+            score -= 6
+
+    if source in {"yandex_maps", "2gis"}:
+        if address:
+            score += 10
+        if categories:
+            score += 8
+
+    contact_text = f"{snippet} {address}"
+    if re.search(r"\+7[\s\-(]?\d", contact_text) or re.search(r"8\s?\(\d{3}\)", contact_text):
+        score += 4
+    if re.search(r"[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z]{2,}", contact_text):
+        score += 4
+
+    credibility_markers = 0
+    if title_hits:
+        credibility_markers += 1
+    if context_hits:
+        credibility_markers += 1
+    if geo_hits:
+        credibility_markers += 1
+    if address or categories:
+        credibility_markers += 1
+    if biz_hits:
+        credibility_markers += 1
+    if re.search(r"\+7[\s\-(]?\d", contact_text) or re.search(r"[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z]{2,}", contact_text):
+        credibility_markers += 1
+    if source in {"searxng", "bing"} and credibility_markers < 2:
+        score -= 24
+
+    if len(company.split()) > 12:
+        score -= 10
+
+    return score
+
+
+def _score_candidate(item: dict, niche: str, geography: str, segments: list[str] | None = None) -> dict:
+    scored = dict(item)
+    scored["relevance_score"] = _candidate_relevance_score(scored, niche, geography, segments)
+    return scored
+
+
+def _finalize_candidates(candidates: list[dict], limit: int) -> list[dict]:
+    """Dedup by base_domain, merging structured fields from all sources."""
+    by_domain: dict[str, dict] = {}
+
+    for c in candidates:
+        # Filter junk results (vacancies, liquidated companies, reviews, etc.)
+        title = c.get("company", "") or c.get("title", "")
+        snippet = c.get("snippet", "") or c.get("description", "")
+        if is_junk_result(title, snippet):
+            continue
+
+        domain = c.get("domain") or extract_domain(c.get("website", ""))
+        bd = get_base_domain(domain) if domain else ""
+        if domain and (not bd or not is_real_domain(bd) or is_aggregator_domain(bd)):
+            continue
+        # For candidates without domain (e.g. from 2GIS), use company name as key
+        if not bd:
+            bd = title.lower().strip()
+            if not bd:
+                continue
+
+        if bd not in by_domain:
+            by_domain[bd] = dict(c)  # copy
+        else:
+            existing = by_domain[bd]
+            incoming = c
+
+            # Keep the higher relevance_score as the base record
+            if incoming.get("relevance_score", -999) > existing.get("relevance_score", -999):
+                # Swap: incoming becomes base, but merge fields from existing
+                merged = dict(incoming)
+                _merge_fields(merged, existing)
+                by_domain[bd] = merged
+            else:
+                # Existing has higher score, merge incoming fields into it
+                _merge_fields(existing, incoming)
+
+    ranked = sorted(
+        by_domain.values(),
+        key=lambda row: (row.get("relevance_score", -999), _SOURCE_WEIGHTS.get(row.get("source", ""), 0)),
+        reverse=True,
+    )
+    return ranked[:limit]
+
+
+def _merge_fields(target: dict, source: dict) -> None:
+    """Merge non-empty structured fields from *source* into *target* where target is empty."""
+    merge_keys = ["address", "city", "phone", "email", "company", "category", "description"]
+    for key in merge_keys:
+        if not target.get(key) and source.get(key):
+            target[key] = source[key]
+
+    # Combine source provenance so we know which engines contributed
+    target_sources = target.get("sources", [target.get("source", "")])
+    source_sources = source.get("sources", [source.get("source", "")])
+    if isinstance(target_sources, str):
+        target_sources = [target_sources]
+    if isinstance(source_sources, str):
+        source_sources = [source_sources]
+    target["sources"] = list(set(target_sources + source_sources))
+
+
+def _is_relevant_business(item: dict, niche: str, geography: str = "", segments: list[str] | None = None) -> bool:
+    return _candidate_relevance_score(item, niche, geography, segments) >= _MIN_RELEVANCE_SCORE
+
+
+# DEPRECATED: _fake_results is no longer called. Kept for reference only.
+def _fake_results(query: str, lead_limit: int) -> list[dict]:
+    safe_query = "".join(ch for ch in query.lower() if ch.isalnum())[:18] or "company"
+    rows = []
+    for idx in range(1, min(lead_limit, 80) + 1):
+        website = f"https://{safe_query}{idx}.io"
+        rows.append(
+            {
+                "company": f"{query.title()} Company {idx}",
+                "city": random.choice(["Berlin", "London", "Warsaw", "Madrid", "Tallinn"]),
+                "website": website,
+                "domain": extract_domain(website),
+                "source_url": "fallback:demo",
+                "snippet": "Demo fallback lead because search engine is unavailable",
+                "demo": True,
+                "source": "demo",
+            }
+        )
+    return rows
+
+
+def _parse_searxng_items(payload: dict) -> list[dict]:
+    items = []
+    for item in payload.get("results", []):
+        target = normalize_url(item.get("url", ""))
+        domain = extract_domain(target)
+        if not target or not is_real_domain(domain) or is_aggregator_domain(domain):
+            continue
+        raw_title = (item.get("title") or "").strip()
+        clean_title = re.sub(r"\s*[\|–\-]\s*.*$", "", raw_title).strip()
+        clean_title = re.sub(r"^[\U0001F300-\U0001FFFE\s]+", "", clean_title).strip()
+        company_name = clean_title[:180] if clean_title else domain.split(".")[0].capitalize()
+        items.append(
+            {
+                "company": company_name,
+                "city": "",
+                "website": target,
+                "domain": domain,
+                "source_url": item.get("url", ""),
+                "snippet": item.get("content", "")[:400],
+                "demo": False,
+                "source": "searxng",
+            }
+        )
+    return items
+
+
+def _build_discover_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
+    """Build search queries optimized for finding COMPANY WEBSITES, not articles/directories."""
+    niche = niche.strip()
+    geo = geo.strip()
+    neg = _NEGATIVE_KEYWORDS
+
+    # Strategy: search for company websites directly
+    # Use "site:" exclusions and business-specific terms
+    queries = [
+        # Direct company site queries — "контакты" page = real company
+        f"{niche} {geo} контакты телефон {neg}",
+        f"{niche} {geo} о компании {neg}",
+        f"{niche} {geo} наши услуги {neg}",
+        f"{niche} {geo} прайс-лист {neg}",
+        # Business entity queries
+        f'"{niche}" "{geo}" ООО {neg}',
+        f'"{niche}" "{geo}" официальный сайт {neg}',
+        # Product/service specific — these land on real business sites
+        f"{niche} купить {geo} доставка {neg}",
+        f"{niche} производство {geo} каталог {neg}",
+        f"{niche} оптом {geo} цена {neg}",
+        f"{niche} {geo} заказать {neg}",
+    ]
+
+    # Segment-specific queries (more targeted)
+    for seg in segments[:5]:
+        seg = seg.strip()
+        if seg:
+            queries.append(f"{seg} {geo} купить производитель {neg}")
+            queries.append(f"{seg} {niche} {geo} контакты {neg}")
+
+    seen: set[str] = set()
+    result: list[str] = []
+    for query in queries:
+        cleaned = " ".join(query.split())
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            result.append(cleaned)
+    return result
+
+
+def _searxng_fetch_page(
+    client: httpx.Client,
+    query: str,
+    page: int,
+    settings,
+) -> list[dict]:
+    url = f"{settings.searxng_url}/search?q={quote_plus(query)}&format=json&pageno={page}"
+    for attempt in range(max(1, settings.searxng_retry_count)):
+        try:
+            resp = client.get(url)
+            resp.raise_for_status()
+            return _parse_searxng_items(resp.json())
+        except Exception:
+            if attempt == max(1, settings.searxng_retry_count) - 1:
+                logger.warning("SearXNG retry exhausted: '%s' p%d", query, page)
+                return []
+            time.sleep(0.3 * (2 ** attempt))
+    return []
+
+
+def _search_bing(query: str, limit: int) -> list[dict]:
+    settings = get_settings()
+    if not settings.bing_api_key:
+        return []
+    endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    with httpx.Client(timeout=15.0) as client:
+        response = client.get(
+            endpoint,
+            params={"q": query, "count": limit},
+            headers={"Ocp-Apim-Subscription-Key": settings.bing_api_key},
+        )
+        response.raise_for_status()
+        payload = response.json()
+    results = []
+    for item in payload.get("webPages", {}).get("value", []):
+        target = normalize_url(item.get("url", ""))
+        domain = extract_domain(target)
+        if not target or not is_real_domain(domain) or is_aggregator_domain(domain):
+            continue
+        results.append(
+            {
+                "company": item.get("name", "Unknown Company")[:180],
+                "city": "",
+                "website": target,
+                "domain": domain,
+                "source_url": item.get("url", ""),
+                "snippet": item.get("snippet", "")[:400],
+                "demo": False,
+                "source": "bing",
+            }
+        )
+    return results
+
+
+def _extract_address_component(address_payload: dict, *kinds: str) -> str:
+    for component in address_payload.get("Components", []):
+        if component.get("kind") in kinds and component.get("name"):
+            return component["name"]
+    return ""
+
+
+def _format_bbox(bounds: list[list[float]] | None) -> str | None:
+    if not isinstance(bounds, list) or len(bounds) != 2:
+        return None
+    first, second = bounds
+    if not isinstance(first, list) or not isinstance(second, list) or len(first) != 2 or len(second) != 2:
+        return None
+    return f"{first[0]},{first[1]}~{second[0]},{second[1]}"
+
+
+def _build_yandex_map_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
+    base_queries = [
+        f"{geo}, {niche}".strip(", "),
+        f"{niche}, {geo}".strip(", "),
+        f"{geo}, {niche} компания".strip(", "),
+        f"{geo}, {niche} официальный сайт".strip(", "),
+    ]
+    for segment in segments[:3]:
+        segment = segment.strip()
+        if segment:
+            base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
+
+    queries: list[str] = []
+    for query in base_queries:
+        cleaned = " ".join(query.split())
+        if cleaned and cleaned not in queries:
+            queries.append(cleaned)
+    return queries
+
+
+def _resolve_yandex_geo_bbox(client: httpx.Client, geo: str, settings) -> str | None:
+    if not geo.strip():
+        return None
+    response = client.get(
+        _YANDEX_SEARCH_URL,
+        params={
+            "apikey": settings.yandex_maps_api_key,
+            "text": geo,
+            "type": "geo",
+            "lang": settings.yandex_maps_lang,
+            "results": 1,
+        },
+    )
+    response.raise_for_status()
+    payload = response.json()
+    features = payload.get("features") or []
+    if not features:
+        return None
+    bounds = features[0].get("properties", {}).get("boundedBy")
+    return _format_bbox(bounds)
+
+
+def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
+    properties = feature.get("properties") or {}
+    meta = properties.get("CompanyMetaData") or {}
+    company_name = (meta.get("name") or properties.get("name") or "").strip()
+    if not company_name:
+        return None
+
+    website = normalize_url(meta.get("url", ""))
+    domain = extract_domain(website)
+    if not website or not domain or not is_real_domain(domain) or is_aggregator_domain(domain):
+        return None
+
+    address_payload = meta.get("Address") or {}
+    categories = [item.get("name", "").strip() for item in meta.get("Categories", []) if item.get("name")]
+    address = meta.get("address") or address_payload.get("formatted") or properties.get("description", "")
+    city = _extract_address_component(address_payload, "locality", "province", "area", "district")
+    hours_text = ((meta.get("Hours") or {}).get("text") or "").strip()
+    snippet_parts = [part for part in [", ".join(categories), address, hours_text] if part]
+
+    return {
+        "company": company_name[:180],
+        "city": city,
+        "website": website,
+        "domain": domain,
+        "source_url": f"https://yandex.ru/maps/?text={quote_plus(f'{company_name} {address or query}'.strip())}",
+        "snippet": " | ".join(snippet_parts)[:400],
+        "address": address[:300] if address else "",
+        "categories": categories,
+        "demo": False,
+        "source": "yandex_maps",
+    }
+
+
+def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -> list[dict]:
+    settings = get_settings()
+    if not settings.yandex_maps_api_key:
+        return []
+
+    queries = _build_yandex_map_queries(niche, geo, segments)
+    results: list[dict] = []
+    seen_domains: set[str] = set()
+
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            bbox = _resolve_yandex_geo_bbox(client, geo, settings) if geo else None
+            for query in queries:
+                if len(results) >= limit:
+                    break
+                for skip in (0, 20, 40):
+                    params = {
+                        "apikey": settings.yandex_maps_api_key,
+                        "text": query,
+                        "type": "biz",
+                        "lang": settings.yandex_maps_lang,
+                        "results": min(20, max(limit, 10)),
+                        "skip": skip,
+                    }
+                    if bbox:
+                        params["bbox"] = bbox
+                        params["rspn"] = 1
+
+                    response = client.get(_YANDEX_SEARCH_URL, params=params)
+                    response.raise_for_status()
+                    features = response.json().get("features") or []
+                    if not features:
+                        break
+
+                    for feature in features:
+                        item = _parse_yandex_business_feature(feature, query)
+                        if not item:
+                            continue
+                        base_domain = get_base_domain(item["domain"])
+                        if base_domain in seen_domains:
+                            continue
+                        seen_domains.add(base_domain)
+                        results.append(item)
+                        if len(results) >= limit:
+                            break
+                    time.sleep(0.2)
+    except Exception as exc:
+        logger.warning("Yandex Maps search failed for '%s %s': %s", niche, geo, exc)
+
+    return results[:limit]
+
+
+@functools.lru_cache(maxsize=512)
+def _resolve_2gis_city_id(geo: str) -> str | None:
+    """Resolve a city name to a 2GIS city ID via the API."""
+    settings = get_settings()
+    api_key = settings.twogis_api_key
+    if not api_key:
+        return None
+
+    # Normalize: strip whitespace, lowercase
+    city = geo.strip().lower().replace("ё", "е")
+
+    # Common aliases
+    ALIASES = {
+        "спб": "Санкт-Петербург",
+        "питер": "Санкт-Петербург",
+        "мск": "Москва",
+        "екб": "Екатеринбург",
+        "нск": "Новосибирск",
+        "нн": "Нижний Новгород",
+        "ростов": "Ростов-на-Дону",
+        "волгоград": "Волгоград",
+    }
+    city_query = ALIASES.get(city, geo.strip())
+
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(
+                "https://catalog.api.2gis.com/3.0/items",
+                params={
+                    "key": api_key,
+                    "q": city_query,
+                    "type": "adm_div.city",
+                    "fields": "items.point",
+                    "page_size": 1,
+                },
+            )
+            if resp.status_code != 200:
+                return None
+            data = resp.json()
+            items = data.get("result", {}).get("items", [])
+            if items:
+                return str(items[0]["id"])
+    except Exception as e:
+        logger.warning(f"2GIS city resolve failed for '{geo}': {e}")
+
+    return None
+
+
+def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
+    settings = get_settings()
+    api_key = settings.twogis_api_key
+    if not api_key:
+        return []
+
+    city_id = _resolve_2gis_city_id(geo)
+    params: dict = {
+        "q": niche,
+        "type": "branch",
+        "page_size": min(limit, 50),
+        "key": api_key,
+        "fields": "items.contact_groups,items.adm_div,items.external_content,items.org",
+    }
+    if city_id:
+        params["city_id"] = city_id
+    else:
+        params["q"] = f"{niche} {geo}"
+
+    results: list[dict] = []
+    seen_domains: set[str] = set()
+    try:
+        with httpx.Client(timeout=15.0, follow_redirects=True) as client:
+            for page_num in range(1, 4):
+                params["page"] = page_num
+                resp = client.get("https://catalog.api.2gis.com/3.0/items", params=params)
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                items = data.get("result", {}).get("items", [])
+                if not items:
+                    break
+                for item in items:
+                    website = ""
+                    phone = ""
+                    # Try org.website first (more reliable)
+                    org_info = item.get("org", {})
+                    if org_info.get("website"):
+                        website = org_info["website"]
+                    # Then check contact_groups
+                    for group in item.get("contact_groups", []):
+                        for contact in group.get("contacts", []):
+                            if contact.get("type") == "website" and not website:
+                                website = contact.get("value", "")
+                            if contact.get("type") == "phone" and not phone:
+                                phone = contact.get("text", "")
+
+                    norm = normalize_url(website) if website else ""
+                    domain = extract_domain(norm) if norm else ""
+
+                    # Skip if website exists but is bad
+                    if domain and (not is_real_domain(domain) or is_aggregator_domain(domain)):
+                        continue
+
+                    name = item.get("name", "")
+                    if not name:
+                        continue
+
+                    # Dedup by domain (if has one) or by company name
+                    dedup_key = get_base_domain(domain) if domain else name.lower().strip()
+                    if dedup_key in seen_domains:
+                        continue
+                    seen_domains.add(dedup_key)
+
+                    address_name = item.get("address_name", "")
+                    city = ""
+                    for adm in item.get("adm_div", []):
+                        if adm.get("type") == "city":
+                            city = adm.get("name", "")
+                            break
+
+                    results.append(
+                        {
+                            "company": name[:180],
+                            "city": city or geo,
+                            "website": norm,
+                            "domain": domain,
+                            "phone": phone,
+                            "source_url": f"https://2gis.ru/search/{quote_plus(niche)}",
+                            "snippet": f"{address_name} {phone}".strip()[:400],
+                            "address": address_name[:300],
+                            "demo": False,
+                            "source": "2gis",
+                        }
+                    )
+                    if len(results) >= limit:
+                        break
+                if len(results) >= limit:
+                    break
+                time.sleep(0.3)
+    except Exception as exc:
+        logger.warning("2GIS search failed for '%s %s': %s", niche, geo, exc, exc_info=True)
+    return results[:limit]
+
+
+def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
+    # Disabled: HTML scraping of SPA map pages (2GIS, Yandex Maps) produces
+    # garbage data — the meaningful content is loaded via JS, not in the HTML.
+    return []
+    settings = get_settings()
+    map_queries = [
+        f"site:2gis.ru {niche} {geo}",
+        f"site:yandex.ru/maps {niche} {geo}",
+        f"site:yandex.ru/maps {niche} {geo} компания",
+    ]
+
+    raw_items: list[dict] = []
+    try:
+        with httpx.Client(timeout=settings.searxng_timeout_seconds, follow_redirects=True) as client:
+            for query in map_queries:
+                if len(raw_items) >= limit * 2:
+                    break
+                url = f"{settings.searxng_url}/search?q={quote_plus(query)}&format=json&pageno=1"
+                for attempt in range(2):
+                    try:
+                        resp = client.get(url)
+                        resp.raise_for_status()
+                        payload = resp.json()
+                        for item in payload.get("results", []):
+                            title = (item.get("title") or "").strip()
+                            snippet = (item.get("content") or "").strip()
+                            source_url = item.get("url", "")
+
+                            clean_title = re.sub(
+                                r"\s*[\|–\-—]\s*(2ГИС|2GIS|Яндекс|Yandex).*$",
+                                "",
+                                title,
+                                flags=re.IGNORECASE,
+                            ).strip()
+                            clean_title = re.sub(r"^[\U0001F300-\U0001FFFE\s]+", "", clean_title).strip()
+                            if not clean_title:
+                                continue
+                            raw_items.append(
+                                {
+                                    "company": clean_title[:180],
+                                    "city": geo,
+                                    "website": "",
+                                    "domain": "",
+                                    "source_url": source_url,
+                                    "snippet": snippet[:400],
+                                    "demo": False,
+                                    "source": "maps_searxng",
+                                }
+                            )
+                        break
+                    except Exception:
+                        if attempt == 0:
+                            time.sleep(0.5)
+                time.sleep(0.3)
+    except Exception:
+        logger.warning("Maps SearXNG search failed for '%s %s'", niche, geo)
+
+    enriched: list[dict] = []
+    seen_domains: set[str] = set()
+    for item in raw_items:
+        source_url = item["source_url"]
+        if "2gis.ru" in source_url or "yandex.ru/maps" in source_url:
+            if not _is_safe_url(source_url):
+                continue
+            try:
+                with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+                    resp = client.get(source_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+                    if resp.status_code < 400:
+                        html = resp.text[:80000]
+                        websites = re.findall(r'href=["\']?(https?://[^"\'<>\s]+)', html)
+                        for website in websites:
+                            website_domain = extract_domain(website)
+                            website_base = get_base_domain(website_domain)
+                            if (
+                                website_domain
+                                and is_real_domain(website_domain)
+                                and not is_aggregator_domain(website_domain)
+                                and website_base not in seen_domains
+                                and "2gis" not in website_domain
+                                and "yandex" not in website_domain
+                                and "google" not in website_domain
+                            ):
+                                seen_domains.add(website_base)
+                                enriched.append(
+                                    {
+                                        **item,
+                                        "website": normalize_url(website),
+                                        "domain": website_domain,
+                                    }
+                                )
+                                break
+            except Exception:
+                pass
+            time.sleep(0.2)
+        if len(enriched) >= limit:
+            break
+    return enriched[:limit]
+
+
+def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None) -> list[dict]:
+    effective_niche = (niche or query).strip()
+    effective_geo = geography.strip()
+    effective_segments = segments or []
+
+    collected: list[dict] = []
+    searxng_accessible = False
+    skipped_irrelevant = 0
+    oversample_limit = max(limit * 5, limit + 50)
+
+    def collect_candidates(source_items: list[dict]) -> None:
+        nonlocal skipped_irrelevant
+        for item in source_items:
+            scored = _score_candidate(item, effective_niche, effective_geo, effective_segments)
+            if scored.get("relevance_score", -999) < _MIN_RELEVANCE_SCORE:
+                skipped_irrelevant += 1
+                continue
+            collected.append(scored)
+            if len(collected) >= oversample_limit:
+                break
+
+    try:
+        if len(collected) < oversample_limit:
+            yandex_results = _search_yandex_maps(effective_niche, effective_geo, effective_segments, oversample_limit)
+            collect_candidates(yandex_results)
+            if yandex_results:
+                logger.info(
+                    "Yandex Maps returned %d results for '%s %s'",
+                    len(yandex_results),
+                    effective_niche,
+                    effective_geo,
+                )
+    except Exception:
+        logger.warning("Yandex Maps search error", exc_info=True)
+
+    try:
+        if len(collected) < oversample_limit:
+            twogis_results = _search_2gis(effective_niche, effective_geo, oversample_limit)
+            collect_candidates(twogis_results)
+            if twogis_results:
+                logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), effective_niche, effective_geo)
+    except Exception:
+        logger.warning("2GIS search error", exc_info=True)
+
+    try:
+        queries = _build_discover_queries(effective_niche, effective_geo, effective_segments)
+        settings = get_settings()
+        local_seen_domains: set[str] = set()
+
+        with httpx.Client(timeout=settings.searxng_timeout_seconds, follow_redirects=True) as client:
+            for search_query in queries:
+                if len(collected) >= oversample_limit:
+                    break
+                for page_num in range(1, 4):
+                    items = _searxng_fetch_page(client, search_query, page_num, settings)
+                    if not items:
+                        break
+
+                    page_items: list[dict] = []
+                    for item in items:
+                        base_domain = get_base_domain(item["domain"])
+                        if base_domain in local_seen_domains:
+                            continue
+                        local_seen_domains.add(base_domain)
+                        page_items.append(item)
+
+                    if not page_items:
+                        break
+
+                    collect_candidates(page_items)
+                    time.sleep(0.3)
+                    if len(collected) >= oversample_limit:
+                        break
+                time.sleep(0.15)
+        searxng_accessible = True
+    except Exception:
+        logger.exception("SearXNG search failed")
+
+    try:
+        if len(collected) < oversample_limit:
+            maps_results = _search_maps_via_searxng(effective_niche, effective_geo, oversample_limit - len(collected))
+            collect_candidates(maps_results)
+            if maps_results:
+                logger.info(
+                    "Maps via SearXNG returned %d results for '%s %s'",
+                    len(maps_results),
+                    effective_niche,
+                    effective_geo,
+                )
+    except Exception:
+        logger.warning("Maps SearXNG search error", exc_info=True)
+
+    try:
+        if len(collected) < oversample_limit:
+            bing_query = f"{effective_niche} компания {effective_geo}".strip()
+            bing_results = _search_bing(bing_query, oversample_limit - len(collected))
+            collect_candidates(bing_results)
+    except Exception:
+        logger.warning("Bing search error", exc_info=True)
+
+    if skipped_irrelevant:
+        logger.info("Filtered out %d irrelevant results for niche='%s'", skipped_irrelevant, effective_niche)
+
+    ranked = _finalize_candidates(collected, limit)
+    if ranked:
+        from app.services.llm_filter import filter_candidates_llm
+        ranked = filter_candidates_llm(ranked, effective_niche, effective_geo, effective_segments)
+        return ranked
+    # Never generate fake/synthetic leads — return empty list so callers see
+    # real zero-result state and can act accordingly.
+    return []
+
+
+def enrich_website_contacts(base_url: str) -> dict:
+    parsed = urlparse(base_url if base_url.startswith(("http://", "https://")) else f"https://{base_url}")
+    domain = extract_domain(base_url)
+    if not domain or is_aggregator_domain(domain):
+        return {"emails": [], "phones": [], "addresses": []}
+    root_url = f"{parsed.scheme or 'https'}://{domain}"
+    candidate_paths = ["/", "/contacts", "/contact", "/contact-us", "/about", "/about-us", "/kontakty", "/o-kompanii"]
+    gathered_text = ""
+    gathered_html = ""
+    robots = RobotFileParser()
+    robots.set_url(f"{root_url.rstrip('/')}/robots.txt")
+    try:
+        robots.read()
+    except Exception:
+        robots = None
+    for path in candidate_paths:
+        target = normalize_url(f"{root_url}{path}" if path != "/" else root_url)
+        if not target:
+            continue
+        if not _is_safe_url(target):
+            continue
+        if robots and not robots.can_fetch(DEFAULT_USER_AGENT, target):
+            continue
+        try:
+            with httpx.Client(timeout=6.0, follow_redirects=True) as client:
+                for attempt in range(3):
+                    response = client.get(target, headers={"User-Agent": DEFAULT_USER_AGENT})
+                    if response.status_code in (429, 503):
+                        time.sleep(0.2 * (2**attempt))
+                        continue
+                    if response.status_code < 400:
+                        gathered_html += f"\n{response.text[:50000]}"
+                        plain_text = TAG_RE.sub(" ", unescape(response.text))
+                        gathered_text += f"\n{plain_text[:25000]}"
+                    break
+        except Exception:
+            continue
+        time.sleep(0.15)
+    return extract_contacts(gathered_text, gathered_html)

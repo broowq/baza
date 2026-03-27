@@ -1,0 +1,28 @@
+.DS_Store
+.idea
+.vscode
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+node_modules/
+.next/
+dist/
+coverage/
+*.log
+
+# local environment files
+.env
+.env.production
+backend/.env
+frontend/.env.local
+
+# backend
+backend/.venv/
+backend/__pycache__/
+backend/logs/
+
+# frontend
+frontend/node_modules/
+frontend/.next/
