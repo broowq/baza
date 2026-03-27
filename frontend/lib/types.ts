@@ -1,0 +1,52 @@
+export type Plan = "starter" | "pro" | "team";
+
+export type Organization = {
+  id: string;
+  name: string;
+  plan: Plan;
+  leads_used_current_month: number;
+  leads_limit_per_month: number;
+  projects_limit: number;
+  users_limit: number;
+  can_invite_members: boolean;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  niche: string;
+  geography: string;
+  segments: string[];
+  cron_schedule: string;
+  auto_collection_enabled: boolean;
+};
+
+export type Lead = {
+  id: string;
+  company: string;
+  city: string;
+  website: string;
+  email: string;
+  phone: string;
+  address: string;
+  contacts: Record<string, unknown>;
+  contacts_json: Record<string, unknown>;
+  domain?: string;
+  score: number;
+  notes: string;
+  status: "new" | "contacted" | "qualified" | "rejected";
+  source_url: string;
+  enriched: boolean;
+  demo?: boolean;
+};
+
+export type CollectionJob = {
+  id: string;
+  status: "queued" | "running" | "done" | "failed";
+  kind: "collect" | "enrich";
+  requested_limit: number;
+  found_count: number;
+  added_count: number;
+  enriched_count: number;
+  error?: string | null;
+};
