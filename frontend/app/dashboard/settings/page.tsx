@@ -335,7 +335,7 @@ export default function SettingsPage() {
           </Link>
 
           <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">Настройки</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Настройки</h1>
             <p className="text-muted-foreground">
               Управление профилем, организацией и участниками
             </p>
@@ -369,11 +369,11 @@ export default function SettingsPage() {
               {/* ── Profile ── */}
               <TabsContent value="profile" className="mt-0 space-y-6">
                 <Card>
-                  <CardHeader className="p-6">
+                  <CardHeader className="p-4 sm:p-6">
                     <CardTitle className="text-lg">Профиль пользователя</CardTitle>
                     <CardDescription>Информация о вашем аккаунте</CardDescription>
                   </CardHeader>
-                  <CardContent className="p-6 pt-0 space-y-6">
+                  <CardContent className="p-4 sm:p-6 pt-0 space-y-6">
                     <div className="flex items-center gap-4">
                       <div className="relative flex size-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/80 to-primary text-primary-foreground text-lg font-semibold shadow-sm">
                         {getInitials(profile?.full_name)}
@@ -387,11 +387,11 @@ export default function SettingsPage() {
                 </Card>
 
                 <Card>
-                  <CardHeader className="p-6">
+                  <CardHeader className="p-4 sm:p-6">
                     <CardTitle className="text-lg">Смена пароля</CardTitle>
                     <CardDescription>Обновите пароль для вашего аккаунта</CardDescription>
                   </CardHeader>
-                  <CardContent className="p-6 pt-0">
+                  <CardContent className="p-4 sm:p-6 pt-0">
                     <form onSubmit={changePassword} className="space-y-4">
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
@@ -434,11 +434,11 @@ export default function SettingsPage() {
               {/* ── Organization ── */}
               <TabsContent value="organization" className="mt-0 space-y-6">
                 <Card>
-                  <CardHeader className="p-6">
+                  <CardHeader className="p-4 sm:p-6">
                     <CardTitle className="text-lg">{organization?.name ?? "Организация"}</CardTitle>
                     <CardDescription>Настройки и лимиты вашей организации</CardDescription>
                   </CardHeader>
-                  <CardContent className="p-6 pt-0 space-y-6">
+                  <CardContent className="p-4 sm:p-6 pt-0 space-y-6">
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="flex items-start gap-3 rounded-xl border bg-muted/40 p-4">
                         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -495,11 +495,11 @@ export default function SettingsPage() {
               {isAdmin && (
                 <TabsContent value="members" className="mt-0 space-y-6">
                   <Card>
-                    <CardHeader className="p-6">
+                    <CardHeader className="p-4 sm:p-6">
                       <CardTitle className="text-lg">Участники</CardTitle>
                       <CardDescription>Управление участниками и ролями организации</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0">
+                    <CardContent className="p-4 sm:p-6 pt-0">
                       {members.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                           <div className="flex size-12 items-center justify-center rounded-full bg-muted mb-3">
@@ -510,8 +510,8 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       ) : (
-                        <div className="overflow-x-auto -mx-6">
-                          <div className="px-6">
+                        <div className="overflow-x-auto -mx-4 sm:-mx-6">
+                          <div className="px-4 sm:px-6">
                             <Table>
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">
@@ -616,7 +616,7 @@ export default function SettingsPage() {
               <TabsContent value="invites" className="mt-0 space-y-6">
                 {isAdmin && (
                   <Card>
-                    <CardHeader className="p-6 flex flex-row items-start justify-between gap-4">
+                    <CardHeader className="p-4 sm:p-6 flex flex-col sm:flex-row items-start justify-between gap-4">
                       <div className="space-y-1">
                         <CardTitle className="text-lg">Приглашения</CardTitle>
                         <CardDescription>Управление приглашениями в организацию</CardDescription>
@@ -664,7 +664,7 @@ export default function SettingsPage() {
                         </DialogContent>
                       </Dialog>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0">
+                    <CardContent className="p-4 sm:p-6 pt-0">
                       {invites.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                           <div className="flex size-12 items-center justify-center rounded-full bg-muted mb-3">
@@ -675,8 +675,8 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       ) : (
-                        <div className="overflow-x-auto -mx-6">
-                          <div className="px-6">
+                        <div className="overflow-x-auto -mx-4 sm:-mx-6">
+                          <div className="px-4 sm:px-6">
                             <Table>
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">
@@ -719,7 +719,7 @@ export default function SettingsPage() {
 
                 {!isAdmin && (
                   <Card>
-                    <CardHeader className="p-6">
+                    <CardHeader className="p-4 sm:p-6">
                       <CardTitle className="text-lg">Приглашения</CardTitle>
                       <CardDescription>Список приглашений доступен только owner/admin.</CardDescription>
                     </CardHeader>
@@ -727,11 +727,11 @@ export default function SettingsPage() {
                 )}
 
                 <Card>
-                  <CardHeader className="p-6">
+                  <CardHeader className="p-4 sm:p-6">
                     <CardTitle className="text-lg">Принять приглашение</CardTitle>
                     <CardDescription>Введите токен, чтобы присоединиться к организации</CardDescription>
                   </CardHeader>
-                  <CardContent className="p-6 pt-0">
+                  <CardContent className="p-4 sm:p-6 pt-0">
                     <form onSubmit={acceptInvite} className="flex flex-col gap-3 sm:flex-row">
                       <Input
                         placeholder="Токен приглашения"
@@ -753,11 +753,11 @@ export default function SettingsPage() {
               {isAdmin && (
                 <TabsContent value="activity" className="mt-0 space-y-6">
                   <Card>
-                    <CardHeader className="p-6">
+                    <CardHeader className="p-4 sm:p-6">
                       <CardTitle className="text-lg">Журнал действий</CardTitle>
                       <CardDescription>Последние действия в организации</CardDescription>
                     </CardHeader>
-                    <CardContent className="p-6 pt-0">
+                    <CardContent className="p-4 sm:p-6 pt-0">
                       {actions.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 text-center">
                           <div className="flex size-12 items-center justify-center rounded-full bg-muted mb-3">
@@ -768,8 +768,8 @@ export default function SettingsPage() {
                           </p>
                         </div>
                       ) : (
-                        <div className="overflow-x-auto -mx-6">
-                          <div className="px-6">
+                        <div className="overflow-x-auto -mx-4 sm:-mx-6">
+                          <div className="px-4 sm:px-6">
                             <Table>
                               <TableHeader>
                                 <TableRow className="hover:bg-transparent">

@@ -215,7 +215,7 @@ export default function DashboardPage() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="mx-auto max-w-4xl space-y-8 px-6 py-8 lg:pl-10"
+      className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6 lg:pl-10"
     >
       {/* ── Org header card ── */}
       <Card className="relative overflow-hidden bg-gradient-to-r from-primary/5 via-transparent to-primary/5 shadow-sm ring-1 ring-primary/[0.03]">
@@ -230,7 +230,7 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-2">
                   {organizations.length > 1 ? (
                     <select
-                      className="rounded-md border border-border bg-card px-3 py-1.5 text-2xl font-bold tracking-tight text-foreground"
+                      className="w-full max-w-full rounded-md border border-border bg-card px-3 py-1.5 text-xl font-bold tracking-tight text-foreground sm:w-auto sm:text-2xl"
                       value={org?.id ?? ""}
                       disabled={switchingOrg}
                       onChange={async (e) => {
@@ -255,10 +255,10 @@ export default function DashboardPage() {
                       ))}
                     </select>
                   ) : (
-                    <span className="text-2xl font-bold tracking-tight text-foreground">{org?.name ?? "Организация"}</span>
+                    <span className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">{org?.name ?? "Организация"}</span>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {org?.plan && (
                     <Badge className="border-0 bg-primary/10 text-xs font-medium text-primary hover:bg-primary/15">
                       <Sparkles className="mr-1 h-3 w-3" />
@@ -273,9 +273,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Quota */}
-            <div className="flex items-center gap-3 rounded-xl bg-muted/30 px-4 py-2">
-              <Gauge className="h-4 w-4 text-muted-foreground" />
-              <div className="flex flex-col gap-1.5">
+            <div className="flex w-full items-center gap-3 rounded-xl bg-muted/30 px-4 py-2 sm:w-auto">
+              <Gauge className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-initial">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-foreground">
                     {org?.leads_used_current_month ?? 0}
@@ -285,7 +285,7 @@ export default function DashboardPage() {
                     {usagePercent}%
                   </span>
                 </div>
-                <div className="h-2 w-32 overflow-hidden rounded-full bg-muted ring-1 ring-border/30">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-muted ring-1 ring-border/30 sm:w-32">
                   <div
                     className={`h-full rounded-full transition-all duration-500 ${usagePercent >= 90 ? "bg-gradient-to-r from-destructive to-destructive/80" : usagePercent >= 70 ? "bg-gradient-to-r from-amber-500 to-amber-400" : "bg-gradient-to-r from-emerald-500 to-emerald-400"}`}
                     style={{ width: `${usagePercent}%` }}
@@ -303,7 +303,7 @@ export default function DashboardPage() {
       {/* ── Projects header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight text-foreground">Ваши проекты</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Ваши проекты</h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {projects.length} из {org?.projects_limit ?? "?"} проектов
           </p>
@@ -319,7 +319,7 @@ export default function DashboardPage() {
               Заполните информацию о проекте для начала сбора лидов.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={createProject} className="grid gap-4">
+          <form onSubmit={createProject} className="grid gap-4 px-1 sm:px-0">
             <div className="grid gap-2">
               <Label htmlFor="proj-name">Название проекта</Label>
               <Input
@@ -420,7 +420,7 @@ export default function DashboardPage() {
               Измените параметры проекта.
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={updateProject} className="grid gap-4">
+          <form onSubmit={updateProject} className="grid gap-4 px-1 sm:px-0">
             <div className="grid gap-2">
               <Label htmlFor="edit-proj-name">Название проекта</Label>
               <Input
@@ -513,7 +513,7 @@ export default function DashboardPage() {
               <Card className={`group relative overflow-hidden border-l-[3px] transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-400 animate-pulse" : "border-l-primary/60"}`}>
                 <Link
                   href={`/dashboard/projects/${project.id}`}
-                  className="flex items-center justify-between px-5 py-4"
+                  className="flex items-center justify-between px-4 py-4 sm:px-5"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2.5">
@@ -538,7 +538,7 @@ export default function DashboardPage() {
                         )}
                       </span>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <div className="mt-2 flex flex-col gap-y-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
                       {latestJob ? (
                         <>
                           <span className="inline-flex items-center gap-1">
@@ -567,7 +567,7 @@ export default function DashboardPage() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-primary"
+                          className="min-h-[44px] min-w-[44px] text-muted-foreground opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 hover:text-primary"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -579,7 +579,7 @@ export default function DashboardPage() {
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive"
+                          className="min-h-[44px] min-w-[44px] text-muted-foreground opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 hover:text-destructive"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -608,7 +608,7 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setShowForm(true)}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/20 px-5 py-8 text-sm font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
+              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/20 px-4 py-6 text-sm font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground sm:px-5 sm:py-8"
             >
               <Plus className="h-5 w-5" />
               Новый проект

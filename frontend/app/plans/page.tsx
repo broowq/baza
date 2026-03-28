@@ -132,7 +132,7 @@ export default function PlansPage() {
 
         {/* Header */}
         <motion.div
-          className="mb-20 text-center"
+          className="mb-10 sm:mb-20 text-center"
           initial="hidden"
           animate="visible"
           variants={headerVariants}
@@ -141,7 +141,7 @@ export default function PlansPage() {
             <Sparkles className="size-3" />
             Тарифы
           </Badge>
-          <h1 className="text-4xl font-bold tracking-tight md:text-5xl lg:text-6xl">
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl">
             <span className="bg-gradient-to-r from-foreground via-foreground/80 to-foreground/60 bg-clip-text text-transparent">
               Выберите тариф под ваш рост
             </span>
@@ -185,9 +185,9 @@ export default function PlansPage() {
                 initial="hidden"
                 animate="visible"
                 variants={cardVariants}
-                className={`relative flex flex-col rounded-2xl border p-8 transition-shadow duration-300 ${
+                className={`relative flex flex-col rounded-2xl border p-5 sm:p-8 transition-shadow duration-300 ${
                   isPro
-                    ? "z-10 scale-105 border-violet-500/30 bg-white/5 shadow-2xl shadow-violet-500/20 backdrop-blur-md dark:bg-white/[0.08]"
+                    ? "z-10 md:scale-105 border-violet-500/30 bg-white/5 shadow-2xl shadow-violet-500/20 backdrop-blur-md dark:bg-white/[0.08]"
                     : "border-white/10 bg-white/5 backdrop-blur-md hover:border-white/20 dark:bg-white/[0.04]"
                 }`}
               >
@@ -209,7 +209,7 @@ export default function PlansPage() {
 
                 {/* Price */}
                 <div className="mt-4 flex items-baseline gap-1.5">
-                  <span className="text-4xl font-bold tracking-tight tabular-nums text-foreground md:text-5xl">
+                  <span className="text-3xl sm:text-4xl font-bold tracking-tight tabular-nums text-foreground md:text-5xl">
                     {rublePrice.price}
                   </span>
                   <span className="text-sm text-muted-foreground">{rublePrice.sub}</span>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Moon, Sun } from "lucide-react";
+import { Menu, Moon, Sun, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { clearToken, getToken } from "@/lib/auth";
@@ -18,6 +18,7 @@ export function Navbar() {
   const [authed, setAuthed] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Hide navbar on dashboard routes (sidebar handles navigation there)
   const isDashboardRoute = DASHBOARD_PREFIXES.some((p) => pathname?.startsWith(p));
@@ -45,6 +46,11 @@ export function Navbar() {
     }
   }, []);
 
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
   const toggleTheme = () => {
     const html = document.documentElement;
     html.classList.toggle("dark");
@@ -55,22 +61,26 @@ export function Navbar() {
 
   if (isDashboardRoute) return null;
 
+  const navLinkClass = "rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]";
+
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#0a0a12]/80">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 py-4">
         <Link href="/" className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#191C1F] text-xs font-bold text-white dark:bg-white dark:text-[#191C1F]">
             Б
           </div>
           <span className="text-xl font-bold tracking-tight">БАЗА</span>
         </Link>
-        <nav className="flex items-center gap-1 sm:gap-2" aria-label="Основная навигация">
-          <Link href="/plans" className="rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+
+        {/* Desktop nav */}
+        <nav className="hidden sm:flex items-center gap-2" aria-label="Основная навигация">
+          <Link href="/plans" className={navLinkClass}>
             Тарифы
           </Link>
           {mounted && authed ? (
             <>
-              <Link href="/dashboard" className="rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+              <Link href="/dashboard" className={navLinkClass}>
                 Дашборд
               </Link>
               <Button
@@ -88,7 +98,7 @@ export function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/login" className="rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+              <Link href="/login" className={navLinkClass}>
                 Войти
               </Link>
               <Link href="/register">
@@ -100,7 +110,54 @@ export function Navbar() {
             {dark ? <Sun size={16} /> : <Moon size={16} />}
           </Button>
         </nav>
+
+        {/* Mobile hamburger + theme toggle */}
+        <div className="flex sm:hidden items-center gap-1">
+          <Button variant="secondary" onClick={toggleTheme} className="h-9 w-9 p-0" aria-label={dark ? "Светлая тема" : "Тёмная тема"}>
+            {dark ? <Sun size={16} /> : <Moon size={16} />}
+          </Button>
+          <Button variant="ghost" onClick={() => setMobileOpen((v) => !v)} className="h-9 w-9 p-0" aria-label="Меню">
+            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          </Button>
+        </div>
       </div>
+
+      {/* Mobile menu */}
+      {mobileOpen && (
+        <nav className="sm:hidden border-t border-slate-200/70 dark:border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
+          <Link href="/plans" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+            Тарифы
+          </Link>
+          {mounted && authed ? (
+            <>
+              <Link href="/dashboard" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+                Дашборд
+              </Link>
+              <button
+                className="block w-full text-left rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]"
+                onClick={async () => {
+                  try {
+                    await api("/auth/logout", { method: "POST", body: JSON.stringify({}) });
+                  } catch {}
+                  clearToken();
+                  router.push("/login");
+                }}
+              >
+                Выйти
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+                Войти
+              </Link>
+              <Link href="/register" className="block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-slate-100 dark:hover:bg-white/[0.06]">
+                Попробовать
+              </Link>
+            </>
+          )}
+        </nav>
+      )}
     </header>
   );
 }

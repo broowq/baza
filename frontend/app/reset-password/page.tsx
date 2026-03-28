@@ -46,10 +46,10 @@ function ResetPasswordContent() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
-      <Card className="w-full max-w-md">
+      <Card className="w-full max-w-md p-4 sm:p-6">
         <CardHeader className="text-center">
-          <div className="mb-2 text-3xl font-bold tracking-tight">БАЗА</div>
-          <CardTitle className="text-xl">Сброс пароля</CardTitle>
+          <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
+          <CardTitle className="text-lg sm:text-xl">Сброс пароля</CardTitle>
           <CardDescription>
             Придумайте новый надёжный пароль для вашего аккаунта
           </CardDescription>
@@ -95,7 +95,7 @@ export default function ResetPasswordPage() {
     <Suspense
       fallback={
         <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
-          <Card className="w-full max-w-md">
+          <Card className="w-full max-w-md p-4 sm:p-6">
             <CardContent className="py-12 text-center text-muted-foreground">
               Загрузка...
             </CardContent>

@@ -37,7 +37,7 @@ export function CookieConsent() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 24 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className="fixed bottom-4 right-4 z-50 max-w-md rounded-2xl border border-border/50 bg-background/90 p-4 shadow-lg backdrop-blur-lg"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto z-50 max-w-[calc(100vw-2rem)] sm:max-w-md rounded-2xl border border-border/50 bg-background/90 p-4 shadow-lg backdrop-blur-lg"
         >
           <p className="mb-3 text-sm text-muted-foreground">
             Мы используем файлы cookie для работы сервиса и аналитики.{" "}
@@ -48,7 +48,7 @@ export function CookieConsent() {
               Подробнее
             </Link>
           </p>
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-end gap-2 flex-wrap">
             <Button
               variant="ghost"
               size="sm"

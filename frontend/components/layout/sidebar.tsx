@@ -289,7 +289,7 @@ export function Sidebar() {
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed left-4 top-4 z-50 rounded-xl border border-border/50 bg-background/80 p-2 text-foreground shadow-sm backdrop-blur-xl lg:hidden"
+        className="fixed left-4 top-4 z-50 min-h-[44px] min-w-[44px] rounded-xl border border-border/50 bg-background/80 p-2.5 text-foreground shadow-sm backdrop-blur-xl lg:hidden"
         aria-label="Открыть меню"
       >
         <Menu size={20} />
@@ -316,7 +316,7 @@ export function Sidebar() {
             >
               <button
                 onClick={() => setMobileOpen(false)}
-                className="absolute right-3 top-4 rounded-lg p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+                className="absolute right-3 top-4 min-h-[44px] min-w-[44px] rounded-lg p-2.5 text-muted-foreground transition-colors hover:text-foreground"
                 aria-label="Закрыть меню"
               >
                 <X size={18} />

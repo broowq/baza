@@ -120,7 +120,7 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
 
   return (
     <TableRow className="bg-muted/30 hover:bg-muted/30">
-      <TableCell colSpan={11} className="px-8 py-3">
+      <TableCell colSpan={11} className="px-4 py-3 sm:px-8">
         <div className="flex flex-col gap-2">
           <span className="text-xs font-medium text-muted-foreground">Заметки</span>
           <div className="flex items-center gap-2">
@@ -261,7 +261,7 @@ export function LeadsTable({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Поиск по компании, домену, email..."
-            className="w-56"
+            className="w-full sm:w-56"
           />
           <select
             value={statusFilter}
@@ -301,11 +301,11 @@ export function LeadsTable({
         </div>
       )}
 
-      <div className="min-w-0 rounded-lg border" role="region" aria-label="Таблица лидов">
-        <Table aria-label="Список лидов">
+      <div className="min-w-0 overflow-x-auto rounded-lg border" role="region" aria-label="Таблица лидов">
+        <Table aria-label="Список лидов" className="min-w-[700px]">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8">
+              <TableHead className="w-8 sm:w-10">
                 <input
                   type="checkbox"
                   checked={allVisibleSelected}
@@ -318,8 +318,8 @@ export function LeadsTable({
               <TableHead className="min-w-[80px]">Город</TableHead>
               <TableHead className="min-w-[110px]">Сайт</TableHead>
               <TableHead className="min-w-[140px]">Email</TableHead>
-              <TableHead className="min-w-[110px]">Телефон</TableHead>
-              <TableHead className="min-w-[130px]">Адрес</TableHead>
+              <TableHead className="hidden min-w-[110px] sm:table-cell">Телефон</TableHead>
+              <TableHead className="hidden min-w-[130px] md:table-cell">Адрес</TableHead>
               <TableHead className="min-w-[80px]">Статус</TableHead>
               <TableHead className="min-w-[60px]">Score</TableHead>
               <TableHead className="w-10" />
@@ -394,10 +394,10 @@ export function LeadsTable({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="max-w-[128px]">
+                    <TableCell className="hidden max-w-[128px] sm:table-cell">
                       <TruncatedCell value={lead.phone} className="font-mono text-muted-foreground" />
                     </TableCell>
-                    <TableCell className="max-w-[176px]">
+                    <TableCell className="hidden max-w-[176px] md:table-cell">
                       <TruncatedCell value={lead.address} className="text-muted-foreground" />
                     </TableCell>
                     <TableCell>

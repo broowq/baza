@@ -8,11 +8,11 @@ export const metadata = {
 
 export default function TermsPage() {
   return (
-    <main className="min-h-screen bg-white px-4 py-16 dark:bg-[#111214]">
+    <main className="min-h-screen bg-white px-4 sm:px-6 py-10 sm:py-16 dark:bg-[#111214]">
       <div className="mx-auto max-w-3xl">
         <Card className="border-0 bg-transparent shadow-none ring-0">
           <CardContent className="prose prose-gray max-w-none dark:prose-invert">
-            <h1 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white">
               Условия использования
             </h1>
             <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">

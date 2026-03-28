@@ -128,7 +128,7 @@ export default function HomePage() {
 
       {/* ==================== STATS BAR ==================== */}
       <section className="bg-[#F7F7F8] px-4 py-16 sm:px-6 dark:bg-[#1A1C1F]">
-        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mx-auto grid max-w-4xl grid-cols-2 gap-4 md:grid-cols-3">
           {[
             { value: "50 000+", label: "лидов в месяц", icon: Globe },
             { value: "5 источников", label: "поиска", icon: Search },
@@ -141,7 +141,7 @@ export default function HomePage() {
               <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
                 <s.icon size={18} className="text-gray-400" />
               </div>
-              <p className="text-3xl font-bold text-[#191C1F] dark:text-white sm:text-4xl">
+              <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
                 {s.value}
               </p>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
@@ -155,19 +155,19 @@ export default function HomePage() {
         <div className="mx-auto max-w-6xl">
           <div className="text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-gray-400">Возможности</p>
-            <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#191C1F] dark:text-white md:text-5xl">
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
               Всё для{" "}
               <span className="text-[#191C1F] dark:text-white">
                 лидогенерации
               </span>
             </h2>
-            <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">от сбора до экспорта в CRM — в одном продукте</p>
+            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от сбора до экспорта в CRM — в одном продукте</p>
           </div>
 
           {/* Bento grid */}
-          <div className="mt-16 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Large card 1 — Search */}
-            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-8 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] lg:col-span-2">
+            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8 sm:col-span-2 lg:col-span-2">
               <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
                 <Search size={22} className="text-gray-400" />
               </div>
@@ -188,7 +188,7 @@ export default function HomePage() {
             </div>
 
             {/* Large card 2 — Enrich */}
-            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-8 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] lg:col-span-2">
+            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8 sm:col-span-2 lg:col-span-2">
               <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
                 <Sparkles size={22} className="text-gray-400" />
               </div>
@@ -257,20 +257,20 @@ export default function HomePage() {
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Процесс</p>
-            <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#191C1F] dark:text-white md:text-5xl">
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
               Четыре{" "}
               <span className="text-[#191C1F] dark:text-white">
                 простых шага
               </span>
             </h2>
-            <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">от нуля до горячей базы</p>
+            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от нуля до горячей базы</p>
           </div>
 
           <div className="relative mt-20">
             {/* Connecting line — desktop */}
             <div className="absolute left-0 right-0 top-10 hidden h-px bg-gray-200 dark:bg-[#2A2C2F] md:block" />
 
-            <div className="grid gap-10 md:grid-cols-4 md:gap-6">
+            <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
               {steps.map((item) => (
                 <div key={item.num} className="relative text-center">
                   {/* Step circle */}
@@ -296,16 +296,16 @@ export default function HomePage() {
         <div className="mx-auto max-w-5xl">
           <div className="text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Тарифы</p>
-            <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#191C1F] dark:text-white md:text-5xl">
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
               Прозрачные{" "}
               <span className="text-[#191C1F] dark:text-white">
                 цены
               </span>
             </h2>
-            <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">платите только за то, что используете</p>
+            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">платите только за то, что используете</p>
           </div>
 
-          <div className="mt-16 grid items-start gap-5 md:grid-cols-3">
+          <div className="mt-16 grid grid-cols-1 items-start gap-5 md:grid-cols-3">
             {plans.map((plan) => (
               <div
                 key={plan.name}
@@ -327,7 +327,7 @@ export default function HomePage() {
                     {plan.name}
                   </p>
                   <div className="mt-3 flex items-baseline gap-1">
-                    <span className={`text-5xl font-bold ${plan.highlight ? "text-white dark:text-[#191C1F]" : "text-[#191C1F] dark:text-white"}`}>
+                    <span className={`text-3xl font-bold sm:text-4xl md:text-5xl ${plan.highlight ? "text-white dark:text-[#191C1F]" : "text-[#191C1F] dark:text-white"}`}>
                       {plan.price}
                     </span>
                     <span className={`text-sm ${plan.highlight ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>
@@ -372,7 +372,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-3xl">
           <div className="text-center">
             <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">FAQ</p>
-            <h2 className="mt-4 text-4xl font-bold tracking-tight text-[#191C1F] dark:text-white md:text-5xl">
+            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
               Вопросы и ответы
             </h2>
           </div>
@@ -385,13 +385,13 @@ export default function HomePage() {
       {/* ==================== FINAL CTA ==================== */}
       <section className="px-4 py-24 text-center sm:px-6">
         <div className="mx-auto max-w-3xl">
-          <h2 className="text-4xl font-bold tracking-tight text-[#191C1F] dark:text-white md:text-5xl lg:text-6xl">
+          <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl lg:text-6xl">
             Готовы заполнить{" "}
             <span className="text-[#191C1F] dark:text-white">
               воронку?
             </span>
           </h2>
-          <p className="mx-auto mt-6 max-w-lg text-lg text-gray-500 dark:text-gray-400">
+          <p className="mx-auto mt-6 max-w-lg text-base text-gray-500 dark:text-gray-400 sm:text-lg">
             Регистрация за 30 секунд. Без кредитной карты. Первые 1 000 лидов бесплатно.
           </p>
           <div className="mt-10">
@@ -409,7 +409,7 @@ export default function HomePage() {
             </div>
             <span className="text-base font-semibold text-[#191C1F] dark:text-white">БАЗА</span>
           </div>
-          <div className="flex items-center gap-8 text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500 dark:text-gray-400 sm:gap-8">
             <Link href="/plans" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
               Тарифы
             </Link>

@@ -54,7 +54,7 @@ export function JobHistory({ jobs, loading = false }: Props) {
 
         return (
           <Card key={job.id} size="sm">
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-2 px-3 py-2 sm:px-4 sm:py-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-sm font-medium">{KIND_LABELS[job.kind] ?? job.kind}</span>
                 <Badge variant={STATUS_VARIANTS[job.status] ?? "secondary"}>

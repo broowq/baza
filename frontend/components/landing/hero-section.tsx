@@ -9,7 +9,7 @@ import { SmartCTA } from "@/components/landing/smart-cta";
 
 export function HeroSection() {
   return (
-    <section className="relative overflow-hidden px-4 pb-20 pt-24 sm:px-6 md:pb-28 md:pt-32">
+    <section className="relative overflow-x-clip px-4 pb-20 pt-24 sm:px-6 md:pb-28 md:pt-32">
       {/* ── Grid background pattern ── */}
       <div
         className="pointer-events-none absolute inset-0"
@@ -24,7 +24,7 @@ export function HeroSection() {
         }}
       />
 
-      <div className="relative mx-auto max-w-6xl">
+      <div className="relative mx-auto max-w-6xl overflow-hidden">
         <div className="text-center">
           {/* Eyebrow badge */}
           <motion.div
@@ -44,13 +44,11 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.1 }}
-            className="text-5xl font-bold leading-[1.05] tracking-tight sm:text-6xl md:text-7xl lg:text-8xl"
+            className="text-2xl font-bold leading-[1.15] tracking-tight sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl"
           >
             <span className="bg-gradient-to-br from-black from-30% to-black/40 bg-clip-text text-transparent dark:from-white dark:from-30% dark:to-white/40">
-              Находите клиентов
-            </span>
-            <br />
-            <span className="bg-gradient-to-br from-black from-30% to-black/40 bg-clip-text text-transparent dark:from-white dark:from-30% dark:to-white/40">
+              Находите клиентов{" "}
+              <br className="hidden sm:block" />
               быстрее с помощью ИИ
             </span>
           </motion.h1>
@@ -60,7 +58,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
-            className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground"
+            className="mx-auto mt-6 max-w-2xl px-2 text-sm leading-relaxed text-muted-foreground sm:px-0 sm:text-base md:text-lg"
           >
             Автоматический сбор и обогащение B2B лидов из 5+ источников.
             <br className="hidden sm:block" />
@@ -72,7 +70,7 @@ export function HeroSection() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.3 }}
-            className="mt-10 flex flex-wrap items-center justify-center gap-4"
+            className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row"
           >
             <SmartCTA />
             <Link href="#pricing">
@@ -113,7 +111,7 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.4 }}
-          className="mx-auto mt-16 max-w-5xl"
+          className="mx-auto mt-16 max-w-5xl overflow-hidden"
         >
           <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl dark:border-[#2A2C2F] dark:bg-[#1A1C1F]">
             {/* Window chrome */}
@@ -129,9 +127,9 @@ export function HeroSection() {
             </div>
 
             {/* Dashboard content */}
-            <div className="p-6 md:p-8">
+            <div className="p-3 sm:p-6 md:p-8">
               {/* Stat cards */}
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-4">
                 {[
                   { label: "Всего лидов", value: "2,847", trend: "+12%" },
                   { label: "Обогащено", value: "1,923", trend: "+8%" },
@@ -140,13 +138,13 @@ export function HeroSection() {
                 ].map((s) => (
                   <div
                     key={s.label}
-                    className="rounded-xl border border-gray-100 bg-[#F7F7F8] p-4 dark:border-[#2A2C2F] dark:bg-[#111214]"
+                    className="rounded-xl border border-gray-100 bg-[#F7F7F8] p-3 sm:p-4 dark:border-[#2A2C2F] dark:bg-[#111214]"
                   >
                     <p className="text-[11px] text-gray-400 dark:text-gray-500">
                       {s.label}
                     </p>
                     <div className="mt-1.5 flex items-baseline gap-2">
-                      <p className="text-xl font-bold text-[#191C1F] dark:text-white">
+                      <p className="text-lg font-bold text-[#191C1F] sm:text-xl dark:text-white">
                         {s.value}
                       </p>
                       <span className="text-[10px] font-medium text-emerald-500">
@@ -157,9 +155,9 @@ export function HeroSection() {
                 ))}
               </div>
 
-              {/* Table */}
-              <div className="mt-5 overflow-hidden rounded-xl border border-gray-100 dark:border-[#2A2C2F]">
-                <div className="grid grid-cols-5 gap-2 bg-[#F7F7F8] px-5 py-2.5 text-[11px] font-medium text-gray-400 dark:bg-[#111214] dark:text-gray-500">
+              {/* Table — hidden on very small screens */}
+              <div className="mt-5 hidden overflow-x-auto rounded-xl border border-gray-100 sm:block dark:border-[#2A2C2F]">
+                <div className="grid min-w-[600px] grid-cols-5 gap-2 bg-[#F7F7F8] px-5 py-2.5 text-[11px] font-medium text-gray-400 dark:bg-[#111214] dark:text-gray-500">
                   <span>Компания</span>
                   <span>Город</span>
                   <span>Email</span>
@@ -175,7 +173,7 @@ export function HeroSection() {
                 ].map((r) => (
                   <div
                     key={r.c}
-                    className="grid grid-cols-5 items-center gap-2 border-t border-gray-50 px-5 py-3 text-[12px] dark:border-[#1A1C1F]"
+                    className="grid min-w-[600px] grid-cols-5 items-center gap-2 border-t border-gray-50 px-5 py-3 text-[12px] dark:border-[#1A1C1F]"
                   >
                     <span className="font-medium text-[#191C1F] dark:text-white">
                       {r.c}

@@ -202,7 +202,7 @@ export default function ProjectDetailsPage() {
         <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ArrowLeft size={14} /> Назад
         </Link>
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div className="space-y-1">
             <h1 className="text-2xl font-bold tracking-tight">{project?.name ?? "Проект"}</h1>
             <div className="flex flex-wrap items-center gap-2">
@@ -213,7 +213,7 @@ export default function ProjectDetailsPage() {
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             {/* Collect group */}
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Собрать</span>
@@ -271,8 +271,8 @@ export default function ProjectDetailsPage() {
 
       {/* Tabs */}
       <Tabs defaultValue="leads" value={activeTab} onValueChange={setActiveTab}>
-        <div className="flex items-center justify-between gap-4">
-          <TabsList>
+        <div className="flex items-center justify-between gap-4 overflow-x-auto">
+          <TabsList className="shrink-0">
             <TabsTrigger value="leads" className="font-medium">Лиды</TabsTrigger>
             <TabsTrigger value="jobs" className="font-medium">История задач</TabsTrigger>
           </TabsList>
@@ -286,9 +286,9 @@ export default function ProjectDetailsPage() {
         <TabsContent value="leads" className="overflow-hidden">
           <div ref={leadsTableRef as React.RefObject<HTMLDivElement>} className="space-y-4 min-w-0">
             {/* Filters bar */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 p-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 p-3 [&>*]:w-full [&>*]:sm:w-auto">
               <Input
-                className="w-48"
+                className="w-full sm:w-48"
                 placeholder="Поиск..."
                 value={search}
                 aria-label="Поиск по лидам"
@@ -329,7 +329,7 @@ export default function ProjectDetailsPage() {
                 type="number"
                 min={0}
                 max={100}
-                className="w-24"
+                className="w-full sm:w-24"
                 placeholder="Score от"
                 value={minScore}
                 aria-label="Минимальный score"
@@ -339,7 +339,7 @@ export default function ProjectDetailsPage() {
                 type="number"
                 min={0}
                 max={100}
-                className="w-24"
+                className="w-full sm:w-24"
                 placeholder="Score до"
                 value={maxScore}
                 aria-label="Максимальный score"
@@ -382,7 +382,7 @@ export default function ProjectDetailsPage() {
             />
 
             {/* Pagination */}
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground sm:flex-row sm:justify-between">
               <span>Итого: {total} лидов</span>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => { setPage((p) => Math.max(1, p - 1)); leadsTableRef.current?.scrollIntoView({ behavior: "smooth" }); }}>

@@ -37,7 +37,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" className={`dark ${inter.variable}`}>
-      <body className={`${inter.className} font-sans`}>
+      <body className={`${inter.className} font-sans overflow-x-hidden`}>
         <div className="page-shell">
           <Navbar />
           <ErrorBoundary>

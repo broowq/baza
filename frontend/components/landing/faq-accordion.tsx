@@ -20,9 +20,9 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
             <button
               onClick={() => setOpenIndex(isOpen ? null : i)}
               aria-expanded={isOpen}
-              className="flex w-full items-center justify-between px-6 py-4 text-left"
+              className="flex w-full items-center justify-between px-4 py-4 text-left sm:px-6"
             >
-              <h3 className="font-semibold text-slate-900 dark:text-white">{faq.q}</h3>
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white sm:text-base">{faq.q}</h3>
               <ChevronDown
                 size={18}
                 className={`shrink-0 text-slate-400 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`}
@@ -33,7 +33,7 @@ export function FaqAccordion({ items }: { items: FaqItem[] }) {
               style={{ gridTemplateRows: isOpen ? "1fr" : "0fr" }}
             >
               <div className="overflow-hidden">
-                <p className="px-6 pb-4 text-sm text-slate-500 dark:text-slate-400">{faq.a}</p>
+                <p className="px-4 pb-4 text-sm text-slate-500 dark:text-slate-400 sm:px-6">{faq.a}</p>
               </div>
             </div>
           </div>
