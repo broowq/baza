@@ -49,6 +49,8 @@ function RegisterContent() {
     password: "",
   });
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
 
   useEffect(() => {
     if (invitedEmail) {
@@ -100,7 +102,13 @@ function RegisterContent() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+      {/* Animated gradient mesh */}
+      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
+        <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
+        <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+      </div>
       <Card className="w-full max-w-md p-4 sm:p-6">
         <CardHeader className="text-center">
           <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
@@ -177,7 +185,44 @@ function RegisterContent() {
               )}
             </div>
 
-            <Button type="submit" className="w-full" size="lg" disabled={loading}>
+            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptedTerms}
+                  onChange={(e) => setAcceptedTerms(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  required
+                />
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Я принимаю{" "}
+                  <Link href="/terms" target="_blank" className="underline text-foreground hover:text-primary">
+                    Условия использования
+                  </Link>{" "}
+                  и{" "}
+                  <Link href="/privacy" target="_blank" className="underline text-foreground hover:text-primary">
+                    Политику конфиденциальности
+                  </Link>
+                </span>
+              </label>
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={acceptedPrivacy}
+                  onChange={(e) => setAcceptedPrivacy(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  required
+                />
+                <span className="text-xs leading-relaxed text-muted-foreground">
+                  Даю согласие на обработку персональных данных в соответствии с{" "}
+                  <Link href="/privacy" target="_blank" className="underline text-foreground hover:text-primary">
+                    152-ФЗ
+                  </Link>
+                </span>
+              </label>
+            </div>
+
+            <Button type="submit" className="w-full" size="lg" disabled={loading || !acceptedTerms || !acceptedPrivacy}>
               {loading ? "Создаём..." : "Зарегистрироваться"}
             </Button>
           </form>
@@ -204,7 +249,13 @@ export default function RegisterPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
+        <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+          {/* Animated gradient mesh */}
+          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
+            <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
+            <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+          </div>
           <Card className="w-full max-w-md p-4 sm:p-6">
             <CardContent className="py-12 text-center text-muted-foreground">
               Загрузка...

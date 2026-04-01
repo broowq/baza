@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import {
   ArrowRight,
@@ -18,6 +20,8 @@ import { Button } from "@/components/ui/button";
 import { FaqAccordion } from "@/components/landing/faq-accordion";
 import { HeroSection } from "@/components/landing/hero-section";
 import { SmartCTA, SmartLink } from "@/components/landing/smart-cta";
+import { AuroraBackground } from "@/components/ui/aurora-background";
+import { ScrollReveal } from "@/components/ui/scroll-reveal";
 
 /* ─────────────────────── Data ─────────────────────── */
 
@@ -124,95 +128,106 @@ export default function HomePage() {
     <main className="min-h-screen bg-white text-[#191C1F] selection:bg-gray-200 dark:bg-[#111214] dark:text-white">
 
       {/* ==================== HERO ==================== */}
-      <HeroSection />
+      <AuroraBackground className="min-h-screen">
+        <HeroSection />
+      </AuroraBackground>
 
       {/* ==================== STATS BAR ==================== */}
-      <section className="bg-[#F7F7F8] px-4 py-16 sm:px-6 dark:bg-[#1A1C1F]">
-        <div className="mx-auto grid max-w-4xl grid-cols-2 gap-4 md:grid-cols-3">
-          {[
-            { value: "50 000+", label: "лидов в месяц", icon: Globe },
-            { value: "5 источников", label: "поиска", icon: Search },
-            { value: "221 город", label: "России и СНГ", icon: MapPin },
-          ].map((s) => (
-            <div
-              key={s.label}
-              className="rounded-2xl bg-white p-6 text-center dark:bg-[#111214]"
-            >
-              <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
-                <s.icon size={18} className="text-gray-400" />
-              </div>
-              <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
-                {s.value}
-              </p>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+      <ScrollReveal delay={0.1}>
+        <section className="bg-[#F7F7F8] px-4 py-16 sm:px-6 dark:bg-[#1A1C1F]">
+          <div className="mx-auto grid max-w-4xl grid-cols-2 gap-4 md:grid-cols-3">
+            {[
+              { value: "50 000+", label: "лидов в месяц", icon: Globe },
+              { value: "5 источников", label: "поиска", icon: Search },
+              { value: "221 город", label: "России и СНГ", icon: MapPin },
+            ].map((s, index) => (
+              <ScrollReveal key={s.label} delay={0.1 * index}>
+                <div
+                  className="rounded-2xl bg-white p-6 text-center dark:bg-[#111214]"
+                >
+                  <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
+                    <s.icon size={18} className="text-gray-400" />
+                  </div>
+                  <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
+                    {s.value}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
+                </div>
+              </ScrollReveal>
+            ))}
+          </div>
+        </section>
+      </ScrollReveal>
 
       {/* ==================== FEATURES ==================== */}
       <section className="px-4 py-24 sm:px-6">
         <div className="mx-auto max-w-6xl">
-          <div className="text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-gray-400">Возможности</p>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-              Всё для{" "}
-              <span className="text-[#191C1F] dark:text-white">
-                лидогенерации
-              </span>
-            </h2>
-            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от сбора до экспорта в CRM — в одном продукте</p>
-          </div>
+          <ScrollReveal delay={0}>
+            <div className="text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400">Возможности</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
+                Всё для{" "}
+                <span className="text-[#191C1F] dark:text-white">
+                  лидогенерации
+                </span>
+              </h2>
+              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от сбора до экспорта в CRM — в одном продукте</p>
+            </div>
+          </ScrollReveal>
 
           {/* Bento grid */}
           <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Large card 1 — Search */}
-            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8 sm:col-span-2 lg:col-span-2">
-              <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                <Search size={22} className="text-gray-400" />
+            <ScrollReveal delay={0.1} className="col-span-1 sm:col-span-2 lg:col-span-2">
+              <div className="rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8">
+                <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
+                  <Search size={22} className="text-gray-400" />
+                </div>
+                <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Умный поиск лидов</h3>
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+                  Яндекс Карты, 2ГИС, SearXNG и Bing — 5 источников одновременно. Фильтрация мусора, дедупликация, нормализация доменов.
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  {["Яндекс Карты", "2ГИС", "SearXNG", "Bing", "Maps"].map((src) => (
+                    <span
+                      key={src}
+                      className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 dark:bg-[#111214] dark:text-gray-400"
+                    >
+                      {src}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Умный поиск лидов</h3>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                Яндекс Карты, 2ГИС, SearXNG и Bing — 5 источников одновременно. Фильтрация мусора, дедупликация, нормализация доменов.
-              </p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                {["Яндекс Карты", "2ГИС", "SearXNG", "Bing", "Maps"].map((src) => (
-                  <span
-                    key={src}
-                    className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 dark:bg-[#111214] dark:text-gray-400"
-                  >
-                    {src}
-                  </span>
-                ))}
-              </div>
-            </div>
+            </ScrollReveal>
 
             {/* Large card 2 — Enrich */}
-            <div className="col-span-1 rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8 sm:col-span-2 lg:col-span-2">
-              <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                <Sparkles size={22} className="text-gray-400" />
+            <ScrollReveal delay={0.2} className="col-span-1 sm:col-span-2 lg:col-span-2">
+              <div className="rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8">
+                <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
+                  <Sparkles size={22} className="text-gray-400" />
+                </div>
+                <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Обогащение контактов</h3>
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
+                  Email, телефон и адрес автоматически. JSON-LD и schema.org парсинг. До 8 страниц на сайт.
+                </p>
+                <div className="mt-5 flex flex-col gap-2">
+                  {[
+                    { icon: Mail, label: "info@company.ru" },
+                    { icon: MapPin, label: "ул. Ленина, 42" },
+                    { icon: Globe, label: "company.ru" },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-[11px] dark:bg-[#111214]"
+                    >
+                      <item.icon size={12} className="text-gray-400" />
+                      <span className="text-gray-500 dark:text-gray-400">{item.label}</span>
+                      <Check size={12} className="ml-auto text-emerald-500" />
+                    </div>
+                  ))}
+                </div>
               </div>
-              <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Обогащение контактов</h3>
-              <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                Email, телефон и адрес автоматически. JSON-LD и schema.org парсинг. До 8 страниц на сайт.
-              </p>
-              <div className="mt-5 flex flex-col gap-2">
-                {[
-                  { icon: Mail, label: "info@company.ru" },
-                  { icon: MapPin, label: "ул. Ленина, 42" },
-                  { icon: Globe, label: "company.ru" },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="flex items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-[11px] dark:bg-[#111214]"
-                  >
-                    <item.icon size={12} className="text-gray-400" />
-                    <span className="text-gray-500 dark:text-gray-400">{item.label}</span>
-                    <Check size={12} className="ml-auto text-emerald-500" />
-                  </div>
-                ))}
-              </div>
-            </div>
+            </ScrollReveal>
 
             {/* Small cards */}
             {[
@@ -236,79 +251,86 @@ export default function HomePage() {
                 title: "Realtime задачи",
                 desc: "Celery + SSE для живого статуса. Не нужно обновлять страницу.",
               },
-            ].map((f) => (
-              <div
-                key={f.title}
-                className="rounded-3xl bg-[#F7F7F8] p-8 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F]"
-              >
-                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                  <f.icon size={20} className="text-gray-400" />
+            ].map((f, index) => (
+              <ScrollReveal key={f.title} delay={0.1 * index}>
+                <div
+                  className="rounded-3xl bg-[#F7F7F8] p-8 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F]"
+                >
+                  <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
+                    <f.icon size={20} className="text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-[#191C1F] dark:text-white">{f.title}</h3>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">{f.desc}</p>
                 </div>
-                <h3 className="text-xl font-semibold text-[#191C1F] dark:text-white">{f.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">{f.desc}</p>
-              </div>
+              </ScrollReveal>
             ))}
           </div>
         </div>
       </section>
 
       {/* ==================== HOW IT WORKS ==================== */}
-      <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
-        <div className="mx-auto max-w-5xl">
-          <div className="text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Процесс</p>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-              Четыре{" "}
-              <span className="text-[#191C1F] dark:text-white">
-                простых шага
-              </span>
-            </h2>
-            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от нуля до горячей базы</p>
-          </div>
+      <ScrollReveal delay={0.1}>
+        <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
+          <div className="mx-auto max-w-5xl">
+            <div className="text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Процесс</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
+                Четыре{" "}
+                <span className="text-[#191C1F] dark:text-white">
+                  простых шага
+                </span>
+              </h2>
+              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от нуля до горячей базы</p>
+            </div>
 
-          <div className="relative mt-20">
-            {/* Connecting line — desktop */}
-            <div className="absolute left-0 right-0 top-10 hidden h-px bg-gray-200 dark:bg-[#2A2C2F] md:block" />
+            <div className="relative mt-20">
+              {/* Connecting line — desktop */}
+              <div className="absolute left-0 right-0 top-10 hidden h-px bg-gray-200 dark:bg-[#2A2C2F] md:block" />
 
-            <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
-              {steps.map((item) => (
-                <div key={item.num} className="relative text-center">
-                  {/* Step circle */}
-                  <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center">
-                    <div className="flex h-full w-full items-center justify-center rounded-2xl border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#111214]">
-                      <item.icon size={28} className="text-gray-400" />
+              <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
+                {steps.map((item, index) => (
+                  <ScrollReveal key={item.num} delay={0.1 * index}>
+                    <div className="relative text-center">
+                      {/* Step circle */}
+                      <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center">
+                        <div className="flex h-full w-full items-center justify-center rounded-2xl border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#111214]">
+                          <item.icon size={28} className="text-gray-400" />
+                        </div>
+                      </div>
+                      <div className="mb-2 inline-flex rounded-full bg-gray-100 dark:bg-white/10 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                        Шаг {item.num}
+                      </div>
+                      <h3 className="mt-1 text-lg font-semibold text-[#191C1F] dark:text-white">{item.title}</h3>
+                      <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">{item.desc}</p>
                     </div>
-                  </div>
-                  <div className="mb-2 inline-flex rounded-full bg-gray-100 dark:bg-white/10 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                    Шаг {item.num}
-                  </div>
-                  <h3 className="mt-1 text-lg font-semibold text-[#191C1F] dark:text-white">{item.title}</h3>
-                  <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">{item.desc}</p>
-                </div>
-              ))}
+                  </ScrollReveal>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </ScrollReveal>
 
       {/* ==================== PRICING ==================== */}
       <section className="px-4 py-24 sm:px-6" id="pricing">
         <div className="mx-auto max-w-5xl">
-          <div className="text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Тарифы</p>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-              Прозрачные{" "}
-              <span className="text-[#191C1F] dark:text-white">
-                цены
-              </span>
-            </h2>
-            <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">платите только за то, что используете</p>
-          </div>
+          <ScrollReveal delay={0}>
+            <div className="text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Тарифы</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
+                Прозрачные{" "}
+                <span className="text-[#191C1F] dark:text-white">
+                  цены
+                </span>
+              </h2>
+              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">платите только за то, что используете</p>
+            </div>
+          </ScrollReveal>
 
           <div className="mt-16 grid grid-cols-1 items-start gap-5 md:grid-cols-3">
-            {plans.map((plan) => (
+            {plans.map((plan, index) => (
+              <ScrollReveal key={plan.name} delay={0.1 * index}>
               <div
-                key={plan.name}
                 className={`flex flex-col rounded-3xl p-8 ${
                   plan.highlight
                     ? "relative bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] md:-my-4 md:py-12"
@@ -362,43 +384,48 @@ export default function HomePage() {
                   </Button>
                 </SmartLink>
               </div>
+              </ScrollReveal>
             ))}
           </div>
         </div>
       </section>
 
       {/* ==================== FAQ ==================== */}
-      <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
-        <div className="mx-auto max-w-3xl">
-          <div className="text-center">
-            <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">FAQ</p>
-            <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-              Вопросы и ответы
-            </h2>
+      <ScrollReveal delay={0.1}>
+        <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
+          <div className="mx-auto max-w-3xl">
+            <div className="text-center">
+              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">FAQ</p>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
+                Вопросы и ответы
+              </h2>
+            </div>
+            <div className="mt-12">
+              <FaqAccordion items={faqs} />
+            </div>
           </div>
-          <div className="mt-12">
-            <FaqAccordion items={faqs} />
-          </div>
-        </div>
-      </section>
+        </section>
+      </ScrollReveal>
 
       {/* ==================== FINAL CTA ==================== */}
-      <section className="px-4 py-24 text-center sm:px-6">
-        <div className="mx-auto max-w-3xl">
-          <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl lg:text-6xl">
-            Готовы заполнить{" "}
-            <span className="text-[#191C1F] dark:text-white">
-              воронку?
-            </span>
-          </h2>
-          <p className="mx-auto mt-6 max-w-lg text-base text-gray-500 dark:text-gray-400 sm:text-lg">
-            Регистрация за 30 секунд. Без кредитной карты. Первые 1 000 лидов бесплатно.
-          </p>
-          <div className="mt-10">
-            <SmartCTA />
+      <ScrollReveal delay={0.1}>
+        <section className="px-4 py-24 text-center sm:px-6">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl lg:text-6xl">
+              Готовы заполнить{" "}
+              <span className="text-[#191C1F] dark:text-white">
+                воронку?
+              </span>
+            </h2>
+            <p className="mx-auto mt-6 max-w-lg text-base text-gray-500 dark:text-gray-400 sm:text-lg">
+              Регистрация за 30 секунд. Без кредитной карты. Первые 1 000 лидов бесплатно.
+            </p>
+            <div className="mt-10">
+              <SmartCTA />
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </ScrollReveal>
 
       {/* ==================== FOOTER ==================== */}
       <footer className="border-t border-gray-200 px-4 py-12 sm:px-6 dark:border-[#2A2C2F]">

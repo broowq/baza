@@ -92,6 +92,21 @@ const config: Config = {
         "accordion-up": {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" }
+        },
+        "aurora-1": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(30px, -50px) scale(1.1)" },
+          "66%": { transform: "translate(-20px, 20px) scale(0.9)" },
+        },
+        "aurora-2": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(-40px, 30px) scale(1.15)" },
+          "66%": { transform: "translate(20px, -40px) scale(0.85)" },
+        },
+        "aurora-3": {
+          "0%, 100%": { transform: "translate(0, 0) scale(1)" },
+          "33%": { transform: "translate(50px, 20px) scale(1.05)" },
+          "66%": { transform: "translate(-30px, -30px) scale(0.95)" },
         }
       },
       animation: {
@@ -101,7 +116,10 @@ const config: Config = {
         "glow-pulse": "glow-pulse 2s ease-in-out infinite",
         shimmer: "shimmer 2s ease-in-out infinite",
         "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out"
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "aurora-1": "aurora-1 15s ease-in-out infinite",
+        "aurora-2": "aurora-2 20s ease-in-out infinite",
+        "aurora-3": "aurora-3 25s ease-in-out infinite"
       }
     }
   },

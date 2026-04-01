@@ -20,6 +20,7 @@ import {
   UsersRoundIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
 
 import {
   AlertDialog,
@@ -322,7 +323,12 @@ export default function SettingsPage() {
   ];
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <motion.main
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.3 }}
+      className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8"
+    >
       <div className="space-y-6">
         {/* ── Page Header ── */}
         <div className="space-y-4">
@@ -808,6 +814,6 @@ export default function SettingsPage() {
           </div>
         </Tabs>
       </div>
-    </main>
+    </motion.main>
   );
 }

@@ -218,6 +218,7 @@ export default function DashboardPage() {
       className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6 lg:pl-10"
     >
       {/* ── Org header card ── */}
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
       <Card className="relative overflow-hidden bg-gradient-to-r from-primary/5 via-transparent to-primary/5 shadow-sm ring-1 ring-primary/[0.03]">
         <div className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-primary/[0.02] to-transparent" />
         <CardHeader className="relative">
@@ -296,6 +297,7 @@ export default function DashboardPage() {
           </div>
         </CardHeader>
       </Card>
+      </motion.div>
 
       {/* ── Subtle section divider ── */}
       <Separator className="my-6" />

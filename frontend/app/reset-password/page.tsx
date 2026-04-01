@@ -45,7 +45,13 @@ function ResetPasswordContent() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+      {/* Animated gradient mesh */}
+      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
+        <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
+        <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+      </div>
       <Card className="w-full max-w-md p-4 sm:p-6">
         <CardHeader className="text-center">
           <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
@@ -94,7 +100,13 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-12">
+        <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+          {/* Animated gradient mesh */}
+          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
+            <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
+            <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+          </div>
           <Card className="w-full max-w-md p-4 sm:p-6">
             <CardContent className="py-12 text-center text-muted-foreground">
               Загрузка...

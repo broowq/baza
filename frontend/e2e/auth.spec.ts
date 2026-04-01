@@ -48,6 +48,8 @@ test.describe("Authentication Flows", () => {
     await page.getByLabel("Организация").fill(`Org-${uid}`);
     await page.getByLabel("Email").fill(`${uid}@example.com`);
     await page.getByLabel("Пароль").fill("TestPass123");
+    await page.getByLabel(/условия использования/i).check();
+    await page.getByLabel(/согласие на обработку/i).check();
     await page.getByRole("button", { name: /зарегистрироваться/i }).click();
 
     // Should redirect to dashboard
