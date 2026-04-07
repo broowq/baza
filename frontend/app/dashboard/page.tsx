@@ -1,13 +1,14 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { FolderOpen, Plus, ChevronRight, Building2, Gauge, Trash2, Pencil, Users, Sparkles, MapPin, Search } from "lucide-react";
+import { FolderOpen, Plus, ChevronRight, Building2, Gauge, Trash2, Pencil, Users, Sparkles, MapPin, Search, Wand2, ArrowRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader } from "@/components/ui/loader";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -29,9 +30,10 @@ import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { getOrgId, setOrgId } from "@/lib/auth";
 import { useAuthGuard } from "@/lib/hooks";
-import type { CollectionJob, Organization, Project } from "@/lib/types";
+import type { CollectionJob, Organization, Project, PromptEnhanceResponse } from "@/lib/types";
 
 type ProjectForm = {
+  prompt: string;
   name: string;
   niche: string;
   geography: string;
@@ -39,6 +41,7 @@ type ProjectForm = {
 };
 
 const initialProject: ProjectForm = {
+  prompt: "",
   name: "",
   niche: "",
   geography: "",
@@ -72,6 +75,9 @@ export default function DashboardPage() {
   const [editTarget, setEditTarget] = useState<Project | null>(null);
   const [editForm, setEditForm] = useState<ProjectForm>(initialProject);
   const [saving, setSaving] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhanced, setEnhanced] = useState<PromptEnhanceResponse | null>(null);
+  const [formStep, setFormStep] = useState<"prompt" | "review">("prompt");
 
   const bootstrap = async () => {
     try {
@@ -118,6 +124,33 @@ export default function DashboardPage() {
     setProjects(prs);
   };
 
+  const enhancePrompt = async () => {
+    if (!projectForm.prompt.trim() || projectForm.prompt.trim().length < 5) {
+      toast.error("Опишите ваш бизнес подробнее (минимум 5 символов)");
+      return;
+    }
+    setEnhancing(true);
+    try {
+      const result = await api<PromptEnhanceResponse>("/projects/enhance-prompt", {
+        method: "POST",
+        body: JSON.stringify({ prompt: projectForm.prompt.trim() }),
+      });
+      setEnhanced(result);
+      setProjectForm((p) => ({
+        ...p,
+        name: result.project_name || p.name,
+        niche: result.niche || p.niche,
+        geography: result.geography || p.geography,
+        segments: (result.segments || []).join(", "),
+      }));
+      setFormStep("review");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось проанализировать запрос");
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
   const createProject = async (e: FormEvent) => {
     e.preventDefault();
     setCreating(true);
@@ -125,12 +158,17 @@ export default function DashboardPage() {
       await api<Project>("/projects", {
         method: "POST",
         body: JSON.stringify({
-          ...projectForm,
+          prompt: projectForm.prompt || undefined,
+          name: projectForm.name,
+          niche: projectForm.niche,
+          geography: projectForm.geography,
           segments: projectForm.segments.split(",").map((s) => s.trim()).filter(Boolean),
         }),
       });
       setProjectForm(initialProject);
       setShowForm(false);
+      setFormStep("prompt");
+      setEnhanced(null);
       await refreshProjects();
       toast.success("Проект создан");
     } catch (error) {
@@ -157,6 +195,7 @@ export default function DashboardPage() {
 
   const openEditDialog = (project: Project) => {
     setEditForm({
+      prompt: project.prompt || "",
       name: project.name,
       niche: project.niche,
       geography: project.geography,
@@ -313,78 +352,141 @@ export default function DashboardPage() {
       </div>
 
       {/* ── New project dialog ── */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Новый проект</DialogTitle>
-            <DialogDescription>
-              Заполните информацию о проекте для начала сбора лидов.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={createProject} className="grid gap-4 px-1 sm:px-0">
-            <div className="grid gap-2">
-              <Label htmlFor="proj-name">Название проекта</Label>
-              <Input
-                id="proj-name"
-                placeholder="Например: Мой проект"
-                required
-                value={projectForm.name}
-                maxLength={140}
-                minLength={2}
-                aria-label="Название проекта"
-                onChange={(e) => setProjectForm((p) => ({ ...p, name: e.target.value }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="proj-niche">Ниша</Label>
-              <Input
-                id="proj-niche"
-                placeholder="Например: деревообработка"
-                required
-                value={projectForm.niche}
-                maxLength={120}
-                minLength={2}
-                aria-label="Ниша"
-                onChange={(e) => setProjectForm((p) => ({ ...p, niche: e.target.value }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="proj-geo">Регион / город</Label>
-              <Input
-                id="proj-geo"
-                placeholder="Например: Москва"
-                required
-                value={projectForm.geography}
-                maxLength={120}
-                minLength={2}
-                aria-label="Регион или город"
-                onChange={(e) => setProjectForm((p) => ({ ...p, geography: e.target.value }))}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="proj-segments">Сегменты</Label>
-              <Input
-                id="proj-segments"
-                placeholder="Через запятую (необязательно)"
-                value={projectForm.segments}
-                maxLength={300}
-                aria-label="Сегменты"
-                onChange={(e) => setProjectForm((p) => ({ ...p, segments: e.target.value }))}
-              />
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowForm(false)}
-              >
-                Отмена
-              </Button>
-              <Button type="submit" disabled={creating}>
-                {creating ? "Создаём..." : "Создать проект"}
-              </Button>
-            </DialogFooter>
-          </form>
+      <Dialog open={showForm} onOpenChange={(open) => { setShowForm(open); if (!open) { setFormStep("prompt"); setEnhanced(null); } }}>
+        <DialogContent className="sm:max-w-lg">
+          <AnimatePresence mode="wait">
+            {formStep === "prompt" ? (
+              <motion.div key="prompt-step" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-violet-500" />
+                    Найти клиентов
+                  </DialogTitle>
+                  <DialogDescription>
+                    Опишите ваш бизнес — что вы продаёте или какие услуги оказываете. AI проанализирует и найдёт потенциальных клиентов.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="mt-4 grid gap-4">
+                  <Textarea
+                    placeholder={"Например:\n• Продаю кормовые добавки для животных в Томске\n• Разрабатываю сайты и мобильные приложения в Москве\n• Поставляю стройматериалы оптом по всей России"}
+                    value={projectForm.prompt}
+                    onChange={(e) => setProjectForm((p) => ({ ...p, prompt: e.target.value }))}
+                    rows={5}
+                    className="resize-none text-base"
+                    maxLength={2000}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    AI улучшит ваш запрос и определит, кого именно искать как потенциальных покупателей
+                  </p>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
+                      Отмена
+                    </Button>
+                    <Button onClick={enhancePrompt} disabled={enhancing || !projectForm.prompt.trim()}>
+                      {enhancing ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Анализирую...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="mr-2 h-4 w-4" />
+                          Анализировать
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div key="review-step" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.2 }}>
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <Search className="h-5 w-5 text-emerald-500" />
+                    Стратегия поиска
+                  </DialogTitle>
+                  <DialogDescription>
+                    AI определил целевых клиентов. Проверьте и скорректируйте при необходимости.
+                  </DialogDescription>
+                </DialogHeader>
+
+                {enhanced?.explanation && (
+                  <div className="mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
+                    <p className="text-sm text-violet-700 dark:text-violet-300">
+                      <Sparkles className="mr-1.5 inline h-3.5 w-3.5" />
+                      {enhanced.explanation}
+                    </p>
+                  </div>
+                )}
+
+                {enhanced?.target_customer_types && enhanced.target_customer_types.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {enhanced.target_customer_types.map((type) => (
+                      <Badge key={type} variant="secondary" className="text-xs">
+                        {type}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                <form onSubmit={createProject} className="mt-4 grid gap-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="proj-name" className="text-xs text-muted-foreground">Название проекта</Label>
+                    <Input
+                      id="proj-name"
+                      required
+                      value={projectForm.name}
+                      maxLength={140}
+                      minLength={2}
+                      onChange={(e) => setProjectForm((p) => ({ ...p, name: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="proj-niche" className="text-xs text-muted-foreground">Кого ищем (ниша клиентов)</Label>
+                      <Input
+                        id="proj-niche"
+                        required
+                        value={projectForm.niche}
+                        maxLength={120}
+                        minLength={2}
+                        onChange={(e) => setProjectForm((p) => ({ ...p, niche: e.target.value }))}
+                      />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor="proj-geo" className="text-xs text-muted-foreground">Регион / город</Label>
+                      <Input
+                        id="proj-geo"
+                        required
+                        value={projectForm.geography}
+                        maxLength={120}
+                        minLength={2}
+                        onChange={(e) => setProjectForm((p) => ({ ...p, geography: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor="proj-segments" className="text-xs text-muted-foreground">Целевые сегменты</Label>
+                    <Input
+                      id="proj-segments"
+                      value={projectForm.segments}
+                      maxLength={300}
+                      placeholder="Через запятую"
+                      onChange={(e) => setProjectForm((p) => ({ ...p, segments: e.target.value }))}
+                    />
+                  </div>
+                  <DialogFooter className="mt-2">
+                    <Button type="button" variant="outline" onClick={() => setFormStep("prompt")}>
+                      Назад
+                    </Button>
+                    <Button type="submit" disabled={creating}>
+                      {creating ? "Создаём..." : "Создать проект"}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </DialogContent>
       </Dialog>
 

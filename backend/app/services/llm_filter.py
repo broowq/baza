@@ -29,13 +29,13 @@ def filter_candidates_llm(
     niche: str,
     geography: str,
     segments: list[str],
+    *,
+    prompt: str = "",
 ) -> list[dict]:
     """Filter ALL candidates using LLM for relevance and quality.
 
-    Sends batches of up to 30 candidates to Claude Haiku for evaluation.
-    Each candidate gets a relevance verdict: KEEP or REJECT.
-
-    If no API key configured, returns candidates unchanged (graceful degradation).
+    When a prompt is provided, the filter understands that niche/segments
+    represent TARGET CUSTOMERS, not the user's own business.
     """
     client = _get_client()
     if not client:
@@ -44,13 +44,12 @@ def filter_candidates_llm(
     if not candidates:
         return candidates
 
-    # Process in batches of 30
     BATCH_SIZE = 30
     all_kept = []
 
     for batch_start in range(0, len(candidates), BATCH_SIZE):
         batch = candidates[batch_start:batch_start + BATCH_SIZE]
-        kept = _filter_batch(client, batch, niche, geography, segments)
+        kept = _filter_batch(client, batch, niche, geography, segments, prompt=prompt)
         all_kept.extend(kept)
 
     logger.info(
@@ -66,6 +65,8 @@ def _filter_batch(
     niche: str,
     geography: str,
     segments: list[str],
+    *,
+    prompt: str = "",
 ) -> list[dict]:
     """Filter a single batch of candidates."""
     lines = []
@@ -94,7 +95,41 @@ def _filter_batch(
     candidates_text = "\n".join(lines)
     segments_str = ", ".join(segments) if segments else "не указаны"
 
-    prompt = f"""Ты — строгий фильтр качества B2B лидов для платформы лидогенерации.
+    if prompt:
+        # Customer-focused filter: the user described their business,
+        # niche/segments are target CUSTOMER types
+        filter_prompt = f"""Ты — строгий фильтр качества B2B лидов для платформы лидогенерации.
+
+КОНТЕКСТ: Пользователь описал свой бизнес так: "{prompt}"
+Мы ищем ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ для этого бизнеса — компании, которым можно ПРОДАТЬ товар/услугу пользователя.
+
+ЦЕЛЕВАЯ НИША КЛИЕНТОВ: {niche}
+ГЕОГРАФИЯ: {geography}
+ЦЕЛЕВЫЕ СЕГМЕНТЫ: {segments_str}
+
+КРИТЕРИИ ОТКЛОНЕНИЯ (REJECT):
+- Компания является КОНКУРЕНТОМ (продаёт то же самое, что и пользователь)
+- Это агрегатор, каталог, справочник, маркетплейс — не реальная компания
+- Это ликвидированная/закрытая компания
+- Компания НЕ может быть потенциальным покупателем/клиентом
+- Это информационный сайт, блог, новостной портал
+- Компания из другого региона (если указана конкретная география)
+
+КРИТЕРИИ СОХРАНЕНИЯ (KEEP):
+- Компания может быть ПОКУПАТЕЛЕМ товара/услуги пользователя
+- Компания работает в сфере, где нужен товар/услуга пользователя
+- Это реальный действующий бизнес из указанного региона
+- Даже если мало информации — если тип бизнеса подходит как клиент, сохраняем
+
+ФОРМАТ ОТВЕТА: Только номера ПОДХОДЯЩИХ кандидатов через запятую. Если ни один не подходит — напиши "0".
+
+КАНДИДАТЫ:
+{candidates_text}
+
+ПОДХОДЯЩИЕ:"""
+    else:
+        # Legacy filter: direct niche matching
+        filter_prompt = f"""Ты — строгий фильтр качества B2B лидов для платформы лидогенерации.
 
 ЗАДАЧА: Оцени каждого кандидата и реши — подходит ли он как потенциальный клиент/партнёр.
 
@@ -127,7 +162,7 @@ def _filter_batch(
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=200,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": filter_prompt}],
         )
 
         answer = response.content[0].text.strip()
@@ -136,17 +171,15 @@ def _filter_batch(
             return []
 
         kept_indices: set[int] = set()
-        # Parse comma-separated numbers, handling various formats
         for part in re.findall(r"\d+", answer):
             try:
-                idx = int(part) - 1  # 1-indexed to 0-indexed
+                idx = int(part) - 1
                 if 0 <= idx < len(batch):
                     kept_indices.add(idx)
             except ValueError:
                 continue
 
         if not kept_indices:
-            # If parsing failed, keep all (don't lose data)
             logger.warning(f"LLM filter: could not parse response '{answer}', keeping all")
             return batch
 

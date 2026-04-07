@@ -9,7 +9,13 @@ from app.api.deps import get_current_org, require_org_roles
 from app.db.session import get_db
 from app.models import Organization, Project
 from app.schemas.common import APIMessage
-from app.schemas.projects import ProjectCreateRequest, ProjectOut, ProjectUpdateRequest
+from app.schemas.projects import (
+    ProjectCreateRequest,
+    ProjectOut,
+    ProjectUpdateRequest,
+    PromptEnhanceRequest,
+    PromptEnhanceResponse,
+)
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -29,6 +35,27 @@ def _validate_cron(expression: str) -> None:
             status_code=422,
             detail=f"Некорректное cron-выражение: '{expression}'. Ожидается 5 полей: минута час день месяц день_недели",
         )
+
+
+@router.post("/enhance-prompt", response_model=PromptEnhanceResponse)
+def enhance_prompt(
+    payload: PromptEnhanceRequest,
+    organization: Organization = Depends(get_current_org),
+):
+    """Enhance a raw user prompt into an optimized search strategy."""
+    from app.services.prompt_enhancer import enhance_prompt as do_enhance
+
+    result = do_enhance(payload.prompt)
+    return PromptEnhanceResponse(
+        enhanced_prompt=result.get("enhanced_prompt", payload.prompt),
+        project_name=result.get("project_name", "Новый проект"),
+        niche=result.get("niche", payload.prompt[:120]),
+        geography=result.get("geography", "Россия"),
+        segments=result.get("segments", []),
+        target_customer_types=result.get("target_customer_types", []),
+        search_queries_niche=result.get("search_queries_niche", ""),
+        explanation=result.get("explanation", ""),
+    )
 
 
 @router.get("", response_model=list[ProjectOut])
@@ -67,6 +94,7 @@ def create_project(
     project = Project(
         organization_id=organization.id,
         name=payload.name,
+        prompt=payload.prompt,
         niche=payload.niche,
         geography=payload.geography,
         segments=payload.segments,

@@ -69,6 +69,7 @@ def collect_leads_task(job_id: str) -> None:
             niche=project.niche,
             geography=project.geography,
             segments=list(project.segments) if project.segments else [],
+            prompt=project.prompt or "",
         )
         job.found_count = len(candidates)
         db.commit()

@@ -14,11 +14,23 @@ export type Organization = {
 export type Project = {
   id: string;
   name: string;
+  prompt?: string;
   niche: string;
   geography: string;
   segments: string[];
   cron_schedule: string;
   auto_collection_enabled: boolean;
+};
+
+export type PromptEnhanceResponse = {
+  enhanced_prompt: string;
+  project_name: string;
+  niche: string;
+  geography: string;
+  segments: string[];
+  target_customer_types: string[];
+  search_queries_niche: string;
+  explanation: string;
 };
 
 export type Lead = {

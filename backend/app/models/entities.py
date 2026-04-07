@@ -89,6 +89,7 @@ class Project(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), index=True)
     name: Mapped[str] = mapped_column(String(140), nullable=False)
+    prompt: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     niche: Mapped[str] = mapped_column(String(120), nullable=False)
     geography: Mapped[str] = mapped_column(String(120), nullable=False)
     segments: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)

@@ -933,7 +933,7 @@ def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
     return enriched[:limit]
 
 
-def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None) -> list[dict]:
+def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "") -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -1039,7 +1039,7 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     ranked = _finalize_candidates(collected, limit)
     if ranked:
         from app.services.llm_filter import filter_candidates_llm
-        ranked = filter_candidates_llm(ranked, effective_niche, effective_geo, effective_segments)
+        ranked = filter_candidates_llm(ranked, effective_niche, effective_geo, effective_segments, prompt=prompt)
         return ranked
     # Never generate fake/synthetic leads — return empty list so callers see
     # real zero-result state and can act accordingly.

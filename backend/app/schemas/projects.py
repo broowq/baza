@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 class ProjectCreateRequest(BaseModel):
     name: str = Field(min_length=2, max_length=140)
+    prompt: str | None = Field(default=None, max_length=2000)
     niche: str = Field(min_length=2, max_length=120)
     geography: str = Field(min_length=2, max_length=120)
     segments: list[str] = Field(default_factory=list)
@@ -15,6 +16,7 @@ class ProjectCreateRequest(BaseModel):
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=140)
+    prompt: str | None = Field(default=None, max_length=2000)
     niche: str | None = Field(default=None, min_length=2, max_length=120)
     geography: str | None = Field(default=None, min_length=2, max_length=120)
     segments: list[str] | None = None
@@ -26,6 +28,7 @@ class ProjectOut(BaseModel):
     id: UUID
     organization_id: UUID
     name: str
+    prompt: str | None = None
     niche: str
     geography: str
     segments: list[str]
@@ -36,3 +39,18 @@ class ProjectOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class PromptEnhanceRequest(BaseModel):
+    prompt: str = Field(min_length=5, max_length=2000)
+
+
+class PromptEnhanceResponse(BaseModel):
+    enhanced_prompt: str
+    project_name: str
+    niche: str
+    geography: str
+    segments: list[str]
+    target_customer_types: list[str] = Field(default_factory=list)
+    search_queries_niche: str = ""
+    explanation: str = ""
