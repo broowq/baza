@@ -6,6 +6,7 @@ not competitors.
 """
 import json
 import logging
+import re
 
 from app.core.config import get_settings
 
@@ -33,22 +34,143 @@ def _get_client():
     return _client
 
 
+# ── Smart rule-based customer mapping ──
+# Maps what someone SELLS to who would BUY it
+_PRODUCT_TO_CUSTOMERS = [
+    # Vet / Animal products
+    {
+        "keywords": ["кормов", "корм ", "комбикорм", "премикс", "добавк", "ветеринар", "ветпрепарат",
+                      "вакцин", "антибиотик", "витамин для животн"],
+        "niche": "животноводство, птицеводство, сельское хозяйство",
+        "segments": ["птицефабрика", "свиноферма", "животноводческая ферма", "агрохолдинг",
+                     "зоомагазин", "ветеринарная клиника", "конный клуб", "рыбоводство"],
+        "target_types": ["Птицефабрики", "Свинофермы", "КФХ", "Агрохолдинги", "Зоомагазины", "Ветклиники"],
+        "search_niche": "ферма птицефабрика свиноферма агрохолдинг зоомагазин ветклиника",
+    },
+    # Construction materials
+    {
+        "keywords": ["стройматериал", "бетон", "кирпич", "цемент", "арматур", "пиломатериал",
+                      "утеплител", "кровл", "фасад", "штукатурк", "гипсокартон", "строительн"],
+        "niche": "строительство, девелопмент, ремонт",
+        "segments": ["строительная компания", "девелопер", "застройщик", "подрядчик",
+                     "ремонтная бригада", "архитектурное бюро", "управляющая компания"],
+        "target_types": ["Строительные компании", "Застройщики", "Подрядчики", "Ремонтные бригады"],
+        "search_niche": "строительная компания застройщик подрядчик ремонт квартир",
+    },
+    # Wood / Timber
+    {
+        "keywords": ["древесин", "пиломатериал", "брус", "доск", "фанер", "деревообработк",
+                      "вагонк", "паркет", "мебельн", "лес ", "лесоматериал", "дерев"],
+        "niche": "мебельное производство, строительство, столярные мастерские",
+        "segments": ["мебельная фабрика", "столярная мастерская", "строительная компания",
+                     "дизайн интерьера", "бани под ключ", "деревянное домостроение"],
+        "target_types": ["Мебельные фабрики", "Столярные мастерские", "Строители деревянных домов"],
+        "search_niche": "мебельная фабрика столярная мастерская деревянное домостроение",
+    },
+    # IT / Web development
+    {
+        "keywords": ["сайт", "приложени", "разработк", "программир", "веб-", "web ", "мобильн",
+                      "crm", "erp", "автоматизац", "софт", "it ", "ит "],
+        "niche": "малый и средний бизнес, e-commerce, HoReCa",
+        "segments": ["ресторан", "магазин", "салон красоты", "стоматология", "автосервис",
+                     "фитнес-клуб", "турагентство", "юридическая компания"],
+        "target_types": ["Рестораны", "Магазины", "Салоны красоты", "Клиники", "Автосервисы"],
+        "search_niche": "ресторан салон красоты стоматология автосервис магазин",
+    },
+    # Marketing / Advertising
+    {
+        "keywords": ["маркетинг", "реклам", "smm", "seo", "продвижени", "таргет", "контент",
+                      "брендинг", "pr ", "пиар", "дизайн"],
+        "niche": "малый и средний бизнес, стартапы, e-commerce",
+        "segments": ["интернет-магазин", "ресторан", "клиника", "застройщик",
+                     "производственная компания", "юридическая фирма"],
+        "target_types": ["Интернет-магазины", "Рестораны", "Клиники", "Застройщики"],
+        "search_niche": "интернет-магазин ресторан клиника застройщик производство",
+    },
+    # Food products / wholesale
+    {
+        "keywords": ["продукт питан", "продовольств", "молоч", "мяс", "колбас", "заморож",
+                      "полуфабрикат", "кондитерск", "хлеб", "напитк", "снек"],
+        "niche": "розничная торговля, общепит, HoReCa",
+        "segments": ["продуктовый магазин", "супермаркет", "ресторан", "кафе", "столовая",
+                     "отель", "детский сад", "школа", "больница"],
+        "target_types": ["Магазины продуктов", "Рестораны", "Кафе", "Столовые", "Отели"],
+        "search_niche": "продуктовый магазин ресторан кафе столовая отель",
+    },
+    # Industrial equipment
+    {
+        "keywords": ["оборудован", "станк", "компрессор", "насос", "генератор", "конвейер",
+                      "промышлен", "запчаст", "инструмент", "электро"],
+        "niche": "производственные предприятия, заводы, фабрики",
+        "segments": ["завод", "фабрика", "производственная компания", "цех",
+                     "горнодобывающая компания", "нефтегазовая компания"],
+        "target_types": ["Заводы", "Фабрики", "Производственные компании", "Цеха"],
+        "search_niche": "завод фабрика производство цех предприятие",
+    },
+    # Transport / Logistics
+    {
+        "keywords": ["перевозк", "логистик", "доставк", "транспорт", "грузоперевоз",
+                      "склад", "фулфилмент", "карго"],
+        "niche": "производство, e-commerce, торговля",
+        "segments": ["интернет-магазин", "производственная компания", "торговая компания",
+                     "оптовая база", "строительная компания"],
+        "target_types": ["Интернет-магазины", "Производства", "Торговые компании", "Оптовые базы"],
+        "search_niche": "интернет-магазин производство торговая компания оптовая база",
+    },
+    # Cleaning / Services
+    {
+        "keywords": ["клинин", "уборк", "химчист", "стирк", "чистк"],
+        "niche": "офисные здания, торговые центры, HoReCa",
+        "segments": ["бизнес-центр", "торговый центр", "отель", "ресторан",
+                     "медицинский центр", "фитнес-клуб", "управляющая компания"],
+        "target_types": ["Бизнес-центры", "ТЦ", "Отели", "Рестораны", "Медцентры"],
+        "search_niche": "бизнес-центр торговый центр отель медицинский центр управляющая компания",
+    },
+    # Packaging
+    {
+        "keywords": ["упаков", "тар ", "тары", "коробк", "пакет", "этикетк", "полиэтилен", "стрейч"],
+        "niche": "пищевое производство, e-commerce, торговля",
+        "segments": ["пищевое производство", "кондитерская", "молокозавод", "пивоварня",
+                     "интернет-магазин", "косметическая компания"],
+        "target_types": ["Пищевые производства", "Кондитерские", "Интернет-магазины", "Косметические компании"],
+        "search_niche": "пищевое производство кондитерская молокозавод пивоварня",
+    },
+    # Security
+    {
+        "keywords": ["охран", "безопасност", "видеонаблюден", "сигнализац", "скуд", "контроль доступ",
+                      "пожарн", "огнетуш"],
+        "niche": "коммерческая недвижимость, склады, офисы",
+        "segments": ["бизнес-центр", "торговый центр", "склад", "банк",
+                     "ювелирный магазин", "аптека", "застройщик"],
+        "target_types": ["Бизнес-центры", "ТЦ", "Склады", "Банки", "Застройщики"],
+        "search_niche": "бизнес-центр торговый центр склад банк застройщик",
+    },
+    # Textiles / Uniforms
+    {
+        "keywords": ["спецодежд", "униформ", "текстил", "ткан", "пошив", "швейн", "одежд оптом"],
+        "niche": "производственные предприятия, HoReCa, медицина",
+        "segments": ["завод", "больница", "ресторан", "отель", "строительная компания",
+                     "клининговая компания", "охранное предприятие"],
+        "target_types": ["Заводы", "Больницы", "Рестораны", "Отели", "Строительные компании"],
+        "search_niche": "завод больница ресторан отель строительная компания",
+    },
+]
+
+
 def enhance_prompt(raw_prompt: str) -> dict:
-    """Take a user's raw business description and generate a search strategy.
-
-    Returns dict with:
-        - enhanced_prompt: improved version of the user's description
-        - project_name: suggested short project name
-        - niche: extracted target customer niche (who to search for)
-        - geography: extracted geography
-        - segments: list of target customer segments
-        - search_queries: list of optimized search queries for finding CUSTOMERS
-        - explanation: brief explanation of the strategy
-    """
+    """Take a user's raw business description and generate a search strategy."""
     client = _get_client()
-    if not client:
-        return _fallback_parse(raw_prompt)
+    if client:
+        result = _try_llm_enhance(client, raw_prompt)
+        if result:
+            return result
 
+    # Fallback to smart rule-based enhancement
+    return _smart_fallback(raw_prompt)
+
+
+def _try_llm_enhance(client, raw_prompt: str) -> dict | None:
+    """Try to enhance using LLM. Returns None on failure."""
     system_prompt = """Ты — AI-ассистент B2B платформы лидогенерации БАЗА. Твоя задача — проанализировать описание бизнеса пользователя и создать стратегию поиска ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ.
 
 ВАЖНО: Пользователь описывает СВОЙ бизнес и что он продаёт/предлагает. Тебе нужно определить, КТО будет ПОКУПАТЕЛЕМ его товара/услуги, и настроить поиск именно этих компаний.
@@ -57,11 +179,6 @@ def enhance_prompt(raw_prompt: str) -> dict:
 - Пользователь: "Продаю кормовые добавки для животных в Томске"
 - НЕПРАВИЛЬНО: искать компании, которые продают кормовые добавки (это конкуренты!)
 - ПРАВИЛЬНО: искать животноводческие фермы, птицефабрики, свинокомплексы, зоомагазины, ветклиники, агрохолдинги — тех, кому НУЖНЫ кормовые добавки
-
-Ещё пример:
-- Пользователь: "Делаем сайты и мобильные приложения"
-- НЕПРАВИЛЬНО: искать веб-студии (конкуренты!)
-- ПРАВИЛЬНО: искать компании без сайта или с плохим сайтом, стартапы, малый бизнес, рестораны, магазины — тех, кому НУЖЕН сайт
 
 Ответь СТРОГО в JSON формате:
 {
@@ -87,7 +204,6 @@ search_queries_niche — это то, что будет искаться на к
         )
         answer = response.content[0].text.strip()
 
-        # Extract JSON from response (handle markdown code blocks)
         if "```json" in answer:
             answer = answer.split("```json")[1].split("```")[0].strip()
         elif "```" in answer:
@@ -95,57 +211,107 @@ search_queries_niche — это то, что будет искаться на к
 
         result = json.loads(answer)
 
-        # Validate required fields
         required = ["niche", "geography", "segments", "project_name"]
         for field in required:
             if field not in result:
-                logger.warning(f"Missing field '{field}' in LLM response, falling back")
-                return _fallback_parse(raw_prompt)
+                return None
 
-        # Ensure segments is a list
         if isinstance(result.get("segments"), str):
             result["segments"] = [s.strip() for s in result["segments"].split(",")]
 
         result["raw_prompt"] = raw_prompt
         return result
 
-    except json.JSONDecodeError as e:
-        logger.warning(f"Failed to parse LLM response as JSON: {e}")
-        return _fallback_parse(raw_prompt)
     except Exception as e:
-        logger.warning(f"Prompt enhancement failed: {e}")
-        return _fallback_parse(raw_prompt)
+        logger.warning(f"LLM prompt enhancement failed: {e}")
+        return None
 
 
-def _fallback_parse(raw_prompt: str) -> dict:
-    """Simple rule-based fallback when LLM is not available."""
-    words = raw_prompt.strip().split()
+def _smart_fallback(raw_prompt: str) -> dict:
+    """Smart rule-based fallback: maps product/service → target customers."""
+    prompt_lower = raw_prompt.lower().strip()
 
-    # Try to extract geography (common Russian cities)
+    # Extract geography
+    geography = _extract_geography(prompt_lower)
+
+    # Try to match against known product → customer mappings
+    best_match = None
+    best_score = 0
+
+    for mapping in _PRODUCT_TO_CUSTOMERS:
+        score = 0
+        for keyword in mapping["keywords"]:
+            if keyword in prompt_lower:
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_match = mapping
+
+    if best_match and best_score >= 1:
+        # Clean prompt from geography and action words for project name
+        clean_name = re.sub(
+            r'\b(продаю|продаём|оказываю|предлагаю|делаю|произвожу|поставляю|в\s+\w+е?)\b',
+            '', raw_prompt, flags=re.IGNORECASE
+        ).strip()
+        clean_name = re.sub(r'\s+', ' ', clean_name).strip()
+        project_name = clean_name[:50] if clean_name else raw_prompt[:50]
+
+        return {
+            "enhanced_prompt": raw_prompt,
+            "project_name": f"Клиенты: {project_name[:40]}",
+            "niche": best_match["niche"],
+            "geography": geography,
+            "segments": best_match["segments"],
+            "target_customer_types": best_match["target_types"],
+            "search_queries_niche": best_match["search_niche"],
+            "explanation": f"Ищем потенциальных покупателей: {', '.join(best_match['target_types'][:4])}",
+            "raw_prompt": raw_prompt,
+        }
+
+    # No match — generic fallback
+    return {
+        "enhanced_prompt": raw_prompt,
+        "project_name": raw_prompt[:50],
+        "niche": raw_prompt[:120],
+        "geography": geography,
+        "segments": [],
+        "target_customer_types": [],
+        "search_queries_niche": raw_prompt[:120],
+        "explanation": "Не удалось автоматически определить целевых клиентов. Уточните нишу вручную.",
+        "raw_prompt": raw_prompt,
+    }
+
+
+def _extract_geography(text: str) -> str:
+    """Extract city name from Russian text."""
     cities = [
         "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань",
         "Нижний Новгород", "Челябинск", "Самара", "Омск", "Ростов-на-Дону",
         "Уфа", "Красноярск", "Воронеж", "Пермь", "Волгоград", "Краснодар",
         "Саратов", "Тюмень", "Тольятти", "Ижевск", "Барнаул", "Ульяновск",
         "Иркутск", "Хабаровск", "Ярославль", "Владивосток", "Махачкала",
-        "Томск", "Оренбург", "Кемерово", "Новокузнецк", "Рязань",
+        "Томск", "Оренбург", "Кемерово", "Новокузнецк", "Рязань", "Астрахань",
+        "Пенза", "Липецк", "Тула", "Киров", "Чебоксары", "Калининград",
+        "Брянск", "Курск", "Иваново", "Магнитогорск", "Тверь", "Белгород",
+        "Сочи", "Сургут", "Владимир", "Нижний Тагил", "Архангельск",
+        "Чита", "Калуга", "Смоленск", "Волжский", "Якутск", "Саранск",
+        "Вологда", "Комсомольск-на-Амуре", "Мурманск", "Тамбов",
     ]
 
-    geography = "Россия"
-    prompt_lower = raw_prompt.lower()
+    # Check for prepositional forms (в Томске → Томск)
+    city_forms = {}
     for city in cities:
-        if city.lower() in prompt_lower:
-            geography = city
-            break
+        city_forms[city.lower()] = city
+        # Common prepositional case endings
+        if city.endswith("ск"):
+            city_forms[city.lower() + "е"] = city
+        elif city.endswith("а"):
+            city_forms[city.lower()[:-1] + "е"] = city
+        elif city.endswith("ь"):
+            city_forms[city.lower()[:-1] + "и"] = city
 
-    return {
-        "enhanced_prompt": raw_prompt,
-        "project_name": " ".join(words[:4]) if len(words) > 4 else raw_prompt[:50],
-        "niche": raw_prompt[:120],
-        "geography": geography,
-        "segments": [],
-        "target_customer_types": [],
-        "search_queries_niche": raw_prompt[:120],
-        "explanation": "Автоматический анализ без AI. Рекомендуем добавить ключ Anthropic API для лучших результатов.",
-        "raw_prompt": raw_prompt,
-    }
+    for form, original in city_forms.items():
+        if form in text:
+            return original
+
+    return "Россия"
