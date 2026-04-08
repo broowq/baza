@@ -1,4 +1,8 @@
-"""AI-powered lead quality filter using Claude API."""
+"""Lead quality filter: AI-powered with rule-based fallback.
+
+When Anthropic API is available, uses Claude for smart filtering.
+When unavailable (geo-blocked, no key), uses rule-based competitor detection.
+"""
 import logging
 import re
 from app.core.config import get_settings
@@ -35,43 +39,60 @@ def filter_candidates_llm(
     *,
     prompt: str = "",
 ) -> list[dict]:
-    """Filter ALL candidates using LLM for relevance and quality.
-
-    When a prompt is provided, the filter understands that niche/segments
-    represent TARGET CUSTOMERS, not the user's own business.
-    """
-    client = _get_client()
-    if not client:
-        return candidates
-
+    """Filter candidates for relevance. Uses AI if available, rule-based otherwise."""
     if not candidates:
         return candidates
 
+    # Try AI filter first
+    client = _get_client()
+    if client:
+        try:
+            result = _ai_filter(client, candidates, niche, geography, segments, prompt)
+            if result is not None:
+                return result
+        except Exception as e:
+            logger.warning(f"AI filter failed, falling back to rules: {e}")
+
+    # Rule-based fallback: filter competitors when prompt context is available
+    if prompt:
+        result = _rule_based_competitor_filter(candidates, prompt, niche, segments)
+        logger.info(
+            f"Rule-based filter: {len(candidates)} candidates -> {len(result)} kept "
+            f"({len(candidates) - len(result)} rejected as competitors/irrelevant)"
+        )
+        return result
+
+    return candidates
+
+
+def _ai_filter(
+    client,
+    candidates: list[dict],
+    niche: str,
+    geography: str,
+    segments: list[str],
+    prompt: str,
+) -> list[dict] | None:
+    """AI-based filtering. Returns None on failure."""
     BATCH_SIZE = 30
     all_kept = []
 
     for batch_start in range(0, len(candidates), BATCH_SIZE):
         batch = candidates[batch_start:batch_start + BATCH_SIZE]
-        kept = _filter_batch(client, batch, niche, geography, segments, prompt=prompt)
+        kept = _ai_filter_batch(client, batch, niche, geography, segments, prompt)
+        if kept is None:
+            return None  # Signal failure to caller
         all_kept.extend(kept)
 
     logger.info(
-        f"LLM filter: {len(candidates)} candidates -> {len(all_kept)} kept "
+        f"AI filter: {len(candidates)} candidates -> {len(all_kept)} kept "
         f"({len(candidates) - len(all_kept)} rejected)"
     )
     return all_kept
 
 
-def _filter_batch(
-    client,
-    batch: list[dict],
-    niche: str,
-    geography: str,
-    segments: list[str],
-    *,
-    prompt: str = "",
-) -> list[dict]:
-    """Filter a single batch of candidates."""
+def _ai_filter_batch(client, batch, niche, geography, segments, prompt) -> list[dict] | None:
+    """Filter a single batch using AI. Returns None on failure."""
     lines = []
     for i, c in enumerate(batch):
         company = c.get("company", "—")
@@ -79,7 +100,6 @@ def _filter_batch(
         city = c.get("city", "—")
         desc = (c.get("description") or c.get("snippet") or "")[:150]
         category = c.get("category", "")
-        address = c.get("address", "")
 
         parts = [f"{i+1}. {company}"]
         if domain and domain != "—":
@@ -88,73 +108,34 @@ def _filter_batch(
             parts.append(f"город: {city}")
         if category:
             parts.append(f"категория: {category}")
-        if address:
-            parts.append(f"адрес: {address}")
         if desc:
             parts.append(f"описание: {desc}")
-
         lines.append(" | ".join(parts))
 
     candidates_text = "\n".join(lines)
     segments_str = ", ".join(segments) if segments else "не указаны"
 
     if prompt:
-        # Customer-focused filter: the user described their business,
-        # niche/segments are target CUSTOMER types
-        filter_prompt = f"""Ты — строгий фильтр качества B2B лидов для платформы лидогенерации.
-
-КОНТЕКСТ: Пользователь описал свой бизнес так: "{prompt}"
-Мы ищем ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ для этого бизнеса — компании, которым можно ПРОДАТЬ товар/услугу пользователя.
+        filter_prompt = f"""Ты — строгий фильтр B2B лидов. Пользователь описал свой бизнес: "{prompt}"
+Мы ищем ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ — компании, которым можно ПРОДАТЬ товар/услугу.
 
 ЦЕЛЕВАЯ НИША КЛИЕНТОВ: {niche}
 ГЕОГРАФИЯ: {geography}
 ЦЕЛЕВЫЕ СЕГМЕНТЫ: {segments_str}
 
-КРИТЕРИИ ОТКЛОНЕНИЯ (REJECT):
-- Компания является КОНКУРЕНТОМ (продаёт то же самое, что и пользователь)
-- Это агрегатор, каталог, справочник, маркетплейс — не реальная компания
-- Это ликвидированная/закрытая компания
-- Компания НЕ может быть потенциальным покупателем/клиентом
-- Это информационный сайт, блог, новостной портал
-- Компания из другого региона (если указана конкретная география)
+ОТКЛОНЯЙ (REJECT): конкуренты (продают то же), агрегаторы, каталоги, закрытые компании, блоги.
+СОХРАНЯЙ (KEEP): потенциальные покупатели, компании из целевых сегментов.
 
-КРИТЕРИИ СОХРАНЕНИЯ (KEEP):
-- Компания может быть ПОКУПАТЕЛЕМ товара/услуги пользователя
-- Компания работает в сфере, где нужен товар/услуга пользователя
-- Это реальный действующий бизнес из указанного региона
-- Даже если мало информации — если тип бизнеса подходит как клиент, сохраняем
-
-ФОРМАТ ОТВЕТА: Только номера ПОДХОДЯЩИХ кандидатов через запятую. Если ни один не подходит — напиши "0".
+ФОРМАТ: Номера подходящих через запятую. Если ни один — "0".
 
 КАНДИДАТЫ:
 {candidates_text}
 
 ПОДХОДЯЩИЕ:"""
     else:
-        # Legacy filter: direct niche matching
-        filter_prompt = f"""Ты — строгий фильтр качества B2B лидов для платформы лидогенерации.
-
-ЗАДАЧА: Оцени каждого кандидата и реши — подходит ли он как потенциальный клиент/партнёр.
-
-НИША ПОИСКА: {niche}
-ГЕОГРАФИЯ: {geography}
-СЕГМЕНТЫ: {segments_str}
-
-КРИТЕРИИ ОТКЛОНЕНИЯ (REJECT):
-- Компания НЕ относится к указанной нише (например, ищем деревообработку, а нашли автосервис)
-- Это агрегатор, каталог, справочник, а не реальная компания
-- Это ликвидированная/закрытая компания (если видно из описания)
-- Это государственное учреждение, не являющееся потенциальным клиентом
-- Домен явно не принадлежит компании (общий хостинг, социальная сеть)
-- Компания из другого региона (если указана конкретная география)
-
-КРИТЕРИИ СОХРАНЕНИЯ (KEEP):
-- Компания работает в указанной нише или смежной области
-- Компания из указанного региона (или региональный фильтр не критичен)
-- Это реальный действующий бизнес
-- Даже если информации мало — если ниша совпадает, сохраняем
-
-ФОРМАТ ОТВЕТА: Только номера ПОДХОДЯЩИХ кандидатов через запятую. Если ни один не подходит — напиши "0".
+        filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.
+Отклоняй: не из ниши, агрегаторы, закрытые, госучреждения. Сохраняй: реальный бизнес из ниши.
+Номера подходящих через запятую (или "0").
 
 КАНДИДАТЫ:
 {candidates_text}
@@ -167,7 +148,6 @@ def _filter_batch(
             max_tokens=200,
             messages=[{"role": "user", "content": filter_prompt}],
         )
-
         answer = response.content[0].text.strip()
 
         if answer.strip() == "0":
@@ -175,19 +155,95 @@ def _filter_batch(
 
         kept_indices: set[int] = set()
         for part in re.findall(r"\d+", answer):
-            try:
-                idx = int(part) - 1
-                if 0 <= idx < len(batch):
-                    kept_indices.add(idx)
-            except ValueError:
-                continue
+            idx = int(part) - 1
+            if 0 <= idx < len(batch):
+                kept_indices.add(idx)
 
         if not kept_indices:
-            logger.warning(f"LLM filter: could not parse response '{answer}', keeping all")
+            logger.warning(f"AI filter: could not parse response '{answer}', keeping all")
             return batch
 
         return [c for i, c in enumerate(batch) if i in kept_indices]
 
     except Exception as e:
-        logger.warning(f"LLM filter batch failed: {e}. Keeping all candidates.")
-        return batch
+        logger.warning(f"AI filter batch failed: {e}")
+        return None  # Signal failure
+
+
+# ── Rule-based competitor filtering ──
+
+# Keywords that indicate a company SELLS the product (= competitor)
+_SELLER_SIGNALS = [
+    "продажа", "продаж", "продаём", "продаем", "купить", "заказать",
+    "магазин", "интернет-магазин", "оптом", "розница", "прайс",
+    "каталог товаров", "доставка по", "склад", "поставщик",
+    "производител", "изготовлен", "дистрибьют",
+]
+
+# Keywords extracted from prompt that indicate what user sells
+def _extract_product_keywords(prompt: str) -> list[str]:
+    """Extract product/service keywords from user's business description."""
+    prompt_lower = prompt.lower()
+    # Remove common action words to isolate product
+    for word in ["продаю", "продаём", "продаем", "предлагаю", "оказываю",
+                 "делаю", "произвожу", "поставляю", "занимаюсь", "работаю"]:
+        prompt_lower = prompt_lower.replace(word, "")
+
+    # Remove geography
+    import re as _re
+    prompt_lower = _re.sub(r'\bв\s+\w+[еу]?\b', '', prompt_lower)
+
+    # Extract meaningful words (3+ chars)
+    words = [w.strip() for w in prompt_lower.split() if len(w.strip()) >= 3]
+    return words[:10]
+
+
+def _rule_based_competitor_filter(
+    candidates: list[dict],
+    prompt: str,
+    niche: str,
+    segments: list[str],
+) -> list[dict]:
+    """Filter out competitors using rule-based heuristics.
+
+    Logic: if a company name/description contains the PRODUCT keywords from the
+    user's prompt AND contains seller signals, it's likely a competitor.
+    """
+    product_keywords = _extract_product_keywords(prompt)
+    if not product_keywords:
+        return candidates
+
+    # Build set of segment terms (these are TARGET customer types)
+    segment_terms = set()
+    for seg in segments:
+        for word in seg.lower().split():
+            if len(word) >= 3:
+                segment_terms.add(word)
+
+    kept = []
+    for c in candidates:
+        company = (c.get("company") or "").lower()
+        snippet = (c.get("snippet") or "").lower()
+        domain = (c.get("domain") or "").lower()
+        categories = " ".join(c.get("categories") or []).lower()
+        combined = f"{company} {snippet} {domain} {categories}"
+
+        # Check if company matches a target segment (always keep)
+        segment_match = any(term in combined for term in segment_terms if term)
+        if segment_match:
+            kept.append(c)
+            continue
+
+        # Check if company looks like a competitor (sells the same product)
+        product_match = sum(1 for kw in product_keywords if kw in combined)
+        seller_match = sum(1 for sig in _SELLER_SIGNALS if sig in combined)
+
+        # Strong competitor signal: mentions the product AND selling activity
+        if product_match >= 2 and seller_match >= 1:
+            logger.debug(f"Filtered competitor: {c.get('company')} (product={product_match}, seller={seller_match})")
+            continue
+
+        # Keep everything else — maps results, generic businesses, etc.
+        kept.append(c)
+
+    return kept

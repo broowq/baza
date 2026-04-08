@@ -454,35 +454,36 @@ def _parse_searxng_items(payload: dict) -> list[dict]:
 
 
 def _build_discover_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
-    """Build search queries optimized for finding COMPANY WEBSITES, not articles/directories."""
+    """Build search queries optimized for finding COMPANY WEBSITES, not articles/directories.
+
+    When segments contain specific business types (e.g. "птицефабрика", "ветклиника"),
+    we search for each one individually — they are TARGET CUSTOMERS, not niche keywords.
+    """
     niche = niche.strip()
     geo = geo.strip()
     neg = _NEGATIVE_KEYWORDS
 
-    # Strategy: search for company websites directly
-    # Use "site:" exclusions and business-specific terms
-    queries = [
-        # Direct company site queries — "контакты" page = real company
+    queries = []
+
+    # If segments look like specific business types (target customers),
+    # search for each one as a standalone query
+    if segments:
+        for seg in segments[:8]:
+            seg = seg.strip()
+            if seg and len(seg) > 2:
+                queries.extend([
+                    f"{seg} {geo} контакты телефон {neg}",
+                    f"{seg} {geo} официальный сайт {neg}",
+                    f'"{seg}" "{geo}" ООО {neg}',
+                ])
+
+    # Also search by niche (broader)
+    queries.extend([
         f"{niche} {geo} контакты телефон {neg}",
         f"{niche} {geo} о компании {neg}",
-        f"{niche} {geo} наши услуги {neg}",
-        f"{niche} {geo} прайс-лист {neg}",
-        # Business entity queries
+        f"{niche} {geo} предприятие {neg}",
         f'"{niche}" "{geo}" ООО {neg}',
-        f'"{niche}" "{geo}" официальный сайт {neg}',
-        # Product/service specific — these land on real business sites
-        f"{niche} купить {geo} доставка {neg}",
-        f"{niche} производство {geo} каталог {neg}",
-        f"{niche} оптом {geo} цена {neg}",
-        f"{niche} {geo} заказать {neg}",
-    ]
-
-    # Segment-specific queries (more targeted)
-    for seg in segments[:5]:
-        seg = seg.strip()
-        if seg:
-            queries.append(f"{seg} {geo} купить производитель {neg}")
-            queries.append(f"{seg} {niche} {geo} контакты {neg}")
+    ])
 
     seen: set[str] = set()
     result: list[str] = []
@@ -943,6 +944,18 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     skipped_irrelevant = 0
     oversample_limit = max(limit * 5, limit + 50)
 
+    # Build list of specific search terms for maps (2GIS, Yandex)
+    # When segments are specific business types (e.g. "птицефабрика", "ветклиника"),
+    # search each one separately — much more effective than a combined query
+    map_search_terms = []
+    if effective_segments:
+        for seg in effective_segments[:8]:
+            seg = seg.strip()
+            if seg and len(seg) > 2:
+                map_search_terms.append(seg)
+    if not map_search_terms:
+        map_search_terms = [effective_niche]
+
     def collect_candidates(source_items: list[dict]) -> None:
         nonlocal skipped_irrelevant
         for item in source_items:
@@ -954,28 +967,29 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
             if len(collected) >= oversample_limit:
                 break
 
-    try:
-        if len(collected) < oversample_limit:
-            yandex_results = _search_yandex_maps(effective_niche, effective_geo, effective_segments, oversample_limit)
-            collect_candidates(yandex_results)
-            if yandex_results:
-                logger.info(
-                    "Yandex Maps returned %d results for '%s %s'",
-                    len(yandex_results),
-                    effective_niche,
-                    effective_geo,
-                )
-    except Exception:
-        logger.warning("Yandex Maps search error", exc_info=True)
+    # Search maps with each segment separately for better results
+    per_term_limit = max(oversample_limit // max(len(map_search_terms), 1), 20)
 
-    try:
-        if len(collected) < oversample_limit:
-            twogis_results = _search_2gis(effective_niche, effective_geo, oversample_limit)
-            collect_candidates(twogis_results)
-            if twogis_results:
-                logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), effective_niche, effective_geo)
-    except Exception:
-        logger.warning("2GIS search error", exc_info=True)
+    for term in map_search_terms:
+        try:
+            if len(collected) < oversample_limit:
+                yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
+                collect_candidates(yandex_results)
+                if yandex_results:
+                    logger.info("Yandex Maps returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
+        except Exception:
+            logger.warning("Yandex Maps search error for '%s'", term, exc_info=True)
+
+        try:
+            if len(collected) < oversample_limit:
+                twogis_results = _search_2gis(term, effective_geo, per_term_limit)
+                collect_candidates(twogis_results)
+                if twogis_results:
+                    logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), term, effective_geo)
+        except Exception:
+            logger.warning("2GIS search error for '%s'", term, exc_info=True)
+
+        time.sleep(0.2)
 
     try:
         queries = _build_discover_queries(effective_niche, effective_geo, effective_segments)
