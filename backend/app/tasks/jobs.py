@@ -62,14 +62,39 @@ def collect_leads_task(job_id: str) -> None:
         job.status = JobStatus.running
         db.commit()
 
-        query = f"{project.niche} {project.geography} {' '.join(project.segments)}"
+        # If project has a prompt, use AI to determine customer-focused search terms
+        effective_niche = project.niche
+        effective_geo = project.geography
+        effective_segments = list(project.segments) if project.segments else []
+        user_prompt = project.prompt or ""
+
+        if user_prompt:
+            try:
+                from app.services.prompt_enhancer import enhance_prompt
+                enhanced = enhance_prompt(user_prompt)
+                if enhanced.get("search_queries_niche"):
+                    effective_niche = enhanced["search_queries_niche"]
+                elif enhanced.get("niche"):
+                    effective_niche = enhanced["niche"]
+                if enhanced.get("geography") and enhanced["geography"] != "Россия":
+                    effective_geo = enhanced["geography"]
+                if enhanced.get("segments"):
+                    effective_segments = enhanced["segments"]
+                logger.info(
+                    "AI enhanced search: niche='%s' geo='%s' segments=%s",
+                    effective_niche, effective_geo, effective_segments,
+                )
+            except Exception:
+                logger.warning("Prompt enhancement failed in job, using raw niche", exc_info=True)
+
+        query = f"{effective_niche} {effective_geo} {' '.join(effective_segments)}"
         candidates = search_leads(
             query=query.strip(),
             limit=job.requested_limit,
-            niche=project.niche,
-            geography=project.geography,
-            segments=list(project.segments) if project.segments else [],
-            prompt=project.prompt or "",
+            niche=effective_niche,
+            geography=effective_geo,
+            segments=effective_segments,
+            prompt=user_prompt,
         )
         job.found_count = len(candidates)
         db.commit()

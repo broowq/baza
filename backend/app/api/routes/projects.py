@@ -91,13 +91,34 @@ def create_project(
     ) or 0
     if count >= organization.projects_limit:
         raise HTTPException(status_code=402, detail="Лимит проектов для текущего тарифа исчерпан")
+
+    # Auto-enhance: if prompt is provided and niche looks like raw prompt, enhance it
+    final_name = payload.name
+    final_niche = payload.niche
+    final_geo = payload.geography
+    final_segments = payload.segments
+    if payload.prompt and payload.prompt.strip() == payload.niche.strip():
+        try:
+            from app.services.prompt_enhancer import enhance_prompt as do_enhance
+            enhanced = do_enhance(payload.prompt)
+            if enhanced.get("niche"):
+                final_niche = enhanced["niche"]
+            if enhanced.get("geography") and enhanced["geography"] != "Россия":
+                final_geo = enhanced["geography"]
+            if enhanced.get("segments"):
+                final_segments = enhanced["segments"]
+            if enhanced.get("project_name"):
+                final_name = enhanced["project_name"]
+        except Exception:
+            pass  # Use original values
+
     project = Project(
         organization_id=organization.id,
-        name=payload.name,
+        name=final_name,
         prompt=payload.prompt,
-        niche=payload.niche,
-        geography=payload.geography,
-        segments=payload.segments,
+        niche=final_niche,
+        geography=final_geo,
+        segments=final_segments,
         cron_schedule=payload.cron_schedule,
         auto_collection_enabled=payload.auto_collection_enabled,
     )
