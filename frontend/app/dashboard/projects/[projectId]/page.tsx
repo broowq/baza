@@ -215,20 +215,9 @@ export default function ProjectDetailsPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             {/* Collect group */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Собрать</span>
-              <div className="flex items-center gap-1.5 rounded-xl bg-muted/40 p-1">
-              <Button size="sm" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 100)}>
-                <Play size={12} /> 100
-              </Button>
-              <Button size="sm" variant="ghost" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 500)}>
-                500
-              </Button>
-              <Button size="sm" variant="ghost" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 1000)}>
-                1 000
-              </Button>
-              </div>
-            </div>
+            <Button size="sm" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 500)}>
+              <Play size={12} className="mr-1.5" /> Собрать лиды
+            </Button>
             {/* Actions */}
             <div className="flex items-center gap-1.5">
               <Button size="sm" variant="outline" disabled={running || enrichBusy || !canManage} onClick={() => queueJob("enrich", 200)}>
