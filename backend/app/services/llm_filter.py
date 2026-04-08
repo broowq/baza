@@ -17,7 +17,10 @@ def _get_client():
             return None
         try:
             import anthropic
-            _client = anthropic.Anthropic(api_key=api_key)
+            kwargs = {"api_key": api_key}
+            if settings.anthropic_base_url:
+                kwargs["base_url"] = settings.anthropic_base_url
+            _client = anthropic.Anthropic(**kwargs)
         except Exception:
             logger.warning("Failed to initialize Anthropic client")
             return None
@@ -160,7 +163,7 @@ def _filter_batch(
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-20250514",
             max_tokens=200,
             messages=[{"role": "user", "content": filter_prompt}],
         )

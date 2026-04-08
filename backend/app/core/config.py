@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     anthropic_api_key: str = ""
+    anthropic_base_url: str = ""  # Optional proxy URL for Anthropic API
 
     @computed_field
     @property

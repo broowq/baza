@@ -23,7 +23,10 @@ def _get_client():
             return None
         try:
             import anthropic
-            _client = anthropic.Anthropic(api_key=api_key)
+            kwargs = {"api_key": api_key}
+            if settings.anthropic_base_url:
+                kwargs["base_url"] = settings.anthropic_base_url
+            _client = anthropic.Anthropic(**kwargs)
         except Exception:
             logger.warning("Failed to initialize Anthropic client for prompt enhancer")
             return None
@@ -77,7 +80,7 @@ search_queries_niche — это то, что будет искаться на к
 
     try:
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
+            model="claude-sonnet-4-20250514",
             max_tokens=800,
             system=system_prompt,
             messages=[{"role": "user", "content": raw_prompt}],
