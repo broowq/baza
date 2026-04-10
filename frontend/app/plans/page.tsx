@@ -26,14 +26,12 @@ type PlanRow = {
 };
 
 const EXTRA_FEATURES: Record<string, string[]> = {
-  free: ["Экспорт в CSV", "Скоринг лидов"],
   starter: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса"],
   pro: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса", "Обогащение контактов", "Приоритетная поддержка"],
   team: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса", "Обогащение контактов", "Выделенная поддержка", "SLA 99.9%"],
 };
 
 const CHECK_COLORS: Record<string, string> = {
-  free: "bg-zinc-500/15 text-zinc-400",
   starter: "bg-emerald-500/15 text-emerald-400",
   pro: "bg-violet-500/15 text-violet-400",
   team: "bg-sky-500/15 text-sky-400",
@@ -164,7 +162,7 @@ export default function PlansPage() {
         )}
 
         {/* Plan cards */}
-        <div className="grid items-center gap-5 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid items-center gap-6 md:grid-cols-3">
           {plans.map((plan, index) => {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";

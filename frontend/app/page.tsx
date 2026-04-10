@@ -27,20 +27,6 @@ import { ScrollReveal } from "@/components/ui/scroll-reveal";
 
 const plans = [
   {
-    name: "Free",
-    price: "Бесплатно",
-    priceSub: "навсегда",
-    highlight: false,
-    cta: "Начать бесплатно",
-    features: [
-      "3 сбора/мес",
-      "до 500 лидов",
-      "1 проект",
-      "Экспорт в CSV",
-      "Скоринг лидов",
-    ],
-  },
-  {
     name: "Starter",
     price: "2 490 ₽",
     priceSub: "/мес",
@@ -339,7 +325,7 @@ export default function HomePage() {
             </div>
           </ScrollReveal>
 
-          <div className="mt-16 grid grid-cols-1 items-start gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-16 grid grid-cols-1 items-start gap-5 md:grid-cols-3">
             {plans.map((plan, index) => (
               <ScrollReveal key={plan.name} delay={0.1 * index}>
               <div
