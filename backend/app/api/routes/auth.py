@@ -75,7 +75,7 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     if existing_org:
         raise HTTPException(status_code=409, detail="Организация с таким именем уже существует")
 
-    org = Organization(name=payload.organization_name, plan=PlanType.starter)
+    org = Organization(name=payload.organization_name, plan=PlanType.free)
     apply_plan_limits(org)
     user = User(
         email=normalized_email,

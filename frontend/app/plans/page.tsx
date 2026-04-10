@@ -18,36 +18,31 @@ type PlanRow = {
   projects_limit: number;
   users_limit: number;
   leads_limit_per_month: number;
+  searches_per_month?: number;
   can_invite_members: boolean;
-  price_monthly_usd: number;
+  price_monthly_rub?: number;
+  price_monthly_usd?: number;
   payment_provider: string;
 };
 
-const RUBLE_PRICES: Record<string, { price: string; sub: string }> = {
-  starter: { price: "Бесплатно", sub: "навсегда" },
-  pro: { price: "2 900 ₽", sub: "/мес" },
-  team: { price: "7 900 ₽", sub: "/мес" },
-};
-
 const EXTRA_FEATURES: Record<string, string[]> = {
-  starter: ["Экспорт в CSV", "Скоринг лидов"],
-  pro: ["Экспорт в CSV", "Скоринг лидов", "Обогащение контактов", "Приоритетная поддержка"],
-  team: ["Экспорт в CSV", "Скоринг лидов", "Обогащение контактов", "Выделенная поддержка", "SLA 99.9%"],
+  free: ["Экспорт в CSV", "Скоринг лидов"],
+  starter: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса"],
+  pro: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса", "Обогащение контактов", "Приоритетная поддержка"],
+  team: ["Экспорт в CSV", "Скоринг лидов", "AI-анализ запроса", "Обогащение контактов", "Выделенная поддержка", "SLA 99.9%"],
 };
 
 const CHECK_COLORS: Record<string, string> = {
+  free: "bg-zinc-500/15 text-zinc-400",
   starter: "bg-emerald-500/15 text-emerald-400",
   pro: "bg-violet-500/15 text-violet-400",
   team: "bg-sky-500/15 text-sky-400",
 };
 
 function getRublePrice(plan: PlanRow): { price: string; sub: string } {
-  const key = plan.id.toLowerCase();
-  if (key in RUBLE_PRICES) return RUBLE_PRICES[key];
-  const nameKey = plan.name.toLowerCase();
-  if (nameKey in RUBLE_PRICES) return RUBLE_PRICES[nameKey];
-  if (plan.price_monthly_usd === 0) return { price: "Бесплатно", sub: "навсегда" };
-  return { price: `${plan.price_monthly_usd} $`, sub: "/мес" };
+  const rub = plan.price_monthly_rub ?? 0;
+  if (rub === 0) return { price: "Бесплатно", sub: "навсегда" };
+  return { price: `${rub.toLocaleString("ru-RU")} ₽`, sub: "/мес" };
 }
 
 const cardVariants = {
@@ -169,7 +164,7 @@ export default function PlansPage() {
         )}
 
         {/* Plan cards */}
-        <div className="grid items-center gap-6 md:grid-cols-3">
+        <div className="grid items-center gap-5 md:grid-cols-2 lg:grid-cols-4">
           {plans.map((plan, index) => {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";
@@ -221,7 +216,11 @@ export default function PlansPage() {
                 <ul className="flex-1 space-y-3.5">
                   <li className="flex items-center gap-3 text-sm text-foreground/80">
                     <FeatureCheck colorClass={checkColor} />
-                    {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов/мес
+                    {plan.searches_per_month ?? "∞"} сборов/мес
+                  </li>
+                  <li className="flex items-center gap-3 text-sm text-foreground/80">
+                    <FeatureCheck colorClass={checkColor} />
+                    до {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов
                   </li>
                   <li className="flex items-center gap-3 text-sm text-foreground/80">
                     <FeatureCheck colorClass={checkColor} />
@@ -229,7 +228,7 @@ export default function PlansPage() {
                   </li>
                   <li className="flex items-center gap-3 text-sm text-foreground/80">
                     <FeatureCheck colorClass={checkColor} />
-                    {plan.users_limit} пользователей
+                    {plan.users_limit} {plan.users_limit === 1 ? "пользователь" : "пользователей"}
                   </li>
                   {extras.map((feat) => (
                     <li key={feat} className="flex items-center gap-3 text-sm text-foreground/80">

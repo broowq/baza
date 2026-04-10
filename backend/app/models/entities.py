@@ -19,6 +19,7 @@ from app.db.base import Base
 
 
 class PlanType(str, enum.Enum):
+    free = "free"
     starter = "starter"
     pro = "pro"
     team = "team"
@@ -43,7 +44,7 @@ class Organization(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
-    plan: Mapped[PlanType] = mapped_column(Enum(PlanType), default=PlanType.starter, nullable=False)
+    plan: Mapped[PlanType] = mapped_column(Enum(PlanType), default=PlanType.free, nullable=False)
     leads_used_current_month: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     leads_limit_per_month: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
     projects_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)

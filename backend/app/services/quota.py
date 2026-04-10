@@ -2,10 +2,13 @@ from fastapi import HTTPException
 
 from app.models import Organization, PlanType
 
+# Limits per plan — "searches" = number of "Собрать лиды" clicks per month
+# leads_per_month = searches × ~500 average leads per search
 PLAN_LIMITS = {
-    PlanType.starter: {"projects": 3, "users": 3, "leads_per_month": 1000, "can_invite": True},
-    PlanType.pro: {"projects": 20, "users": 15, "leads_per_month": 10000, "can_invite": True},
-    PlanType.team: {"projects": 100, "users": 100, "leads_per_month": 100000, "can_invite": True},
+    PlanType.free: {"projects": 1, "users": 1, "leads_per_month": 500, "can_invite": False, "searches": 3},
+    PlanType.starter: {"projects": 5, "users": 3, "leads_per_month": 5000, "can_invite": True, "searches": 30},
+    PlanType.pro: {"projects": 20, "users": 10, "leads_per_month": 25000, "can_invite": True, "searches": 100},
+    PlanType.team: {"projects": 100, "users": 50, "leads_per_month": 100000, "can_invite": True, "searches": 300},
 }
 
 

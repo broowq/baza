@@ -27,48 +27,60 @@ import { ScrollReveal } from "@/components/ui/scroll-reveal";
 
 const plans = [
   {
-    name: "Starter",
+    name: "Free",
     price: "Бесплатно",
     priceSub: "навсегда",
     highlight: false,
     cta: "Начать бесплатно",
     features: [
-      "1 000 лидов/мес",
-      "3 проекта",
-      "1 пользователь",
+      "3 сбора/мес",
+      "до 500 лидов",
+      "1 проект",
       "Экспорт в CSV",
       "Скоринг лидов",
+    ],
+  },
+  {
+    name: "Starter",
+    price: "2 490 ₽",
+    priceSub: "/мес",
+    highlight: false,
+    cta: "Выбрать Starter",
+    features: [
+      "30 сборов/мес",
+      "до 5 000 лидов",
+      "5 проектов",
+      "Экспорт в CSV",
+      "AI-анализ запроса",
     ],
   },
   {
     name: "Pro",
-    price: "2 900 ₽",
+    price: "8 900 ₽",
     priceSub: "/мес",
     highlight: true,
     cta: "Выбрать Pro",
     features: [
-      "10 000 лидов/мес",
+      "100 сборов/мес",
+      "до 25 000 лидов",
       "20 проектов",
-      "5 пользователей",
-      "Экспорт в CSV",
-      "Скоринг лидов",
       "Обогащение контактов",
+      "AI-анализ запроса",
       "Приоритетная поддержка",
     ],
   },
   {
-    name: "Team",
-    price: "7 900 ₽",
+    name: "Business",
+    price: "24 900 ₽",
     priceSub: "/мес",
     highlight: false,
-    cta: "Выбрать Team",
+    cta: "Выбрать Business",
     features: [
-      "50 000 лидов/мес",
+      "300 сборов/мес",
+      "до 100 000 лидов",
       "100 проектов",
-      "20 пользователей",
-      "Экспорт в CSV",
-      "Скоринг лидов",
       "Обогащение контактов",
+      "AI-анализ запроса",
       "Выделенная поддержка",
       "SLA 99.9%",
     ],
@@ -327,7 +339,7 @@ export default function HomePage() {
             </div>
           </ScrollReveal>
 
-          <div className="mt-16 grid grid-cols-1 items-start gap-5 md:grid-cols-3">
+          <div className="mt-16 grid grid-cols-1 items-start gap-4 md:grid-cols-2 lg:grid-cols-4">
             {plans.map((plan, index) => (
               <ScrollReveal key={plan.name} delay={0.1 * index}>
               <div
