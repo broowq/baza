@@ -617,7 +617,7 @@ export default function DashboardPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
             >
-              <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60 animate-pulse" : "border-l-primary/20"}`}>
+              <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60" : "border-l-primary/20"}`}>
                 <Link
                   href={`/dashboard/projects/${project.id}`}
                   className="flex items-center justify-between px-4 py-4 sm:px-5"
