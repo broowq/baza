@@ -28,7 +28,7 @@ import { ScrollReveal } from "@/components/ui/scroll-reveal";
 const plans = [
   {
     name: "Starter",
-    price: "2 490 ₽",
+    price: "3 900 ₽",
     priceSub: "/мес",
     highlight: false,
     cta: "Выбрать Starter",
@@ -42,7 +42,7 @@ const plans = [
   },
   {
     name: "Pro",
-    price: "8 900 ₽",
+    price: "12 900 ₽",
     priceSub: "/мес",
     highlight: true,
     cta: "Выбрать Pro",
@@ -57,7 +57,7 @@ const plans = [
   },
   {
     name: "Business",
-    price: "24 900 ₽",
+    price: "34 900 ₽",
     priceSub: "/мес",
     highlight: false,
     cta: "Выбрать Business",

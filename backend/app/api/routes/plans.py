@@ -9,9 +9,9 @@ settings = get_settings()
 
 # Prices in rubles per month
 PLAN_PRICES_RUB = {
-    "starter": 2490,
-    "pro": 8900,
-    "team": 24900,
+    "starter": 3900,
+    "pro": 12900,
+    "team": 34900,
 }
 
 PLAN_NAMES = {
