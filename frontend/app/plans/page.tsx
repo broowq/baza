@@ -32,9 +32,9 @@ const EXTRA_FEATURES: Record<string, string[]> = {
 };
 
 const CHECK_COLORS: Record<string, string> = {
-  starter: "bg-emerald-500/15 text-emerald-400",
-  pro: "bg-violet-500/20 text-violet-400",
-  team: "bg-sky-500/15 text-sky-400",
+  starter: "bg-foreground/10 text-foreground/60",
+  pro: "bg-foreground/10 text-foreground/60",
+  team: "bg-foreground/10 text-foreground/60",
 };
 
 function getRublePrice(plan: PlanRow): { price: string; sub: string } {
@@ -180,15 +180,15 @@ export default function PlansPage() {
                 variants={cardVariants}
                 className={`relative flex flex-col rounded-2xl border p-5 sm:p-8 transition-shadow duration-300 ${
                   isPro
-                    ? "z-10 md:scale-105 border-violet-500/40 bg-gradient-to-b from-violet-500/[0.08] to-transparent shadow-2xl shadow-violet-500/15 backdrop-blur-md dark:bg-white/[0.08]"
+                    ? "z-10 md:scale-105 border-foreground/20 bg-foreground/[0.03] shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-white/[0.08]"
                     : "border-white/10 bg-white/5 backdrop-blur-md hover:border-white/20 dark:bg-white/[0.04]"
                 }`}
               >
                 {/* Popular badge for Pro */}
                 {isPro && (
                   <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-600 px-4 py-1 text-xs ring-1 ring-violet-500/20 backdrop-blur-sm">
-                      <span className="text-white font-semibold">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-1 text-xs backdrop-blur-sm">
+                      <span className="text-background font-semibold">
                         Популярный
                       </span>
                     </span>
@@ -242,7 +242,7 @@ export default function PlansPage() {
                     isStarter
                       ? "bg-foreground/10 text-muted-foreground cursor-not-allowed"
                       : isPro
-                        ? "bg-violet-500 text-white shadow-lg shadow-violet-500/25 hover:bg-violet-600 hover:shadow-violet-500/40"
+                        ? "bg-foreground text-background shadow-lg hover:bg-foreground/90"
                         : "bg-foreground/10 text-foreground hover:bg-foreground/15"
                   }`}
                   onClick={() => !isStarter && startCheckout(plan.id)}

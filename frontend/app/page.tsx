@@ -146,7 +146,7 @@ export default function HomePage() {
                   <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
                     <s.icon size={18} className="text-gray-400" />
                   </div>
-                  <p className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent sm:text-3xl md:text-4xl">
+                  <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
                     {s.value}
                   </p>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
@@ -252,7 +252,7 @@ export default function HomePage() {
             ].map((f, index) => (
               <ScrollReveal key={f.title} delay={0.1 * index}>
                 <div
-                  className="rounded-3xl border-l-2 border-l-violet-500/30 bg-[#F7F7F8] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg dark:bg-[#1A1C1F]"
+                  className="rounded-3xl bg-[#F7F7F8] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg dark:bg-[#1A1C1F]"
                 >
                   <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
                     <f.icon size={20} className="text-gray-400" />
@@ -331,13 +331,13 @@ export default function HomePage() {
               <div
                 className={`flex flex-col rounded-3xl p-8 ${
                   plan.highlight
-                    ? "relative border border-violet-500/30 bg-gradient-to-b from-violet-500/[0.08] to-transparent backdrop-blur-sm shadow-lg shadow-violet-500/10 text-white dark:text-white md:-my-4 md:py-12"
+                    ? "relative bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] md:-my-4 md:py-12"
                     : "border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#1A1C1F]"
                 }`}
               >
                 {/* Popular badge */}
                 {plan.highlight && (
-                  <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-violet-500/90 text-white px-5 py-1 text-xs font-bold">
+                  <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] px-5 py-1 text-xs font-bold">
                     Популярный
                   </span>
                 )}
@@ -416,7 +416,7 @@ export default function HomePage() {
               Начните собирать целевые лиды для вашего бизнеса прямо сейчас
             </p>
             <SmartLink className="mt-8 inline-block">
-              <Button size="lg" className="rounded-full bg-violet-600 px-8 text-white hover:bg-violet-500 shadow-lg shadow-violet-600/25">
+              <Button size="lg" className="rounded-full px-8">
                 Начать сейчас <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </SmartLink>

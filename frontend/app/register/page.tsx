@@ -111,7 +111,7 @@ function RegisterContent() {
       </div>
       <Card className="w-full max-w-md p-4 sm:p-6 shadow-2xl shadow-black/20">
         <CardHeader className="text-center">
-          <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight"><span className="bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">БАЗА</span></div>
+          <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
           <CardTitle className="text-lg sm:text-xl">Создание аккаунта</CardTitle>
           <CardDescription>
             Заполните форму для регистрации в системе
@@ -222,7 +222,7 @@ function RegisterContent() {
               </label>
             </div>
 
-            <Button type="submit" className="w-full bg-violet-600 hover:bg-violet-500 text-white" size="lg" disabled={loading || !acceptedTerms || !acceptedPrivacy}>
+            <Button type="submit" className="w-full" size="lg" disabled={loading || !acceptedTerms || !acceptedPrivacy}>
               {loading ? "Создаём..." : "Зарегистрироваться"}
             </Button>
           </form>
