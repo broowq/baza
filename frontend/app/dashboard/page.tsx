@@ -338,6 +338,20 @@ export default function DashboardPage() {
       </Card>
       </motion.div>
 
+      {/* Quota warning */}
+      {usagePercent >= 80 && (
+        <div className={`rounded-lg border p-3 flex items-center justify-between ${usagePercent >= 100 ? "border-destructive/30 bg-destructive/5" : "border-amber-500/30 bg-amber-500/5"}`}>
+          <p className="text-sm">
+            {usagePercent >= 100
+              ? "Квота лидов исчерпана. Обновите тариф для продолжения сбора."
+              : `Использовано ${usagePercent}% квоты лидов. Рекомендуем обновить тариф.`}
+          </p>
+          <Link href="/plans">
+            <Button size="sm" variant="outline">Обновить тариф</Button>
+          </Link>
+        </div>
+      )}
+
       {/* ── Subtle section divider ── */}
       <Separator className="my-6" />
 
@@ -582,21 +596,35 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Empty state ── */}
+      {/* ── Empty state / Onboarding ── */}
       {projects.length === 0 && (
         <Card className="border-dashed border-border/70">
-          <CardContent className="flex flex-col items-center justify-center py-16">
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-primary/5 ring-1 ring-primary/10">
-              <FolderOpen className="h-8 w-8 text-primary/40" />
+          <CardContent className="flex flex-col items-center justify-center py-12 px-6">
+            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/5 ring-1 ring-primary/10">
+              <Sparkles className="h-8 w-8 text-primary/40" />
             </div>
-            <CardTitle className="mb-1.5 text-lg text-foreground">Пока нет проектов</CardTitle>
-            <CardDescription className="max-w-xs text-center text-sm text-muted-foreground">
-              Создайте первый проект и начните собирать целевые лиды для вашего бизнеса.
+            <CardTitle className="mb-2 text-xl text-foreground">Добро пожаловать в БАЗА!</CardTitle>
+            <CardDescription className="max-w-md text-center text-sm text-muted-foreground mb-6">
+              Найдите клиентов для вашего бизнеса за 3 простых шага:
             </CardDescription>
+            <div className="grid gap-3 max-w-md w-full mb-6">
+              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">1</span>
+                <span>Опишите ваш бизнес — что продаёте или какие услуги оказываете</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">2</span>
+                <span>AI определит целевых клиентов и найдёт их через 2ГИС и Яндекс Карты</span>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">3</span>
+                <span>Получите контакты компаний и экспортируйте в CSV для CRM</span>
+              </div>
+            </div>
             {canManage && (
-              <Button size="sm" className="mt-5" onClick={() => setShowForm(true)}>
+              <Button onClick={() => setShowForm(true)}>
                 <Plus className="mr-1.5 h-4 w-4" />
-                Создать проект
+                Создать первый проект
               </Button>
             )}
           </CardContent>

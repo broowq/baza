@@ -117,7 +117,7 @@ export default function AdminPage() {
       </div>
 
       <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="flex w-full overflow-x-auto sm:grid sm:grid-cols-5">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="users">Пользователи</TabsTrigger>
           <TabsTrigger value="orgs">Организации</TabsTrigger>

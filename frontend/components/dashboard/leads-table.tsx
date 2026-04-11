@@ -317,11 +317,11 @@ export function LeadsTable({
               <TableHead className="min-w-[140px]">Компания</TableHead>
               <TableHead className="min-w-[80px]">Город</TableHead>
               <TableHead className="min-w-[110px]">Сайт</TableHead>
-              <TableHead className="min-w-[140px]">Email</TableHead>
+              <TableHead className="hidden min-w-[140px] md:table-cell">Email</TableHead>
               <TableHead className="hidden min-w-[110px] sm:table-cell">Телефон</TableHead>
               <TableHead className="hidden min-w-[130px] md:table-cell">Адрес</TableHead>
               <TableHead className="min-w-[80px]">Статус</TableHead>
-              <TableHead className="min-w-[60px]">Score</TableHead>
+              <TableHead className="hidden min-w-[60px] md:table-cell">Score</TableHead>
               <TableHead className="w-10" />
             </TableRow>
           </TableHeader>
@@ -381,7 +381,7 @@ export function LeadsTable({
                         <span className="text-muted-foreground">—</span>
                       )}
                     </TableCell>
-                    <TableCell className="max-w-[176px]">
+                    <TableCell className="hidden max-w-[176px] md:table-cell">
                       {lead.email ? (
                         <a
                           href={`mailto:${lead.email}`}
@@ -431,7 +431,7 @@ export function LeadsTable({
                         </Badge>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden md:table-cell">
                       <ScoreIndicator score={lead.score} />
                     </TableCell>
                     <TableCell>
