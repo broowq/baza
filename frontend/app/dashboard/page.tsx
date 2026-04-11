@@ -258,7 +258,7 @@ export default function DashboardPage() {
     >
       {/* ── Org header card ── */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-      <Card className="relative overflow-hidden bg-gradient-to-r from-primary/5 via-transparent to-primary/5 shadow-sm ring-1 ring-primary/[0.03]">
+      <Card className="relative overflow-hidden bg-gradient-to-br from-white/[0.03] to-transparent border-white/[0.06] shadow-sm ring-1 ring-primary/[0.03]">
         <div className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-primary/[0.02] to-transparent" />
         <CardHeader className="relative">
           <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
@@ -344,7 +344,10 @@ export default function DashboardPage() {
       {/* ── Projects header ── */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">Ваши проекты</h2>
+          <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+            <span className="inline-block h-2 w-2 rounded-full bg-violet-500 mr-2 align-middle" />
+            Ваши проекты
+          </h2>
           <p className="mt-0.5 text-sm text-muted-foreground">
             {projects.length} из {org?.projects_limit ?? "?"} проектов
           </p>
@@ -583,8 +586,8 @@ export default function DashboardPage() {
       {projects.length === 0 && (
         <Card className="border-dashed border-border/70">
           <CardContent className="flex flex-col items-center justify-center py-16">
-            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary/10 to-primary/5 ring-1 ring-primary/10">
-              <FolderOpen className="h-8 w-8 text-primary/60" />
+            <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-violet-500/10 to-fuchsia-500/5 ring-1 ring-violet-500/20">
+              <FolderOpen className="h-8 w-8 text-violet-400" />
             </div>
             <CardTitle className="mb-1.5 text-lg text-foreground">Пока нет проектов</CardTitle>
             <CardDescription className="max-w-xs text-center text-sm text-muted-foreground">
@@ -614,7 +617,7 @@ export default function DashboardPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.04 }}
             >
-              <Card className={`group relative overflow-hidden border-l-[3px] transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-400 animate-pulse" : "border-l-primary/60"}`}>
+              <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60 animate-pulse" : "border-l-violet-500/40"}`}>
                 <Link
                   href={`/dashboard/projects/${project.id}`}
                   className="flex items-center justify-between px-4 py-4 sm:px-5"

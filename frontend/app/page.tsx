@@ -83,7 +83,7 @@ const steps = [
   {
     num: "02",
     title: "Запустите сбор",
-    desc: "Выберите объём: 100, 500 или 1 000 лидов",
+    desc: "Нажмите кнопку — AI найдёт клиентов",
     icon: Zap,
   },
   {
@@ -103,11 +103,11 @@ const steps = [
 const faqs = [
   {
     q: "Как происходит сбор лидов?",
-    a: "БАЗА использует 5 источников: Яндекс Карты, 2ГИС, SearXNG, Bing и maps-поиск. Фильтрует агрегаторы, нормализует домены. Для каждого домена сканирует контактные страницы.",
+    a: "Вы описываете свой бизнес, AI определяет целевых клиентов, и система находит их через Яндекс Карты, 2ГИС и другие источники. Контакты обогащаются автоматически.",
   },
   {
-    q: "Нужен ли API-ключ Bing?",
-    a: "Нет. Bing — опциональный источник. По умолчанию работает SearXNG + Яндекс Карты + 2ГИС. Bing подключается через .env.",
+    q: "Сколько лидов я получу?",
+    a: "Зависит от ниши и региона. В среднем один сбор даёт 100-500 целевых компаний с контактами.",
   },
   {
     q: "Где хранятся данные?",
@@ -146,7 +146,7 @@ export default function HomePage() {
                   <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
                     <s.icon size={18} className="text-gray-400" />
                   </div>
-                  <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
+                  <p className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent sm:text-3xl md:text-4xl">
                     {s.value}
                   </p>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
@@ -252,7 +252,7 @@ export default function HomePage() {
             ].map((f, index) => (
               <ScrollReveal key={f.title} delay={0.1 * index}>
                 <div
-                  className="rounded-3xl bg-[#F7F7F8] p-8 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F]"
+                  className="rounded-3xl border-l-2 border-l-violet-500/30 bg-[#F7F7F8] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg dark:bg-[#1A1C1F]"
                 >
                   <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
                     <f.icon size={20} className="text-gray-400" />
@@ -331,13 +331,13 @@ export default function HomePage() {
               <div
                 className={`flex flex-col rounded-3xl p-8 ${
                   plan.highlight
-                    ? "relative bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] md:-my-4 md:py-12"
+                    ? "relative border border-violet-500/30 bg-gradient-to-b from-violet-500/[0.08] to-transparent backdrop-blur-sm shadow-lg shadow-violet-500/10 text-white dark:text-white md:-my-4 md:py-12"
                     : "border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#1A1C1F]"
                 }`}
               >
                 {/* Popular badge */}
                 {plan.highlight && (
-                  <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-[#191C1F] px-5 py-1 text-xs font-bold text-white dark:bg-white dark:text-[#191C1F]">
+                  <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-violet-500/90 text-white px-5 py-1 text-xs font-bold">
                     Популярный
                   </span>
                 )}
@@ -362,7 +362,7 @@ export default function HomePage() {
                       <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
                         plan.highlight ? "bg-white/10 dark:bg-[#191C1F]/10" : "bg-[#F7F7F8] dark:bg-[#111214]"
                       }`}>
-                        <Check size={12} className={plan.highlight ? "text-gray-400" : "text-gray-400 dark:text-gray-500"} />
+                        <Check size={12} className={plan.highlight ? "text-violet-400" : "text-gray-400 dark:text-gray-500"} />
                       </div>
                       {item}
                     </li>
@@ -407,20 +407,19 @@ export default function HomePage() {
 
       {/* ==================== FINAL CTA ==================== */}
       <ScrollReveal delay={0.1}>
-        <section className="px-4 py-24 text-center sm:px-6">
-          <div className="mx-auto max-w-3xl">
-            <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl lg:text-6xl">
-              Готовы заполнить{" "}
-              <span className="text-[#191C1F] dark:text-white">
-                воронку?
-              </span>
+        <section className="px-4 py-24 sm:px-6">
+          <div className="mx-auto max-w-3xl text-center">
+            <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl">
+              Готовы находить клиентов?
             </h2>
-            <p className="mx-auto mt-6 max-w-lg text-base text-gray-500 dark:text-gray-400 sm:text-lg">
-              Регистрация за 30 секунд. Без кредитной карты. Первые 1 000 лидов бесплатно.
+            <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">
+              Начните собирать целевые лиды для вашего бизнеса прямо сейчас
             </p>
-            <div className="mt-10">
-              <SmartCTA />
-            </div>
+            <SmartLink className="mt-8 inline-block">
+              <Button size="lg" className="rounded-full bg-violet-600 px-8 text-white hover:bg-violet-500 shadow-lg shadow-violet-600/25">
+                Начать сейчас <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </SmartLink>
           </div>
         </section>
       </ScrollReveal>
