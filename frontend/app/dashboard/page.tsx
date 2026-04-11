@@ -611,7 +611,13 @@ export default function DashboardPage() {
           const segmentText = project.segments.length > 0 ? project.segments.join(", ") : null;
 
           return (
-            <div key={project.id}>
+            <motion.div
+              key={project.id}
+              layout
+              initial={false}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
+            >
               <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60" : "border-l-primary/20"}`}>
                 <Link
                   href={`/dashboard/projects/${project.id}`}
@@ -696,7 +702,7 @@ export default function DashboardPage() {
                   </div>
                 </Link>
               </Card>
-            </div>
+            </motion.div>
           );
         })}
 
