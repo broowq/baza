@@ -105,8 +105,23 @@ _NEGATIVE_KEYWORDS = (
     "-реферат -скачать -рейтинг -лучшие -лучших -топ -обзор -отзывы -сравнение -список "
     "-вакансия -вакансии -работа -резюме -hh.ru -superjob "
     "-ликвидирован -ликвидация -банкрот -inn -огрн "
-    "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com"
+    "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com "
+    "-продажа -купить -заказать -интернет-магазин "
+    "-поставщик -дистрибьютор -оптовик "
+    "-прайс-лист -каталог-товаров"
 )
+
+# Signals that a candidate is a SELLER/competitor, not a buyer/customer
+_COMPETITOR_SIGNALS = [
+    "продажа", "продаж", "продаём", "продаем", "продают",
+    "купить", "заказать", "закажите", "оформить заказ",
+    "магазин", "интернет-магазин", "маркетплейс",
+    "поставщик", "дистрибьютор", "оптом", "оптовик",
+    "производител", "изготовител", "собственное производство",
+    "прайс", "каталог товаров", "ассортимент", "в наличии",
+    "доставка по", "бесплатная доставка", "самовывоз",
+    "скидк", "акци", "распродаж",
+]
 
 
 def _normalize_match_text(value: str) -> str:
@@ -132,9 +147,9 @@ def _build_match_terms(*parts: str) -> list[str]:
                 if lemma not in seen:
                     seen.add(lemma)
                     terms.append(lemma)
-                # Also add the stem (first 5+ chars of lemma) for partial matching
-                if len(lemma) >= 6:
-                    stem = lemma[:5]
+                # Also add the stem (first 4 chars of lemma) for partial matching
+                if len(lemma) >= 5:
+                    stem = lemma[:4]
                     if stem not in seen:
                         seen.add(stem)
                         terms.append(stem)
@@ -262,7 +277,7 @@ def _candidate_relevance_score(
     if item.get("website"):
         score += 8
     else:
-        score -= 25
+        score -= 8  # Soft penalty — many real B2B customers don't have websites
 
     if _looks_like_article_or_directory(item):
         score -= 120
@@ -289,6 +304,21 @@ def _candidate_relevance_score(
     elif niche_terms and title_hits == 0:
         score -= 8
 
+    # Segment matching — bonus for matching target customer type
+    if segments:
+        seg_terms = set()
+        for seg in (segments or []):
+            for word in seg.lower().replace("ё", "е").split():
+                if len(word) >= 3:
+                    seg_terms.add(word)
+        seg_hits = sum(1 for term in seg_terms if term in combined)
+        score += min(20, seg_hits * 6)
+
+    # Competitor detection — penalty for seller signals
+    competitor_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in combined)
+    if competitor_hits >= 2:
+        score -= 30
+
     geo_terms = _build_match_terms(geography)
     city_text = _normalize_match_text(item.get("city", ""))
     geo_search_text = f"{company} {snippet} {address} {city_text}"
@@ -298,7 +328,7 @@ def _candidate_relevance_score(
         if source not in {"yandex_maps", "2gis"}:
             score -= 30
         else:
-            score -= 6
+            score -= 3  # Maps are already geo-constrained by bbox/city_id
 
     if source in {"yandex_maps", "2gis"}:
         if address:
@@ -453,11 +483,11 @@ def _parse_searxng_items(payload: dict) -> list[dict]:
     return items
 
 
-def _build_discover_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
-    """Build search queries optimized for finding COMPANY WEBSITES, not articles/directories.
+def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_prompt: bool = False) -> list[str]:
+    """Build search queries optimized for finding TARGET CUSTOMERS.
 
-    When segments contain specific business types (e.g. "птицефабрика", "ветклиника"),
-    we search for each one individually — they are TARGET CUSTOMERS, not niche keywords.
+    When has_prompt=True, user described their business — segments are customer types.
+    We search ONLY by segments, NOT by niche (niche would find competitors).
     """
     niche = niche.strip()
     geo = geo.strip()
@@ -465,8 +495,7 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str]) -> list[s
 
     queries = []
 
-    # If segments look like specific business types (target customers),
-    # search for each one as a standalone query
+    # Search each segment as a standalone customer-type query
     if segments:
         for seg in segments[:8]:
             seg = seg.strip()
@@ -477,13 +506,15 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str]) -> list[s
                     f'"{seg}" "{geo}" ООО {neg}',
                 ])
 
-    # Also search by niche (broader)
-    queries.extend([
-        f"{niche} {geo} контакты телефон {neg}",
-        f"{niche} {geo} о компании {neg}",
-        f"{niche} {geo} предприятие {neg}",
-        f'"{niche}" "{geo}" ООО {neg}',
-    ])
+    # Also search by niche — but ONLY if no prompt (direct niche search)
+    # When prompt exists, niche queries would find competitors, not customers
+    if not has_prompt or not segments:
+        queries.extend([
+            f"{niche} {geo} контакты телефон {neg}",
+            f"{niche} {geo} о компании {neg}",
+            f"{niche} {geo} предприятие {neg}",
+            f'"{niche}" "{geo}" ООО {neg}',
+        ])
 
     seen: set[str] = set()
     result: list[str] = []
@@ -572,7 +603,7 @@ def _build_yandex_map_queries(niche: str, geo: str, segments: list[str]) -> list
         f"{geo}, {niche} компания".strip(", "),
         f"{geo}, {niche} официальный сайт".strip(", "),
     ]
-    for segment in segments[:3]:
+    for segment in segments[:8]:
         segment = segment.strip()
         if segment:
             base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
@@ -993,7 +1024,7 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
         time.sleep(0.2)
 
     try:
-        queries = _build_discover_queries(effective_niche, effective_geo, effective_segments)
+        queries = _build_discover_queries(effective_niche, effective_geo, effective_segments, has_prompt=bool(prompt))
         settings = get_settings()
         local_seen_domains: set[str] = set()
 
