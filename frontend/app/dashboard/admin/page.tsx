@@ -243,7 +243,7 @@ export default function AdminPage() {
                         <span className="font-semibold">{org.name}</span>
                         <span className="ml-2 text-sm text-muted-foreground">{org.members_count} участников · {org.projects_count} проектов · {org.leads_count} лидов</span>
                       </div>
-                      <Select value={org.plan} onValueChange={(v) => changePlan(org.id, v)}>
+                      <Select value={org.plan ?? "free"} onValueChange={(v) => changePlan(org.id, v)}>
                         <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="free">Free</SelectItem>
