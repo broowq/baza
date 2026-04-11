@@ -100,7 +100,8 @@ export default function AdminPage() {
     await load();
   };
 
-  const changePlan = async (orgId: string, plan: string) => {
+  const changePlan = async (orgId: string, plan: string | null) => {
+    if (!plan) return;
     await api(`/admin/organizations/${orgId}/plan`, { method: "PATCH", body: JSON.stringify({ plan }) });
     toast.success(`Тариф изменён на ${plan}`);
     await load();
