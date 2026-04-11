@@ -708,9 +708,7 @@ export default function DashboardPage() {
 
         {/* ── "+ Новый проект" placeholder card ── */}
         {canManage && projects.length > 0 && (
-          <div
-            transition={{ delay: projects.length * 0.04 }}
-          >
+          <div>
             <button
               type="button"
               onClick={() => setShowForm(true)}
