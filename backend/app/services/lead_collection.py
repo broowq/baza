@@ -934,7 +934,7 @@ def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
     return enriched[:limit]
 
 
-def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "") -> list[dict]:
+def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -971,14 +971,15 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     per_term_limit = max(oversample_limit // max(len(map_search_terms), 1), 20)
 
     for term in map_search_terms:
-        try:
-            if len(collected) < oversample_limit:
-                yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
-                collect_candidates(yandex_results)
-                if yandex_results:
-                    logger.info("Yandex Maps returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
-        except Exception:
-            logger.warning("Yandex Maps search error for '%s'", term, exc_info=True)
+        if use_yandex:
+            try:
+                if len(collected) < oversample_limit:
+                    yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
+                    collect_candidates(yandex_results)
+                    if yandex_results:
+                        logger.info("Yandex Maps returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
+            except Exception:
+                logger.warning("Yandex Maps search error for '%s'", term, exc_info=True)
 
         try:
             if len(collected) < oversample_limit:

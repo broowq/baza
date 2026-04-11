@@ -87,6 +87,10 @@ def collect_leads_task(job_id: str) -> None:
             except Exception:
                 logger.warning("Prompt enhancement failed in job, using raw niche", exc_info=True)
 
+        # Yandex Maps only for Pro/Team plans (premium feature)
+        org = db.get(Organization, job.organization_id)
+        use_yandex = org.plan.value in ("pro", "team") if org else False
+
         query = f"{effective_niche} {effective_geo} {' '.join(effective_segments)}"
         candidates = search_leads(
             query=query.strip(),
@@ -95,6 +99,7 @@ def collect_leads_task(job_id: str) -> None:
             geography=effective_geo,
             segments=effective_segments,
             prompt=user_prompt,
+            use_yandex=use_yandex,
         )
         job.found_count = len(candidates)
         db.commit()
