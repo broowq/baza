@@ -611,12 +611,7 @@ export default function DashboardPage() {
           const segmentText = project.segments.length > 0 ? project.segments.join(", ") : null;
 
           return (
-            <motion.div
-              key={project.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.04 }}
-            >
+            <div key={project.id}>
               <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60" : "border-l-primary/20"}`}>
                 <Link
                   href={`/dashboard/projects/${project.id}`}
@@ -628,7 +623,7 @@ export default function DashboardPage() {
                       {latestJob && jobInfo && (
                         <span className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold ${jobInfo.className}`}>
                           {latestJob.status === "running" && (
-                            <span className="mr-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                            <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-blue-500" />
                           )}
                           {jobInfo.label}
                         </span>
@@ -701,15 +696,13 @@ export default function DashboardPage() {
                   </div>
                 </Link>
               </Card>
-            </motion.div>
+            </div>
           );
         })}
 
         {/* ── "+ Новый проект" placeholder card ── */}
         {canManage && projects.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             transition={{ delay: projects.length * 0.04 }}
           >
             <button
@@ -720,7 +713,7 @@ export default function DashboardPage() {
               <Plus className="h-5 w-5" />
               Новый проект
             </button>
-          </motion.div>
+          </div>
         )}
       </div>
     </motion.main>
