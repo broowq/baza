@@ -63,8 +63,8 @@ services:
       YANDEX_MAPS_LANG: ru_RU
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
-      FRONTEND_ORIGINS: ${CORS_ORIGINS:-http://${SERVER_IP}}
-      FRONTEND_APP_URL: http://${SERVER_IP}
+      FRONTEND_ORIGINS: ${CORS_ORIGINS:-http://usebaza.ru,https://usebaza.ru,http://www.usebaza.ru,https://www.usebaza.ru,http://${SERVER_IP}}
+      FRONTEND_APP_URL: ${FRONTEND_APP_URL:-http://usebaza.ru}
       REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
       REFRESH_COOKIE_SAMESITE: lax
       REFRESH_COOKIE_NAME: baza_refresh_token
@@ -101,7 +101,7 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_API_URL: http://${SERVER_IP}/api
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://usebaza.ru/api}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -182,6 +182,8 @@ services:
     volumes:
       - ./infra/nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
       - ./infra/nginx/certs:/etc/nginx/certs:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
     depends_on:
       backend:
         condition: service_healthy
@@ -191,3 +193,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  certbot_www:
+  certbot_certs:
