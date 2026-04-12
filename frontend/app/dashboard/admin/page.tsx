@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
+import { useAuthGuard } from "@/lib/hooks";
 
 type Stats = {
   totals: { users: number; organizations: number; projects: number; leads: number; jobs: number };
@@ -45,6 +46,7 @@ function formatDate(iso: string) {
 }
 
 export default function AdminPage() {
+  const authed = useAuthGuard();
   const router = useRouter();
   const [stats, setStats] = useState<Stats | null>(null);
   const [users, setUsers] = useState<UserRow[]>([]);
@@ -79,7 +81,7 @@ export default function AdminPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading) return <main className="mx-auto max-w-6xl px-6 py-12"><p className="text-muted-foreground">Загрузка...</p></main>;
+  if (loading || !authed) return <main className="mx-auto max-w-6xl px-6 py-12"><p className="text-muted-foreground">Загрузка...</p></main>;
 
   const toggleAdmin = async (userId: string, current: boolean) => {
     await api(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify({ is_admin: !current }) });

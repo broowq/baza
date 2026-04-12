@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
-    secret_key: str = "change-me-super-secret"
-    access_token_expire_minutes: int = 1440
+    secret_key: str = "change-me-super-secret"  # Validated at startup in main.py
+    access_token_expire_minutes: int = 30
     refresh_token_expire_minutes: int = 10080
     database_url: str = "postgresql+psycopg2://lead:lead@localhost:5433/lead"
     redis_url: str = "redis://localhost:6379/0"
@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     yandex_maps_lang: str = "ru_RU"
     twogis_api_key: str = ""  # optional, 2GIS catalog API
     frontend_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
-    refresh_cookie_secure: bool = False
+    refresh_cookie_secure: bool = True
     refresh_cookie_samesite: str = "lax"
     refresh_cookie_name: str = "baza_refresh_token"
     email_verification_required: bool = False

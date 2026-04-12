@@ -7,6 +7,10 @@ from app.services.quota import apply_plan_limits
 
 
 def run() -> None:
+    from app.core.config import get_settings
+    if get_settings().app_env == "production":
+        print("ERROR: seed.py must not run in production")
+        return
     db = SessionLocal()
     try:
         demo_email = "demo@baza.app"

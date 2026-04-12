@@ -76,7 +76,7 @@ async def rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
 
     max_requests, window = limit
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = request.headers.get("x-real-ip", request.client.host if request.client else "unknown")
     # Use the matched prefix for the key so all sub-paths in a tier share the bucket
     matched_prefix = path
     for prefix, mr, w in _RATE_LIMIT_TIERS:
@@ -105,8 +105,8 @@ async def rate_limit_middleware(request: Request, call_next):
 _cors_kwargs: dict = dict(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Org-Id"],
 )
 if settings.app_env == "development":
     _cors_kwargs["allow_origin_regex"] = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
@@ -121,6 +121,7 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
     return response
 
 

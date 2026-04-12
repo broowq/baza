@@ -59,7 +59,7 @@ class CollectionJobOut(BaseModel):
 
 class LeadUpdate(BaseModel):
     status: str | None = None  # "new", "contacted", "qualified", "rejected"
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=10000)
 
 
 class PaginatedLeadsOut(BaseModel):

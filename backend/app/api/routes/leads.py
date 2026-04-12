@@ -374,7 +374,7 @@ def export_project_csv(
     return StreamingResponse(
         _generate_csv(),
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={file_name}"},
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
     )
 
 

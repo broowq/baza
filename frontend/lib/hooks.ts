@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { getToken } from "@/lib/auth";
+import { getToken, getTokenExpirySeconds } from "@/lib/auth";
 
 /**
  * Debounces a value by the given delay.
@@ -26,7 +26,8 @@ export function useAuthGuard(): boolean {
   const [authed, setAuthed] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
+    const remaining = getTokenExpirySeconds();
+    if (!getToken() || (remaining !== null && remaining <= 0)) {
       window.location.href = "/login";
     } else {
       setAuthed(true);

@@ -84,7 +84,7 @@ export default function ForgotPasswordPage() {
               </p>
             )}
 
-            {previewUrl ? (
+            {process.env.NODE_ENV === 'development' && previewUrl && previewUrl.startsWith('/reset-password') ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
                 Тестовая ссылка для dev:{" "}
                 <a href={previewUrl} className="font-medium underline underline-offset-2">

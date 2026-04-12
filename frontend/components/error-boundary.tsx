@@ -42,7 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
               нажмите кнопку ниже.
             </p>
 
-            {this.state.error && (
+            {process.env.NODE_ENV === 'development' && this.state.error && (
               <pre className="mt-4 max-h-24 overflow-auto rounded-xl border border-gray-200 bg-[#F7F7F8] p-3 text-left text-xs text-rose-600 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-rose-400/80">
                 {this.state.error.message}
               </pre>

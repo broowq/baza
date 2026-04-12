@@ -58,6 +58,8 @@ def create_checkout(
 
 @router.post("/webhook/stripe")
 def stripe_webhook_stub(payload: dict, request: Request = None, db: Session = Depends(get_db)):
+    if settings.app_env != "development":
+        raise HTTPException(status_code=501, detail="Webhooks not configured for production")
     if settings.stripe_webhook_secret:
         sig = (request.headers.get("stripe-signature", "") if request else "")
         if not sig:

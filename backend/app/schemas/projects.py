@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ProjectCreateRequest(BaseModel):
@@ -13,6 +13,11 @@ class ProjectCreateRequest(BaseModel):
     cron_schedule: str = Field(default="0 9 * * 1", max_length=120)
     auto_collection_enabled: bool = False
 
+    @field_validator('segments')
+    @classmethod
+    def validate_segments(cls, v):
+        return [s[:100] for s in (v or [])[:20]]
+
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=140)
@@ -22,6 +27,13 @@ class ProjectUpdateRequest(BaseModel):
     segments: list[str] | None = None
     cron_schedule: str | None = Field(default=None, max_length=120)
     auto_collection_enabled: bool | None = None
+
+    @field_validator('segments')
+    @classmethod
+    def validate_segments(cls, v):
+        if v is None:
+            return v
+        return [s[:100] for s in (v or [])[:20]]
 
 
 class ProjectOut(BaseModel):

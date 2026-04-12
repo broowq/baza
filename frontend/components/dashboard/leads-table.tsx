@@ -366,7 +366,7 @@ export function LeadsTable({
                       <TruncatedCell value={lead.city} className="text-muted-foreground" />
                     </TableCell>
                     <TableCell className="max-w-[144px]">
-                      {lead.website && /^https?:\/\//i.test(lead.website) ? (
+                      {lead.website && /^https?:\/\//i.test(lead.website.trim()) && !lead.website.trim().toLowerCase().startsWith('data:') ? (
                         <a
                           href={lead.website}
                           target="_blank"

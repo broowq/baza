@@ -213,7 +213,13 @@ def logout(payload: RefreshTokenRequest, request: Request, response: Response):
             redis_client.setex(f"revoked_refresh:{jti}", settings.refresh_token_expire_minutes * 60, "1")
     except Exception:
         pass
-    response.delete_cookie(settings.refresh_cookie_name, path="/")
+    response.delete_cookie(
+        settings.refresh_cookie_name,
+        path="/",
+        secure=settings.refresh_cookie_secure or settings.app_env != "development",
+        samesite=settings.refresh_cookie_samesite,
+        httponly=True,
+    )
     return {"message": "Вы вышли из системы"}
 
 

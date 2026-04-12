@@ -1116,7 +1116,7 @@ def enrich_website_contacts(base_url: str) -> dict:
         if robots and not robots.can_fetch(DEFAULT_USER_AGENT, target):
             continue
         try:
-            with httpx.Client(timeout=6.0, follow_redirects=True) as client:
+            with httpx.Client(timeout=6.0, follow_redirects=False) as client:
                 for attempt in range(3):
                     response = client.get(target, headers={"User-Agent": DEFAULT_USER_AGENT})
                     if response.status_code in (429, 503):
