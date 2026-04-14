@@ -8,30 +8,9 @@ import json
 import logging
 import re
 
-from app.core.config import get_settings
+from app.services import llm_client
 
 logger = logging.getLogger(__name__)
-
-_client = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        settings = get_settings()
-        api_key = settings.anthropic_api_key
-        if not api_key:
-            return None
-        try:
-            import anthropic
-            kwargs = {"api_key": api_key}
-            if settings.anthropic_base_url:
-                kwargs["base_url"] = settings.anthropic_base_url
-            _client = anthropic.Anthropic(**kwargs)
-        except Exception:
-            logger.warning("Failed to initialize Anthropic client for prompt enhancer")
-            return None
-    return _client
 
 
 # ── Smart rule-based customer mapping ──
@@ -159,9 +138,8 @@ _PRODUCT_TO_CUSTOMERS = [
 
 def enhance_prompt(raw_prompt: str) -> dict:
     """Take a user's raw business description and generate a search strategy."""
-    client = _get_client()
-    if client:
-        result = _try_llm_enhance(client, raw_prompt)
+    if llm_client.is_configured():
+        result = _try_llm_enhance(raw_prompt)
         if result:
             return result
 
@@ -169,7 +147,7 @@ def enhance_prompt(raw_prompt: str) -> dict:
     return _smart_fallback(raw_prompt)
 
 
-def _try_llm_enhance(client, raw_prompt: str) -> dict | None:
+def _try_llm_enhance(raw_prompt: str) -> dict | None:
     """Try to enhance using LLM. Returns None on failure."""
     system_prompt = """Ты — AI-ассистент B2B платформы лидогенерации БАЗА. Твоя задача — проанализировать описание бизнеса пользователя и создать стратегию поиска ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ.
 
@@ -180,7 +158,7 @@ def _try_llm_enhance(client, raw_prompt: str) -> dict | None:
 - НЕПРАВИЛЬНО: искать компании, которые продают кормовые добавки (это конкуренты!)
 - ПРАВИЛЬНО: искать животноводческие фермы, птицефабрики, свинокомплексы, зоомагазины, ветклиники, агрохолдинги — тех, кому НУЖНЫ кормовые добавки
 
-Ответь СТРОГО в JSON формате:
+Ответь СТРОГО в JSON формате (без markdown, без ```):
 {
   "enhanced_prompt": "Улучшенная версия описания бизнеса пользователя (1-2 предложения)",
   "project_name": "Короткое название проекта (2-4 слова)",
@@ -196,18 +174,26 @@ def _try_llm_enhance(client, raw_prompt: str) -> dict | None:
 search_queries_niche — это то, что будет искаться на картах и в поисковиках (ниша клиента, не продавца)."""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=800,
+        answer = llm_client.chat(
+            raw_prompt,
             system=system_prompt,
-            messages=[{"role": "user", "content": raw_prompt}],
+            max_tokens=800,
+            temperature=0.3,
         )
-        answer = response.content[0].text.strip()
+        if not answer:
+            return None
+        answer = answer.strip()
 
         if "```json" in answer:
             answer = answer.split("```json")[1].split("```")[0].strip()
         elif "```" in answer:
             answer = answer.split("```")[1].split("```")[0].strip()
+
+        # Extract JSON object if LLM added extra text
+        first_brace = answer.find("{")
+        last_brace = answer.rfind("}")
+        if first_brace != -1 and last_brace != -1:
+            answer = answer[first_brace:last_brace + 1]
 
         result = json.loads(answer)
 

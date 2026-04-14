@@ -1,34 +1,14 @@
-"""Lead quality filter: AI-powered with rule-based fallback.
+"""Lead quality filter: AI-powered (GigaChat/Anthropic) with rule-based fallback.
 
-When Anthropic API is available, uses Claude for smart filtering.
-When unavailable (geo-blocked, no key), uses rule-based competitor detection.
+Uses unified llm_client which tries GigaChat first, then Anthropic.
+Falls back to rule-based competitor detection if both LLMs unavailable.
 """
 import logging
 import re
-from app.core.config import get_settings
+
+from app.services import llm_client
 
 logger = logging.getLogger(__name__)
-
-_client = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        settings = get_settings()
-        api_key = settings.anthropic_api_key
-        if not api_key:
-            return None
-        try:
-            import anthropic
-            kwargs = {"api_key": api_key}
-            if settings.anthropic_base_url:
-                kwargs["base_url"] = settings.anthropic_base_url
-            _client = anthropic.Anthropic(**kwargs)
-        except Exception:
-            logger.warning("Failed to initialize Anthropic client")
-            return None
-    return _client
 
 
 def filter_candidates_llm(
@@ -44,10 +24,9 @@ def filter_candidates_llm(
         return candidates
 
     # Try AI filter first
-    client = _get_client()
-    if client:
+    if llm_client.is_configured():
         try:
-            result = _ai_filter(client, candidates, niche, geography, segments, prompt)
+            result = _ai_filter(candidates, niche, geography, segments, prompt)
             if result is not None:
                 return result
         except Exception as e:
@@ -66,7 +45,6 @@ def filter_candidates_llm(
 
 
 def _ai_filter(
-    client,
     candidates: list[dict],
     niche: str,
     geography: str,
@@ -79,7 +57,7 @@ def _ai_filter(
 
     for batch_start in range(0, len(candidates), BATCH_SIZE):
         batch = candidates[batch_start:batch_start + BATCH_SIZE]
-        kept = _ai_filter_batch(client, batch, niche, geography, segments, prompt)
+        kept = _ai_filter_batch(batch, niche, geography, segments, prompt)
         if kept is None:
             return None  # Signal failure to caller
         all_kept.extend(kept)
@@ -91,7 +69,7 @@ def _ai_filter(
     return all_kept
 
 
-def _ai_filter_batch(client, batch, niche, geography, segments, prompt) -> list[dict] | None:
+def _ai_filter_batch(batch, niche, geography, segments, prompt) -> list[dict] | None:
     """Filter a single batch using AI. Returns None on failure."""
     lines = []
     for i, c in enumerate(batch):
@@ -143,14 +121,16 @@ def _ai_filter_batch(client, batch, niche, geography, segments, prompt) -> list[
 ПОДХОДЯЩИЕ:"""
 
     try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        answer = llm_client.chat(
+            filter_prompt,
             max_tokens=200,
-            messages=[{"role": "user", "content": filter_prompt}],
+            temperature=0.1,
         )
-        answer = response.content[0].text.strip()
+        if answer is None:
+            return None
+        answer = answer.strip()
 
-        if answer.strip() == "0":
+        if answer == "0":
             return []
 
         kept_indices: set[int] = set()

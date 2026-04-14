@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     telegram_chat_id: str = ""
     anthropic_api_key: str = ""
     anthropic_base_url: str = ""  # Optional proxy URL for Anthropic API
+    gigachat_credentials: str = ""  # Authorization key from developers.sber.ru
+    gigachat_scope: str = "GIGACHAT_API_PERS"  # PERS (личный) или B2B / CORP
+    llm_provider: str = "gigachat"  # gigachat | anthropic
+    gigachat_model: str = "GigaChat-2-Pro"  # GigaChat-2-Lite | GigaChat-2-Pro | GigaChat-2-Max
 
     @computed_field
     @property
