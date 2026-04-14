@@ -788,10 +788,15 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
         return []
 
     city_id = _resolve_2gis_city_id(geo)
+    # 2GIS API limits: page_size MUST be 1..10 (undocumented limit — API returns
+    # empty items+error if page_size > 10)
+    page_size = min(max(limit, 1), 10)
+    # To fetch `limit` results, paginate up to enough pages (max 10 per page)
+    max_pages = max(1, min(5, (limit + page_size - 1) // page_size))
     params: dict = {
         "q": niche,
         "type": "branch",
-        "page_size": min(limit, 50),
+        "page_size": page_size,
         "key": api_key,
         "fields": "items.contact_groups,items.adm_div,items.external_content,items.org",
     }
@@ -804,7 +809,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
     seen_domains: set[str] = set()
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            for page_num in range(1, 4):
+            for page_num in range(1, max_pages + 1):
                 params["page"] = page_num
                 resp = client.get("https://catalog.api.2gis.com/3.0/items", params=params)
                 if resp.status_code != 200:
