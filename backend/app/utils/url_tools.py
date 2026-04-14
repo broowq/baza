@@ -28,6 +28,15 @@ AGGREGATOR_DOMAINS = {
     # Новости и медиа
     "rbc.ru", "companies.rbc.ru", "ria.ru", "tass.ru", "gazeta.ru", "kommersant.ru",
     "vedomosti.ru", "interfax.ru", "regnum.ru",
+    "lenta.ru", "ura.news", "newsru.com", "fontanka.ru", "kp.ru", "aif.ru",
+    "rg.ru", "izvestia.ru", "mk.ru", "mos.ru", "sputnik.ru", "iz.ru",
+    "360tv.ru", "tvzvezda.ru", "1tv.ru", "ren.tv", "ntv.ru",
+    "radiokp.ru", "echo.msk.ru", "govoritmoskva.ru",
+    # Развлечения и шоу-бизнес
+    "muz-tv.ru", "muzyka.ru", "popsa.info", "kino-teatr.ru", "kinopoisk.ru",
+    "afisha.ru", "kassir.ru", "tele.ru", "spletnik.ru", "starhit.ru",
+    # Другие мусорные категории
+    "sitemap.xml", "robots.txt",  # not domains but sometimes slip through
     # Социальные сети и мессенджеры
     "vk.com", "ok.ru", "facebook.com", "instagram.com", "twitter.com", "tiktok.com",
     "youtube.com", "rutube.ru", "t.me", "telegram.org",

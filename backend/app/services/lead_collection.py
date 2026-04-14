@@ -67,7 +67,22 @@ _PATH_DIRECTORY_HINTS = [
     "/luchshie",
     "/best",
     "/top",
+    "/news",
+    "/news/",
+    "/sitemap",
+    "/map",
+    "/stars/",
+    "/afisha",
+    "/tag/",
+    "/tags/",
+    "/category/",
+    "/articles/",
+    "/article/",
+    "/blog/",
 ]
+
+# File extensions that indicate not-a-lead (documents, downloads)
+_REJECT_URL_EXTENSIONS = (".xls", ".xlsx", ".pdf", ".doc", ".docx", ".zip", ".rar", ".xml")
 
 _BIZ_SIGNAL_WORDS = [
     "купить", "заказать", "доставка", "прайс", "цена", "стоимость",
@@ -247,6 +262,9 @@ def _looks_like_article_or_directory(item: dict) -> bool:
     if any(hint in text for hint in _ARTICLE_OR_DIRECTORY_HINTS):
         return True
     if any(hint in source_path for hint in _PATH_DIRECTORY_HINTS) and "официальный сайт" not in text:
+        return True
+    # Reject file download URLs (.xls/.pdf/.doc/etc)
+    if any(source_path.endswith(ext) for ext in _REJECT_URL_EXTENSIONS):
         return True
     return False
 
