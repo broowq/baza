@@ -118,27 +118,60 @@ def collect_leads_task(job_id: str) -> None:
                     quota_stopped = True
                     break
 
-            website = normalize_url(c["website"])
-            domain = extract_domain(website)
-            base_domain = get_base_domain(domain)
+            website = normalize_url(c.get("website") or "")
+            domain = extract_domain(website) if website else ""
+            base_domain = get_base_domain(domain) if domain else ""
             company_name = c.get("company", "").strip()
-            if not website or not is_real_domain(domain) or is_aggregator_domain(domain) or not company_name:
+            city_name = c.get("city", "").strip()
+            source = c.get("source", "")
+
+            # For maps leads without website — generate stable placeholder URL so unique constraint works
+            if not website and company_name:
+                import re as _re
+                slug_co = _re.sub(r"[^a-zа-я0-9]+", "-", company_name.lower()).strip("-")[:60]
+                slug_city = _re.sub(r"[^a-zа-я0-9]+", "-", city_name.lower()).strip("-")[:40]
+                website = f"maps://{source or 'offline'}/{slug_co}-{slug_city}"
+
+            # Company name is REQUIRED (otherwise it's not a lead at all)
+            if not company_name:
                 continue
-            existing = db.execute(
-                select(Lead.id).where(
-                    Lead.project_id == project.id,
-                    (Lead.website == website) | (Lead.domain == domain) | (Lead.domain == base_domain),
+            # If we have a domain, it must be real (non-aggregator)
+            if domain and (not is_real_domain(domain) or is_aggregator_domain(domain)):
+                continue
+            # For web sources without a domain — skip (they're just URLs that didn't extract)
+            # For maps sources (2GIS/Yandex) without a domain — KEEP (real B2B lead with address/phone)
+            is_maps = source in {"2gis", "yandex_maps"}
+            if not domain and not is_maps:
+                continue
+            # Maps lead without website needs at least address or phone to be useful
+            phone_val = (c.get("phone") or "").strip()
+            address_val = (c.get("address") or "").strip()
+            email_val = (c.get("email") or "").strip()
+            if not domain and not phone_val and not address_val:
+                continue
+
+            # Dedup: by website/domain if present, else by (company+city) to avoid duplicates of same shop
+            dup_query = select(Lead.id).where(Lead.project_id == project.id)
+            if domain:
+                dup_query = dup_query.where(
+                    (Lead.website == website) | (Lead.domain == domain) | (Lead.domain == base_domain)
                 )
-            ).first()
+            else:
+                # Maps lead without site — dedup by company+city
+                dup_query = dup_query.where(
+                    Lead.company == _clip(company_name, 180),
+                    Lead.city == _clip(city_name, 120),
+                )
+            existing = db.execute(dup_query).first()
             if existing:
                 continue
             base_score = score_lead(
-                domain=domain,
+                domain=domain or "",
                 company=company_name,
                 niche=project.niche,
-                has_email=False,
-                has_phone=False,
-                has_address=False,
+                has_email=bool(email_val),
+                has_phone=bool(phone_val),
+                has_address=bool(address_val),
                 demo=bool(c.get("demo", False)),
                 relevance_score=int(c.get("relevance_score", 0)),
             )
@@ -146,12 +179,12 @@ def collect_leads_task(job_id: str) -> None:
                 organization_id=job.organization_id,
                 project_id=project.id,
                 company=_clip(company_name, 180),
-                city=_clip(c.get("city", ""), 120),
+                city=_clip(city_name, 120),
                 website=_clip(website, 300),
                 domain=_clip(domain, 255),
-                email="",
-                phone="",
-                address="",
+                email=_clip(email_val, 255),
+                phone=_clip(phone_val, 80),
+                address=_clip(address_val, 300),
                 source_url=_clip(c.get("source_url", ""), 400),
                 score=base_score,
                 notes=("demo=true; " if c.get("demo") else "") + c.get("snippet", ""),

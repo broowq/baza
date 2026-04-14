@@ -259,10 +259,20 @@ def _candidate_relevance_score(
 ) -> int:
     domain = (item.get("domain") or extract_domain(item.get("website", ""))).lower()
     source = item.get("source", "searxng")
+    is_maps_source = source in {"yandex_maps", "2gis"}
 
-    if not domain or not is_real_domain(domain) or is_aggregator_domain(domain):
+    # For web sources (SearXNG, Bing) — domain is required (it's a web result after all)
+    # For maps sources (2GIS, Yandex) — allow results WITHOUT domain if they have company + (address OR phone)
+    # Real B2B customers (farms, small clinics) often don't have websites
+    if not domain:
+        if not is_maps_source:
+            return -999
+        # Maps result without website — require company name + (address or phone) as minimum viable lead
+        if not item.get("company") or (not item.get("address") and not item.get("phone")):
+            return -999
+    elif not is_real_domain(domain) or is_aggregator_domain(domain):
         return -999
-    if not _is_candidate_domain_allowed(domain, geography, source):
+    elif not _is_candidate_domain_allowed(domain, geography, source):
         return -999
 
     company = _normalize_match_text(item.get("company", ""))

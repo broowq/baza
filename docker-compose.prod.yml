@@ -29,11 +29,13 @@ services:
   searxng:
     image: searxng/searxng:latest
     restart: unless-stopped
+    init: true  # use tini to reap zombies inside container
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://localhost:8080/search?q=test&format=json >/dev/null 2>&1 || exit 1"]
       interval: 15s
       timeout: 7s
-      retries: 5
+      retries: 3
+      start_period: 30s
     environment:
       BASE_URL: http://searxng:8080/
       INSTANCE_NAME: BAZA SearXNG
@@ -180,6 +182,15 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  autoheal:
+    image: willfarrell/autoheal:latest
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: all  # restart any unhealthy container
+      AUTOHEAL_INTERVAL: 30
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   nginx:
     image: nginx:alpine
