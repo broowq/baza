@@ -184,46 +184,67 @@ def _rule_based_competitor_filter(
     niche: str,
     segments: list[str],
 ) -> list[dict]:
-    """Filter out competitors using rule-based heuristics.
+    """Rule-based filter — STRICT mode when LLM unavailable.
 
-    Logic: if a company name/description contains the PRODUCT keywords from the
-    user's prompt AND contains seller signals, it's likely a competitor.
+    Strategy (in order):
+    1. Explicit competitor match (product + seller signals) → REJECT
+    2. Target segment match → KEEP
+    3. Maps result (2GIS/yandex_maps) without strong signals → KEEP (trust maps)
+    4. Web result without segment match → REJECT (too risky without LLM)
     """
     product_keywords = _extract_product_keywords(prompt)
-    if not product_keywords:
-        return candidates
 
     # Build set of segment terms (these are TARGET customer types)
-    segment_terms = set()
-    for seg in segments:
-        for word in seg.lower().split():
+    segment_terms: set[str] = set()
+    for seg in segments or []:
+        for word in seg.lower().replace("ё", "е").split():
             if len(word) >= 3:
                 segment_terms.add(word)
 
+    # Also use niche words as segment hints (for targeting)
+    for word in (niche or "").lower().replace("ё", "е").split():
+        if len(word) >= 3:
+            segment_terms.add(word.strip(",."))
+
     kept = []
+    rejected_competitors = 0
+    rejected_irrelevant = 0
+
     for c in candidates:
-        company = (c.get("company") or "").lower()
-        snippet = (c.get("snippet") or "").lower()
+        company = (c.get("company") or "").lower().replace("ё", "е")
+        snippet = (c.get("snippet") or "").lower().replace("ё", "е")
         domain = (c.get("domain") or "").lower()
         categories = " ".join(c.get("categories") or []).lower()
         combined = f"{company} {snippet} {domain} {categories}"
+        source = c.get("source", "")
+        is_maps = source in {"2gis", "yandex_maps"}
 
-        # Check if company matches a target segment (always keep)
-        segment_match = any(term in combined for term in segment_terms if term)
+        # Step 1: Explicit competitor match — REJECT
+        product_match = sum(1 for kw in product_keywords if kw in combined)
+        seller_match = sum(1 for sig in _SELLER_SIGNALS if sig in combined)
+        if product_match >= 2 and seller_match >= 1:
+            rejected_competitors += 1
+            continue
+
+        # Step 2: Target segment match — KEEP (highest priority)
+        segment_match = any(term and term in combined for term in segment_terms)
         if segment_match:
             kept.append(c)
             continue
 
-        # Check if company looks like a competitor (sells the same product)
-        product_match = sum(1 for kw in product_keywords if kw in combined)
-        seller_match = sum(1 for sig in _SELLER_SIGNALS if sig in combined)
-
-        # Strong competitor signal: mentions the product AND selling activity
-        if product_match >= 2 and seller_match >= 1:
-            logger.debug(f"Filtered competitor: {c.get('company')} (product={product_match}, seller={seller_match})")
+        # Step 3: Maps source with address — KEEP (trust 2GIS/Yandex geo-filter)
+        #   Maps already filtered by geography + category, even without segment word
+        #   the result is likely a real B2B lead near the target city
+        if is_maps and c.get("address"):
+            kept.append(c)
             continue
 
-        # Keep everything else — maps results, generic businesses, etc.
-        kept.append(c)
+        # Step 4: Web result without segment match — REJECT
+        #   Without LLM to judge, we can't trust a random web page matching the niche
+        rejected_irrelevant += 1
 
+    logger.info(
+        f"Rule-based filter (strict): {len(candidates)} -> {len(kept)} kept | "
+        f"rejected: competitors={rejected_competitors}, irrelevant={rejected_irrelevant}"
+    )
     return kept
