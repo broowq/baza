@@ -178,6 +178,29 @@ def _extract_product_keywords(prompt: str) -> list[str]:
     return words[:10]
 
 
+# Generic words that appear in many 2GIS company names but carry no targeting
+# signal by themselves. Without stripping these, "управляющая компания" matches
+# "Уралнефтегазкомплект, компания" (every LLC has "компания" in its name).
+_STOPWORDS = {
+    "компания", "компании", "фирма", "фирмы", "организация", "организации",
+    "предприятие", "предприятия", "бизнес", "офис", "офисы", "офиса",
+    "центр", "центра", "центры",  # only matches with modifier (бизнес-центр, торговый центр)
+    "услуги", "сервис", "group", "групп", "ооо", "ип", "зао", "оао", "пао",
+    "россия", "российский", "регион", "и", "в", "на", "для", "по",
+    "небольшой", "малый", "средний", "крупный", "новый",
+}
+
+
+def _build_multiword_phrases(segments: list[str]) -> list[str]:
+    """Extract multi-word phrases from segments that must match as whole."""
+    phrases = []
+    for seg in segments or []:
+        s = seg.lower().replace("ё", "е").strip()
+        if len(s) >= 5 and " " in s:
+            phrases.append(s)
+    return phrases
+
+
 def _rule_based_competitor_filter(
     candidates: list[dict],
     prompt: str,
@@ -188,23 +211,28 @@ def _rule_based_competitor_filter(
 
     Strategy (in order):
     1. Explicit competitor match (product + seller signals) → REJECT
-    2. Target segment match → KEEP
-    3. Maps result (2GIS/yandex_maps) without strong signals → KEEP (trust maps)
-    4. Web result without segment match → REJECT (too risky without LLM)
+    2. Exact multi-word phrase match (e.g., "бизнес-центр") → KEEP
+    3. Single-word segment match (after stopword filter) → KEEP
+    4. Everything else → REJECT
     """
     product_keywords = _extract_product_keywords(prompt)
 
-    # Build set of segment terms (these are TARGET customer types)
+    # Build multi-word phrases from segments (strongest signal)
+    phrases = _build_multiword_phrases(segments)
+
+    # Single-word terms from segments, filtered by stopwords
     segment_terms: set[str] = set()
     for seg in segments or []:
-        for word in seg.lower().replace("ё", "е").split():
-            if len(word) >= 3:
-                segment_terms.add(word)
+        for word in seg.lower().replace("ё", "е").replace("-", " ").split():
+            w = word.strip(",.()[]:;")
+            if len(w) >= 4 and w not in _STOPWORDS:
+                segment_terms.add(w)
 
-    # Also use niche words as segment hints (for targeting)
-    for word in (niche or "").lower().replace("ё", "е").split():
-        if len(word) >= 3:
-            segment_terms.add(word.strip(",."))
+    # Add niche words (also filtered)
+    for word in (niche or "").lower().replace("ё", "е").replace("-", " ").split():
+        w = word.strip(",.()[]:;")
+        if len(w) >= 4 and w not in _STOPWORDS:
+            segment_terms.add(w)
 
     kept = []
     rejected_competitors = 0
@@ -216,8 +244,6 @@ def _rule_based_competitor_filter(
         domain = (c.get("domain") or "").lower()
         categories = " ".join(c.get("categories") or []).lower()
         combined = f"{company} {snippet} {domain} {categories}"
-        source = c.get("source", "")
-        is_maps = source in {"2gis", "yandex_maps"}
 
         # Step 1: Explicit competitor match — REJECT
         product_match = sum(1 for kw in product_keywords if kw in combined)
@@ -226,25 +252,23 @@ def _rule_based_competitor_filter(
             rejected_competitors += 1
             continue
 
-        # Step 2: Target segment match — KEEP (highest priority)
-        segment_match = any(term and term in combined for term in segment_terms)
+        # Step 2: Multi-word phrase match (strongest signal)
+        phrase_match = any(p in combined for p in phrases)
+        if phrase_match:
+            kept.append(c)
+            continue
+
+        # Step 3: Single-word segment match (excluding stopwords)
+        segment_match = any(term in combined for term in segment_terms)
         if segment_match:
             kept.append(c)
             continue
 
-        # Step 3: Maps source with address — KEEP (trust 2GIS/Yandex geo-filter)
-        #   Maps already filtered by geography + category, even without segment word
-        #   the result is likely a real B2B lead near the target city
-        if is_maps and c.get("address"):
-            kept.append(c)
-            continue
-
-        # Step 4: Web result without segment match — REJECT
-        #   Without LLM to judge, we can't trust a random web page matching the niche
+        # Step 4: No match — REJECT (strict)
         rejected_irrelevant += 1
 
     logger.info(
-        f"Rule-based filter (strict): {len(candidates)} -> {len(kept)} kept | "
-        f"rejected: competitors={rejected_competitors}, irrelevant={rejected_irrelevant}"
+        f"Rule-based filter (strict v2): {len(candidates)} -> {len(kept)} kept | "
+        f"competitors={rejected_competitors}, irrelevant={rejected_irrelevant}"
     )
     return kept
