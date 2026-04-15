@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.session import SessionLocal
 from app.models import CollectionJob, JobStatus, Lead, Organization, Project
-from app.services.lead_collection import enrich_website_contacts, search_leads
+from app.services.lead_collection import enrich_2gis_lead, enrich_website_contacts, search_leads
 from app.services.notifications import send_telegram
 from app.services.scoring import score_lead
 from app.tasks.celery_app import celery
@@ -125,12 +125,17 @@ def collect_leads_task(job_id: str) -> None:
             city_name = c.get("city", "").strip()
             source = c.get("source", "")
 
-            # For maps leads without website — generate stable placeholder URL so unique constraint works
+            # For maps leads without website — generate stable placeholder URL so unique constraint works.
+            # For 2GIS, prefer the firm_id (if provided) — lets enrichment hit the firm page directly.
             if not website and company_name:
                 import re as _re
-                slug_co = _re.sub(r"[^a-zа-я0-9]+", "-", company_name.lower()).strip("-")[:60]
-                slug_city = _re.sub(r"[^a-zа-я0-9]+", "-", city_name.lower()).strip("-")[:40]
-                website = f"maps://{source or 'offline'}/{slug_co}-{slug_city}"
+                firm_id = (c.get("firm_id") or "").strip()
+                if source == "2gis" and firm_id:
+                    website = f"maps://2gis/{firm_id}"
+                else:
+                    slug_co = _re.sub(r"[^a-zа-я0-9]+", "-", company_name.lower()).strip("-")[:60]
+                    slug_city = _re.sub(r"[^a-zа-я0-9]+", "-", city_name.lower()).strip("-")[:40]
+                    website = f"maps://{source or 'offline'}/{slug_co}-{slug_city}"
 
             # Company name is REQUIRED (otherwise it's not a lead at all)
             if not company_name:
@@ -277,12 +282,32 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         project_niche = project.niche if project else ""
         enriched = 0
         for lead in leads:
-            contacts = enrich_website_contacts(lead.website)
+            website = lead.website or ""
+            if website.startswith("maps://"):
+                # 2GIS/offline leads: scrape public 2gis.ru for phones/emails.
+                # URL form for 2GIS: "maps://2gis/{firm_id}" — pull firm_id if present.
+                firm_id = ""
+                if website.startswith("maps://2gis/"):
+                    candidate = website[len("maps://2gis/"):]
+                    # firm IDs are purely numeric
+                    if candidate.isdigit():
+                        firm_id = candidate
+                contacts = enrich_2gis_lead(lead.company, lead.city, firm_id=firm_id)
+            else:
+                contacts = enrich_website_contacts(website)
             lead.contacts = contacts
             lead.contacts_json = contacts
             raw_email = (contacts.get("emails") or [""])[0] if isinstance(contacts, dict) else ""
             raw_phone = (contacts.get("phones") or [""])[0] if isinstance(contacts, dict) else ""
             raw_address = (contacts.get("addresses") or [""])[0] if isinstance(contacts, dict) else ""
+            # Preserve existing phone/email/address collected at search time
+            # (2GIS API minimal tier populates these) if scraping didn't find new ones.
+            if not raw_phone and lead.phone:
+                raw_phone = lead.phone
+            if not raw_email and lead.email:
+                raw_email = lead.email
+            if not raw_address and lead.address:
+                raw_address = lead.address
             lead.email = _clip(raw_email, 255)
             lead.phone = _clip(raw_phone, 80)
             lead.address = _clip(raw_address, 300)

@@ -8,9 +8,50 @@ import json
 import logging
 import re
 
+import pymorphy3
+
 from app.services import llm_client
 
 logger = logging.getLogger(__name__)
+
+# Module-level morph analyzer (thread-safe, caches parses internally).
+_morph = pymorphy3.MorphAnalyzer()
+
+
+def _lemmatize_phrase(phrase: str) -> str:
+    """Convert each word of a Russian phrase to its nominative singular form.
+
+    Example: "офисных центров" -> "офисный центр" so substring matching in the
+    downstream lead filter works across grammatical cases the LLM may emit.
+    Non-Russian and short tokens are passed through unchanged.
+    """
+    if not phrase:
+        return phrase
+    words = re.split(r'(\s+|-)', phrase.lower().replace("ё", "е"))
+    out: list[str] = []
+    for w in words:
+        if re.match(r'^[а-я]{3,}$', w):
+            try:
+                out.append(_morph.parse(w)[0].normal_form)
+            except Exception:
+                out.append(w)
+        else:
+            out.append(w)
+    return "".join(out)
+
+
+def _normalize_segments(segments: list[str]) -> list[str]:
+    """Lemmatize and dedupe a list of segment phrases returned by an LLM."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for seg in segments or []:
+        if not isinstance(seg, str):
+            continue
+        norm = _lemmatize_phrase(seg.strip())
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
 
 
 # ── Smart rule-based customer mapping ──
@@ -251,6 +292,11 @@ search_queries_niche — это то, что будет искаться на к
 
         if isinstance(result.get("segments"), str):
             result["segments"] = [s.strip() for s in result["segments"].split(",")]
+
+        # Normalize segments to nominative case so downstream substring match in
+        # llm_filter is robust to genitive/accusative forms the LLM may return.
+        if isinstance(result.get("segments"), list):
+            result["segments"] = _normalize_segments(result["segments"])
 
         result["raw_prompt"] = raw_prompt
         return result

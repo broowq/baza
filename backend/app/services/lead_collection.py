@@ -839,17 +839,29 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                 for item in items:
                     website = ""
                     phone = ""
+                    email = ""
+                    extra_phones: list[str] = []
                     # Try org.website first (more reliable)
                     org_info = item.get("org", {})
                     if org_info.get("website"):
                         website = org_info["website"]
-                    # Then check contact_groups
+                    # Walk contact_groups once and collect ALL channels — previously
+                    # we dropped 2nd/3rd phones and emails silently.
                     for group in item.get("contact_groups", []):
                         for contact in group.get("contacts", []):
-                            if contact.get("type") == "website" and not website:
-                                website = contact.get("value", "")
-                            if contact.get("type") == "phone" and not phone:
-                                phone = contact.get("text", "")
+                            ctype = contact.get("type")
+                            cval = (contact.get("text") or contact.get("value") or "").strip()
+                            if not cval:
+                                continue
+                            if ctype == "website" and not website:
+                                website = cval
+                            elif ctype == "phone":
+                                if not phone:
+                                    phone = cval
+                                elif cval not in extra_phones:
+                                    extra_phones.append(cval)
+                            elif ctype == "email" and not email:
+                                email = cval
 
                     norm = normalize_url(website) if website else ""
                     domain = extract_domain(norm) if norm else ""
@@ -875,6 +887,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             city = adm.get("name", "")
                             break
 
+                    firm_id = str(item.get("id") or "")
                     results.append(
                         {
                             "company": name[:180],
@@ -882,11 +895,14 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             "website": norm,
                             "domain": domain,
                             "phone": phone,
+                            "extra_phones": extra_phones,
+                            "email": email,
                             "source_url": f"https://2gis.ru/search/{quote_plus(niche)}",
                             "snippet": f"{address_name} {phone}".strip()[:400],
                             "address": address_name[:300],
                             "demo": False,
                             "source": "2gis",
+                            "firm_id": firm_id,
                         }
                     )
                     if len(results) >= limit:
@@ -1164,3 +1180,186 @@ def enrich_website_contacts(base_url: str) -> dict:
             continue
         time.sleep(0.15)
     return extract_contacts(gathered_text, gathered_html)
+
+
+# ─── 2GIS public-page enrichment ────────────────────────────────────────────
+# The 2GIS Places API minimal tier does not return contact_groups, but the
+# public 2gis.ru site renders phones/emails directly in server HTML for search
+# results. We query the public search page and extract contacts via regex.
+
+# Multiple realistic browser UAs to rotate across — captcha is rate/fingerprint-based,
+# so diversifying the identity reduces trigger rate substantially.
+_BROWSER_UAS = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.6 Safari/605.1.15",
+)
+# Keep the old name as the first UA so legacy callers still work.
+_BROWSER_UA = _BROWSER_UAS[0]
+# Russian phone numbers come in +7, bare-7, or 8-prefix forms; we accept all three.
+# Separators ({0,3}) cover combinations like ` (`, `) `, etc. between digit groups.
+_PHONE_RE = re.compile(r"(?:\+7|\b8)[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{2}[\s\-()]{0,3}\d{2}")
+_TEL_LINK_RE = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
+# Stricter email regex — requires TLD of 2-10 chars and forbids the dot-ending seen in fragment matches.
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}\.[a-zA-Z]{2,10}\b")
+
+# Markers that tell us 2gis.ru served a captcha / blocked page instead of real data.
+_CAPTCHA_MARKERS = (
+    "captcha", "Captcha", "CAPTCHA",
+    "проверка, что вы не робот", "Проверьте, что вы не робот",
+    "smart-captcha", "checkbox-captcha", "yandex-captcha",
+)
+
+
+def _normalize_phone(raw: str) -> str:
+    """Collapse formatting — '+7 (382) 220-11-36' → '+73822201136'."""
+    digits = re.sub(r"\D+", "", raw or "")
+    if not digits:
+        return ""
+    # Russian 8-prefix → 7 canonicalisation
+    if digits.startswith("8") and len(digits) == 11:
+        digits = "7" + digits[1:]
+    return "+" + digits
+
+
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _looks_like_captcha(html: str) -> bool:
+    """Detect if 2gis.ru served a captcha page instead of real content.
+
+    Captcha pages return HTTP 200 with phone-like strings decorating the challenge,
+    so we must sniff the body to avoid wasting the response as a "successful" miss.
+    """
+    if not html:
+        return False
+    # Bail fast if the page has a tel: link — real firm pages have those; captchas don't.
+    if "tel:" in html:
+        return False
+    snippet = html[:8000]  # captcha markers always appear in the head/body top
+    return any(marker in snippet for marker in _CAPTCHA_MARKERS)
+
+
+def _fetch_2gis_html(url: str) -> str:
+    """Fetch a 2gis.ru page with rotating UA + retries + captcha detection.
+
+    Returns empty string on HTTP failure, network error, or captcha interception.
+    Retries up to 4 times with exponential backoff on 429/503/captcha.
+    """
+    with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+        for attempt in range(4):
+            ua = _BROWSER_UAS[attempt % len(_BROWSER_UAS)]
+            headers = {
+                "User-Agent": ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+                # Only declare encodings httpx decodes by default (brotli requires extra pkg).
+                "Accept-Encoding": "gzip, deflate",
+            }
+            try:
+                response = client.get(url, headers=headers)
+            except httpx.RequestError:
+                if attempt == 3:
+                    return ""
+                time.sleep(0.5 * (2 ** attempt) + random.random() * 0.3)
+                continue
+            if response.status_code in (429, 503):
+                time.sleep(0.7 * (2 ** attempt) + random.random() * 0.5)
+                continue
+            if response.status_code >= 400:
+                return ""
+            body = response.text or ""
+            if _looks_like_captcha(body):
+                # Back off harder — captcha trip means we were fingerprinted, so give
+                # it time and rotate UA before the next attempt.
+                if attempt == 3:
+                    logger.info("2gis captcha persists after 4 attempts for %s", url)
+                    return ""
+                time.sleep(1.0 * (2 ** attempt) + random.random() * 0.5)
+                continue
+            return body
+    return ""
+
+
+def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
+    """Fetch phones/emails for a 2GIS lead from the public 2gis.ru site.
+
+    Strategy (best signal first):
+      1. If firm_id provided — hit firm page directly (/firm/{id}).
+      2. Otherwise — search page (/search/{company} {city}) + take results
+         shown in the server-rendered HTML.
+
+    Returns dict with keys emails/phones/addresses (same shape as
+    enrich_website_contacts).
+    """
+    result: dict = {"emails": [], "phones": [], "addresses": []}
+    company = (company or "").strip()
+    if not company and not firm_id:
+        return result
+
+    def _extract_phones(html: str) -> list[str]:
+        plus_phones = _PHONE_RE.findall(html)
+        tel_phones = [("+" + d if not d.startswith("+") else d) for d in _TEL_LINK_RE.findall(html)]
+        raw = plus_phones + tel_phones
+        normed = _dedup_preserve_order([_normalize_phone(p) for p in raw])
+        return [p for p in normed if p and 11 <= len(re.sub(r"\D", "", p)) <= 12]
+
+    # Try URL paths in order; stop at the first one that yields any phone.
+    # 2gis.ru returns 200 even for non-existent firm IDs ("ничего не найдено"),
+    # so we must fall back on empty content, not just HTTP errors.
+    urls: list[str] = []
+    if firm_id:
+        urls.append(f"https://2gis.ru/firm/{firm_id}")
+    if company:
+        query = company if not city else f"{company} {city}"
+        urls.append(f"https://2gis.ru/search/{quote_plus(query)}")
+
+    html = ""
+    phones: list[str] = []
+    for url in urls:
+        page_html = _fetch_2gis_html(url)
+        if not page_html:
+            continue
+        page_phones = _extract_phones(page_html)
+        if page_phones:
+            html = page_html
+            phones = page_phones
+            break
+        # Keep the last non-empty HTML so we can still pull emails if phones missed
+        html = page_html
+
+    if not html:
+        return result
+
+    # Emails: regex across HTML with false-positive filtering
+    emails_raw = _EMAIL_RE.findall(html)
+    filtered_emails = []
+    for e in emails_raw:
+        e_low = e.lower()
+        # Reject CDN/static resources and 2GIS internal addresses
+        if any(bad in e_low for bad in (
+            ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif",
+            ".woff", ".ttf", ".css", ".js",
+            "2gis.ru", "2gis.com", "example.com", "sentry",
+        )):
+            continue
+        filtered_emails.append(e_low)
+    emails = _dedup_preserve_order(filtered_emails)
+
+    result["phones"] = phones[:5]
+    result["emails"] = emails[:5]
+    # Address is non-trivial to extract reliably from search HTML; leave empty
+    # and rely on the 2GIS API address that was saved at collection time.
+    return result
