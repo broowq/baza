@@ -81,10 +81,23 @@ export default function DashboardPage() {
 
   const bootstrap = async () => {
     try {
-      const [orgs] = await Promise.all([
-        api<Organization[]>("/organizations/my-list").catch(() => null),
-        api<{ email: string; is_admin: boolean; full_name?: string }>("/auth/me").catch(() => null),
-      ]);
+      // Critical calls: /auth/me determines session validity. If it throws an
+      // auth error after refresh-retry inside api(), redirect to login rather
+      // than rendering a blank dashboard.
+      let orgs: Organization[] | null = null;
+      try {
+        [orgs] = await Promise.all([
+          api<Organization[]>("/organizations/my-list"),
+          api<{ email: string; is_admin: boolean; full_name?: string }>("/auth/me"),
+        ]);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "";
+        if (msg.includes("авториз") || msg.includes("Сессия")) {
+          window.location.href = "/login";
+          return;
+        }
+        throw e;
+      }
 
       if (orgs) {
         setOrganizations(orgs);

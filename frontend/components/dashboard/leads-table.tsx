@@ -355,9 +355,17 @@ export function LeadsTable({
                     <TableCell className="max-w-[192px]">
                       <div>
                         <p className="truncate font-medium" title={lead.company}>{lead.company}</p>
-                        {lead.enriched && (
+                        {lead.enriched ? (
                           <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <Sparkles size={9} /> обогащён
+                          </span>
+                        ) : (
+                          <span
+                            className="mt-0.5 inline-flex items-center gap-1 text-xs text-amber-600"
+                            title="Контакты ещё не собраны — запустите обогащение"
+                          >
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
+                            не обогащён
                           </span>
                         )}
                       </div>

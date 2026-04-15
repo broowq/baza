@@ -72,7 +72,15 @@ export default function ProjectDetailsPage() {
         api<{ role: "owner" | "admin" | "member" }>("/organizations/membership"),
         api<{ total: number; enriched: number; with_email: number; avg_score: number }>(`/leads/project/${projectId}/stats`),
       ]);
+      // Cross-org guard: if the requested project_id is not in the user's
+      // accessible list (different org or deleted), redirect to dashboard
+      // instead of rendering a blank page with null project.
       const current = projectsList.find((item) => item.id === projectId) ?? null;
+      if (!current) {
+        toast.error("Проект не найден или принадлежит другой организации");
+        window.location.href = "/dashboard";
+        return;
+      }
       setProject(current);
       setLeads(projectLeads.items);
       setTotal(projectLeads.total);
@@ -80,7 +88,12 @@ export default function ProjectDetailsPage() {
       setOrgRole(membership.role);
       setStats({ total: statsData.total, enriched: statsData.enriched, withEmail: statsData.with_email, avgScore: statsData.avg_score });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось загрузить проект");
+      const msg = error instanceof Error ? error.message : "";
+      if (msg.includes("авториз") || msg.includes("Сессия")) {
+        window.location.href = "/login";
+        return;
+      }
+      toast.error(msg || "Не удалось загрузить проект");
     } finally {
       setLoading(false);
     }
