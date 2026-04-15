@@ -50,9 +50,18 @@ def list_user_organizations(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    memberships = db.execute(select(Membership).where(Membership.user_id == user.id)).scalars().all()
-    organizations = [db.get(Organization, m.organization_id) for m in memberships]
-    return [org for org in organizations if org]
+    # Single JOIN-backed query instead of N+1 lookups (previously: 1 query to
+    # fetch memberships + 1 per org via db.get).
+    organizations = (
+        db.execute(
+            select(Organization)
+            .join(Membership, Membership.organization_id == Organization.id)
+            .where(Membership.user_id == user.id)
+        )
+        .scalars()
+        .all()
+    )
+    return organizations
 
 
 @router.get("/membership", response_model=CurrentMembershipOut)

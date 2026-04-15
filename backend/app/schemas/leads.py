@@ -11,7 +11,8 @@ class RunCollectionRequest(BaseModel):
 
 
 class EnrichSelectedRequest(BaseModel):
-    lead_ids: list[str] = Field(default_factory=list)
+    # Max 500 to prevent memory/DB blow-up from malicious oversized arrays.
+    lead_ids: list[str] = Field(default_factory=list, max_length=500)
 
 
 class LeadOut(BaseModel):
