@@ -57,6 +57,12 @@ _RATE_LIMIT_TIERS: list[tuple[str, int, int]] = [
     ("/api/auth/forgot-password", 100 if _is_dev else 10, 60),
     ("/api/auth/reset-password", 100 if _is_dev else 10, 60),
     ("/api/auth/", 500 if _is_dev else 60, 60),
+    # LLM-backed endpoints (Anthropic/GigaChat) — cost real money per call,
+    # so tier them tightly to prevent cost-explosion DoS vectors.
+    ("/api/projects/enhance-prompt", 50 if _is_dev else 5, 60),
+    # External-API-hitting endpoints (2GIS, Yandex, scraping) — limit to
+    # reasonable human rate per IP to prevent quota burn + remote site blocks.
+    ("/api/leads/project", 100 if _is_dev else 20, 60),
     ("/api/", 1000 if _is_dev else 120, 60),
 ]
 
