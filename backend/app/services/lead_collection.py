@@ -831,8 +831,31 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                 params["page"] = page_num
                 resp = client.get("https://catalog.api.2gis.com/3.0/items", params=params)
                 if resp.status_code != 200:
+                    logger.warning("2GIS /items HTTP %s for q=%r", resp.status_code, niche)
                     break
-                data = resp.json()
+                try:
+                    data = resp.json()
+                except Exception:
+                    logger.warning("2GIS /items returned non-JSON body for q=%r", niche)
+                    break
+                # 2GIS returns HTTP 200 with an error envelope when the key is
+                # blocked / quota exceeded / bad request. We must surface those
+                # loudly — they were silently becoming "no leads found".
+                meta = data.get("meta") or {}
+                meta_code = meta.get("code")
+                if meta_code and meta_code != 200:
+                    err = (meta.get("error") or {})
+                    logger.error(
+                        "2GIS API error: code=%s type=%s message=%s (q=%r)",
+                        meta_code,
+                        err.get("type"),
+                        err.get("message"),
+                        niche,
+                    )
+                    # Key-blocked / quota / auth errors — stop pagination, no point retrying.
+                    if meta_code in (401, 403, 429):
+                        break
+                    break
                 items = data.get("result", {}).get("items", [])
                 if not items:
                     break
