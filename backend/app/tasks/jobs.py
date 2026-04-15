@@ -300,10 +300,12 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             raw_email = (contacts.get("emails") or [""])[0] if isinstance(contacts, dict) else ""
             raw_phone = (contacts.get("phones") or [""])[0] if isinstance(contacts, dict) else ""
             raw_address = (contacts.get("addresses") or [""])[0] if isinstance(contacts, dict) else ""
-            # Preserve existing phone/address collected at search time (2GIS API)
-            # if scraping didn't find anything new.
+            # Preserve existing phone/email/address collected at search time
+            # (2GIS API minimal tier populates these) if scraping didn't find new ones.
             if not raw_phone and lead.phone:
                 raw_phone = lead.phone
+            if not raw_email and lead.email:
+                raw_email = lead.email
             if not raw_address and lead.address:
                 raw_address = lead.address
             lead.email = _clip(raw_email, 255)

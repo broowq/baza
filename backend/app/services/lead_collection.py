@@ -839,17 +839,29 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                 for item in items:
                     website = ""
                     phone = ""
+                    email = ""
+                    extra_phones: list[str] = []
                     # Try org.website first (more reliable)
                     org_info = item.get("org", {})
                     if org_info.get("website"):
                         website = org_info["website"]
-                    # Then check contact_groups
+                    # Walk contact_groups once and collect ALL channels — previously
+                    # we dropped 2nd/3rd phones and emails silently.
                     for group in item.get("contact_groups", []):
                         for contact in group.get("contacts", []):
-                            if contact.get("type") == "website" and not website:
-                                website = contact.get("value", "")
-                            if contact.get("type") == "phone" and not phone:
-                                phone = contact.get("text", "")
+                            ctype = contact.get("type")
+                            cval = (contact.get("text") or contact.get("value") or "").strip()
+                            if not cval:
+                                continue
+                            if ctype == "website" and not website:
+                                website = cval
+                            elif ctype == "phone":
+                                if not phone:
+                                    phone = cval
+                                elif cval not in extra_phones:
+                                    extra_phones.append(cval)
+                            elif ctype == "email" and not email:
+                                email = cval
 
                     norm = normalize_url(website) if website else ""
                     domain = extract_domain(norm) if norm else ""
@@ -883,6 +895,8 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             "website": norm,
                             "domain": domain,
                             "phone": phone,
+                            "extra_phones": extra_phones,
+                            "email": email,
                             "source_url": f"https://2gis.ru/search/{quote_plus(niche)}",
                             "snippet": f"{address_name} {phone}".strip()[:400],
                             "address": address_name[:300],
@@ -1173,14 +1187,33 @@ def enrich_website_contacts(base_url: str) -> dict:
 # public 2gis.ru site renders phones/emails directly in server HTML for search
 # results. We query the public search page and extract contacts via regex.
 
-_BROWSER_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/131.0.0.0 Safari/537.36"
+# Multiple realistic browser UAs to rotate across — captcha is rate/fingerprint-based,
+# so diversifying the identity reduces trigger rate substantially.
+_BROWSER_UAS = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 "
+    "(KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 )
-_PHONE_RE = re.compile(r"\+7[\s\-()]?\d{3}[\s\-()]?\d{3}[\s\-()]?\d{2}[\s\-()]?\d{2}")
+# Keep the old name as the first UA so legacy callers still work.
+_BROWSER_UA = _BROWSER_UAS[0]
+# Russian phone numbers come in +7, bare-7, or 8-prefix forms; we accept all three.
+# Separators ({0,3}) cover combinations like ` (`, `) `, etc. between digit groups.
+_PHONE_RE = re.compile(r"(?:\+7|\b8)[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{2}[\s\-()]{0,3}\d{2}")
 _TEL_LINK_RE = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
-_EMAIL_RE = re.compile(r"[\w.\-+]+@[\w\-]+\.[\w.\-]+")
+# Stricter email regex — requires TLD of 2-10 chars and forbids the dot-ending seen in fragment matches.
+_EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}\.[a-zA-Z]{2,10}\b")
+
+# Markers that tell us 2gis.ru served a captcha / blocked page instead of real data.
+_CAPTCHA_MARKERS = (
+    "captcha", "Captcha", "CAPTCHA",
+    "проверка, что вы не робот", "Проверьте, что вы не робот",
+    "smart-captcha", "checkbox-captcha", "yandex-captcha",
+)
 
 
 def _normalize_phone(raw: str) -> str:
@@ -1204,31 +1237,59 @@ def _dedup_preserve_order(items: list[str]) -> list[str]:
     return out
 
 
+def _looks_like_captcha(html: str) -> bool:
+    """Detect if 2gis.ru served a captcha page instead of real content.
+
+    Captcha pages return HTTP 200 with phone-like strings decorating the challenge,
+    so we must sniff the body to avoid wasting the response as a "successful" miss.
+    """
+    if not html:
+        return False
+    # Bail fast if the page has a tel: link — real firm pages have those; captchas don't.
+    if "tel:" in html:
+        return False
+    snippet = html[:8000]  # captcha markers always appear in the head/body top
+    return any(marker in snippet for marker in _CAPTCHA_MARKERS)
+
+
 def _fetch_2gis_html(url: str) -> str:
-    """Fetch a 2gis.ru page with browser UA + retries. Returns empty on failure."""
-    headers = {
-        "User-Agent": _BROWSER_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
-    }
-    try:
-        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
-            for attempt in range(3):
-                try:
-                    response = client.get(url, headers=headers)
-                except httpx.RequestError:
-                    if attempt == 2:
-                        return ""
-                    time.sleep(0.3 * (2 ** attempt))
-                    continue
-                if response.status_code in (429, 503):
-                    time.sleep(0.4 * (2 ** attempt))
-                    continue
-                if response.status_code >= 400:
+    """Fetch a 2gis.ru page with rotating UA + retries + captcha detection.
+
+    Returns empty string on HTTP failure, network error, or captcha interception.
+    Retries up to 4 times with exponential backoff on 429/503/captcha.
+    """
+    with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+        for attempt in range(4):
+            ua = _BROWSER_UAS[attempt % len(_BROWSER_UAS)]
+            headers = {
+                "User-Agent": ua,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+                # Only declare encodings httpx decodes by default (brotli requires extra pkg).
+                "Accept-Encoding": "gzip, deflate",
+            }
+            try:
+                response = client.get(url, headers=headers)
+            except httpx.RequestError:
+                if attempt == 3:
                     return ""
-                return response.text or ""
-    except Exception:
-        logger.debug("2gis fetch error for %r", url, exc_info=True)
+                time.sleep(0.5 * (2 ** attempt) + random.random() * 0.3)
+                continue
+            if response.status_code in (429, 503):
+                time.sleep(0.7 * (2 ** attempt) + random.random() * 0.5)
+                continue
+            if response.status_code >= 400:
+                return ""
+            body = response.text or ""
+            if _looks_like_captcha(body):
+                # Back off harder — captcha trip means we were fingerprinted, so give
+                # it time and rotate UA before the next attempt.
+                if attempt == 3:
+                    logger.info("2gis captcha persists after 4 attempts for %s", url)
+                    return ""
+                time.sleep(1.0 * (2 ** attempt) + random.random() * 0.5)
+                continue
+            return body
     return ""
 
 

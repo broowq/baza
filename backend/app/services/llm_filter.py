@@ -140,8 +140,12 @@ def _ai_filter_batch(batch, niche, geography, segments, prompt) -> list[dict] | 
                 kept_indices.add(idx)
 
         if not kept_indices:
-            logger.warning(f"AI filter: could not parse response '{answer}', keeping all")
-            return batch
+            # Previously we returned the full batch here ("keep all"), which let
+            # junk candidates leak through whenever the LLM returned gibberish.
+            # Signal failure instead so the caller can fall back to the strict
+            # rule-based filter.
+            logger.warning(f"AI filter: could not parse response {answer!r}, falling back to rules")
+            return None
 
         return [c for i, c in enumerate(batch) if i in kept_indices]
 
@@ -192,12 +196,24 @@ _STOPWORDS = {
 
 
 def _build_multiword_phrases(segments: list[str]) -> list[str]:
-    """Extract multi-word phrases from segments that must match as whole."""
-    phrases = []
+    """Extract multi-word / hyphenated phrases from segments that must match as whole.
+
+    Both "бизнес-центр" (hyphenated) and "торговый центр" (spaced) are multi-token
+    phrases — matching them whole avoids false positives from generic halves like "бизнес".
+    """
+    phrases: list[str] = []
     for seg in segments or []:
         s = seg.lower().replace("ё", "е").strip()
-        if len(s) >= 5 and " " in s:
+        if len(s) < 5:
+            continue
+        # Both space- and hyphen-separated forms are multi-word phrases.
+        if " " in s or "-" in s:
             phrases.append(s)
+            # Also include a normalized spaced variant so "бизнес-центр" matches
+            # company names containing either "бизнес-центр" or "бизнес центр".
+            spaced = s.replace("-", " ")
+            if spaced != s and spaced not in phrases:
+                phrases.append(spaced)
     return phrases
 
 
