@@ -14,8 +14,49 @@ logger = logging.getLogger(__name__)
 
 
 # ── Smart rule-based customer mapping ──
-# Maps what someone SELLS to who would BUY it
+# Maps what someone SELLS to who would BUY it.
+# IMPORTANT: More specific multi-word phrases are prioritized (higher score per match).
+# Order in list matters — specific industries are checked first.
 _PRODUCT_TO_CUSTOMERS = [
+    # ── Very specific B2B contexts (go FIRST) ──
+    # Office / hospitality furniture for B2B — users SELLING to businesses
+    {
+        "keywords": ["офисная мебель", "гостиничная мебель", "мебель для офиса",
+                      "мебель для отелей", "мебель для ресторанов", "мебель на заказ",
+                      "корпоративная мебель", "мебель для бизнеса", "b2b мебель",
+                      "мебель для гостиниц", "мебель для кафе"],
+        "niche": "офисы, отели, рестораны, бизнес-центры",
+        "segments": ["бизнес-центр", "офисный центр", "отель", "гостиница",
+                     "ресторан", "кафе", "коворкинг", "деловой центр"],
+        "target_types": ["Бизнес-центры", "Отели", "Гостиницы", "Рестораны", "Коворкинги"],
+        "search_niche": "бизнес-центр отель гостиница ресторан коворкинг",
+    },
+    # HoReCa equipment — kitchen / bar / hotel equipment
+    {
+        "keywords": ["оборудование для ресторанов", "оборудование для кафе",
+                      "оборудование для столовых", "оборудование для отелей",
+                      "оборудование для пекарен", "оборудование для общепита",
+                      "кухонное оборудование", "барное оборудование",
+                      "ресторанное оборудование", "horeca", "хорека"],
+        "niche": "рестораны, кафе, столовые, отели",
+        "segments": ["ресторан", "кафе", "столовая", "отель", "гостиница",
+                     "пекарня", "кондитерская", "бар", "пиццерия", "фастфуд"],
+        "target_types": ["Рестораны", "Кафе", "Столовые", "Отели", "Пекарни", "Пиццерии"],
+        "search_niche": "ресторан кафе столовая отель пекарня пиццерия бар",
+    },
+    # Accounting / Tax / Legal services for B2B
+    {
+        "keywords": ["бухгалтерск", "бухучет", "бухгалтери", "налогов",
+                      "аудит", "аутсорсинг бухгалтерии", "ведение налоговой",
+                      "юридическ услуг", "правов консультац"],
+        "niche": "малый и средний бизнес, ИП, ООО",
+        "segments": ["магазин", "салон красоты", "стоматология", "автосервис",
+                     "ресторан", "кафе", "медицинский центр", "фитнес-клуб",
+                     "турагентство", "строительная компания"],
+        "target_types": ["Магазины", "Салоны красоты", "Стоматологии", "Автосервисы",
+                         "Рестораны", "Фитнес-клубы"],
+        "search_niche": "магазин салон красоты стоматология автосервис фитнес-клуб",
+    },
     # Vet / Animal products
     {
         "keywords": ["кормов", "корм ", "комбикорм", "премикс", "добавк", "ветеринар", "ветпрепарат",
@@ -36,10 +77,10 @@ _PRODUCT_TO_CUSTOMERS = [
         "target_types": ["Строительные компании", "Застройщики", "Подрядчики", "Ремонтные бригады"],
         "search_niche": "строительная компания застройщик подрядчик ремонт квартир",
     },
-    # Wood / Timber
+    # Wood / Timber — raw timber materials (not furniture)
     {
-        "keywords": ["древесин", "пиломатериал", "брус", "доск", "фанер", "деревообработк",
-                      "вагонк", "паркет", "мебельн", "лес ", "лесоматериал", "дерев"],
+        "keywords": ["древесин", "пиломатериал", "брус ", "доска ", "фанер", "деревообработк",
+                      "вагонк", "паркет", "лесоматериал", "дерев"],
         "niche": "мебельное производство, строительство, столярные мастерские",
         "segments": ["мебельная фабрика", "столярная мастерская", "строительная компания",
                      "дизайн интерьера", "бани под ключ", "деревянное домостроение"],
@@ -220,20 +261,27 @@ def _smart_fallback(raw_prompt: str) -> dict:
     # Extract geography
     geography = _extract_geography(prompt_lower)
 
-    # Try to match against known product → customer mappings
+    # Try to match against known product → customer mappings.
+    # Scoring: longer phrases weigh more (a 2-word phrase match is ~4x stronger
+    # than a single-word root match). This ensures specific B2B contexts like
+    # "офисная мебель" beat generic "мебельн"/"дерев" mapping.
     best_match = None
-    best_score = 0
+    best_score = 0.0
 
     for mapping in _PRODUCT_TO_CUSTOMERS:
-        score = 0
+        score = 0.0
         for keyword in mapping["keywords"]:
             if keyword in prompt_lower:
-                score += 1
+                # Score proportional to keyword length (longer = more specific)
+                # 3-char stem = 1.0, 10-char word = 3.0, 20-char phrase = 5.0
+                word_count = max(1, len(keyword.strip().split()))
+                length_bonus = min(len(keyword) / 4.0, 5.0)
+                score += length_bonus * (1.5 if word_count > 1 else 1.0)
         if score > best_score:
             best_score = score
             best_match = mapping
 
-    if best_match and best_score >= 1:
+    if best_match and best_score >= 1.0:
         # Clean prompt from geography and action words for project name
         clean_name = re.sub(
             r'\b(продаю|продаём|оказываю|предлагаю|делаю|произвожу|поставляю|в\s+\w+е?)\b',

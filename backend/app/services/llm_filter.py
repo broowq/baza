@@ -201,6 +201,44 @@ def _build_multiword_phrases(segments: list[str]) -> list[str]:
     return phrases
 
 
+def _extract_product_core_terms(prompt: str) -> list[str]:
+    """Extract CORE product/service terms from prompt (strong competitor signals).
+
+    Example: "Оказываем бухгалтерские услуги" → ['бухгалтерск', 'налогов']
+    These roots in a company name indicate a direct competitor.
+    """
+    import re as _re
+    text = (prompt or "").lower().replace("ё", "е")
+
+    # Remove action words
+    for word in ("продаю", "продаём", "продаем", "предлагаю", "оказываем", "оказываю",
+                 "делаю", "делаем", "производим", "произвожу", "поставляю", "поставляем",
+                 "занимаюсь", "занимаемся", "работаю", "работаем", "ищем"):
+        text = text.replace(word, " ")
+    # Remove geography prepositions
+    text = _re.sub(r'\bв\s+\w+[еу]?\b', '', text)
+    # Remove stopwords
+    for sw in ("для", "и", "по", "с", "на", "из", "а", "но", "или", "также",
+               "наш", "наши", "свой", "свои"):
+        text = _re.sub(rf'\b{sw}\b', ' ', text)
+
+    # Extract product root words (5+ chars for higher specificity)
+    roots = []
+    for word in text.split():
+        w = word.strip(",.()[]:;\"'!?").lower()
+        if len(w) >= 6 and w not in _STOPWORDS:
+            # Take 5-char stem for lemmatization-less matching
+            roots.append(w[:6])
+    # Dedupe preserving order
+    seen = set()
+    out = []
+    for r in roots:
+        if r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out[:8]
+
+
 def _rule_based_competitor_filter(
     candidates: list[dict],
     prompt: str,
@@ -210,12 +248,14 @@ def _rule_based_competitor_filter(
     """Rule-based filter — STRICT mode when LLM unavailable.
 
     Strategy (in order):
-    1. Explicit competitor match (product + seller signals) → REJECT
-    2. Exact multi-word phrase match (e.g., "бизнес-центр") → KEEP
-    3. Single-word segment match (after stopword filter) → KEEP
-    4. Everything else → REJECT
+    1. Company name contains 2+ product core terms → COMPETITOR → REJECT
+    2. Explicit seller signals + product match → COMPETITOR → REJECT
+    3. Multi-word segment phrase match → KEEP (strongest segment signal)
+    4. Single-word segment match (stopword-filtered) → KEEP
+    5. Nothing matches → REJECT (strict)
     """
     product_keywords = _extract_product_keywords(prompt)
+    core_terms = _extract_product_core_terms(prompt)
 
     # Build multi-word phrases from segments (strongest signal)
     phrases = _build_multiword_phrases(segments)
@@ -245,30 +285,37 @@ def _rule_based_competitor_filter(
         categories = " ".join(c.get("categories") or []).lower()
         combined = f"{company} {snippet} {domain} {categories}"
 
-        # Step 1: Explicit competitor match — REJECT
+        # Step 1: Direct competitor — company NAME contains product core terms
+        #   "Куб2б, компания бухгалтерских услуг" → contains "бухгал" → competitor
+        name_core_matches = sum(1 for t in core_terms if t and t in company)
+        if name_core_matches >= 1 and len(core_terms) > 0:
+            rejected_competitors += 1
+            continue
+
+        # Step 2: Explicit seller signals + product match
         product_match = sum(1 for kw in product_keywords if kw in combined)
         seller_match = sum(1 for sig in _SELLER_SIGNALS if sig in combined)
         if product_match >= 2 and seller_match >= 1:
             rejected_competitors += 1
             continue
 
-        # Step 2: Multi-word phrase match (strongest signal)
+        # Step 3: Multi-word phrase match (strongest segment signal)
         phrase_match = any(p in combined for p in phrases)
         if phrase_match:
             kept.append(c)
             continue
 
-        # Step 3: Single-word segment match (excluding stopwords)
+        # Step 4: Single-word segment match (excluding stopwords)
         segment_match = any(term in combined for term in segment_terms)
         if segment_match:
             kept.append(c)
             continue
 
-        # Step 4: No match — REJECT (strict)
+        # Step 5: No match — REJECT (strict)
         rejected_irrelevant += 1
 
     logger.info(
-        f"Rule-based filter (strict v2): {len(candidates)} -> {len(kept)} kept | "
+        f"Rule-based filter (strict v3): {len(candidates)} -> {len(kept)} kept | "
         f"competitors={rejected_competitors}, irrelevant={rejected_irrelevant}"
     )
     return kept
