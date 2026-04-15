@@ -875,6 +875,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             city = adm.get("name", "")
                             break
 
+                    firm_id = str(item.get("id") or "")
                     results.append(
                         {
                             "company": name[:180],
@@ -887,6 +888,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             "address": address_name[:300],
                             "demo": False,
                             "source": "2gis",
+                            "firm_id": firm_id,
                         }
                     )
                     if len(results) >= limit:
@@ -1164,3 +1166,139 @@ def enrich_website_contacts(base_url: str) -> dict:
             continue
         time.sleep(0.15)
     return extract_contacts(gathered_text, gathered_html)
+
+
+# ─── 2GIS public-page enrichment ────────────────────────────────────────────
+# The 2GIS Places API minimal tier does not return contact_groups, but the
+# public 2gis.ru site renders phones/emails directly in server HTML for search
+# results. We query the public search page and extract contacts via regex.
+
+_BROWSER_UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/131.0.0.0 Safari/537.36"
+)
+_PHONE_RE = re.compile(r"\+7[\s\-()]?\d{3}[\s\-()]?\d{3}[\s\-()]?\d{2}[\s\-()]?\d{2}")
+_TEL_LINK_RE = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
+_EMAIL_RE = re.compile(r"[\w.\-+]+@[\w\-]+\.[\w.\-]+")
+
+
+def _normalize_phone(raw: str) -> str:
+    """Collapse formatting — '+7 (382) 220-11-36' → '+73822201136'."""
+    digits = re.sub(r"\D+", "", raw or "")
+    if not digits:
+        return ""
+    # Russian 8-prefix → 7 canonicalisation
+    if digits.startswith("8") and len(digits) == 11:
+        digits = "7" + digits[1:]
+    return "+" + digits
+
+
+def _dedup_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        if item and item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out
+
+
+def _fetch_2gis_html(url: str) -> str:
+    """Fetch a 2gis.ru page with browser UA + retries. Returns empty on failure."""
+    headers = {
+        "User-Agent": _BROWSER_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+    }
+    try:
+        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+            for attempt in range(3):
+                try:
+                    response = client.get(url, headers=headers)
+                except httpx.RequestError:
+                    if attempt == 2:
+                        return ""
+                    time.sleep(0.3 * (2 ** attempt))
+                    continue
+                if response.status_code in (429, 503):
+                    time.sleep(0.4 * (2 ** attempt))
+                    continue
+                if response.status_code >= 400:
+                    return ""
+                return response.text or ""
+    except Exception:
+        logger.debug("2gis fetch error for %r", url, exc_info=True)
+    return ""
+
+
+def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
+    """Fetch phones/emails for a 2GIS lead from the public 2gis.ru site.
+
+    Strategy (best signal first):
+      1. If firm_id provided — hit firm page directly (/firm/{id}).
+      2. Otherwise — search page (/search/{company} {city}) + take results
+         shown in the server-rendered HTML.
+
+    Returns dict with keys emails/phones/addresses (same shape as
+    enrich_website_contacts).
+    """
+    result: dict = {"emails": [], "phones": [], "addresses": []}
+    company = (company or "").strip()
+    if not company and not firm_id:
+        return result
+
+    def _extract_phones(html: str) -> list[str]:
+        plus_phones = _PHONE_RE.findall(html)
+        tel_phones = [("+" + d if not d.startswith("+") else d) for d in _TEL_LINK_RE.findall(html)]
+        raw = plus_phones + tel_phones
+        normed = _dedup_preserve_order([_normalize_phone(p) for p in raw])
+        return [p for p in normed if p and 11 <= len(re.sub(r"\D", "", p)) <= 12]
+
+    # Try URL paths in order; stop at the first one that yields any phone.
+    # 2gis.ru returns 200 even for non-existent firm IDs ("ничего не найдено"),
+    # so we must fall back on empty content, not just HTTP errors.
+    urls: list[str] = []
+    if firm_id:
+        urls.append(f"https://2gis.ru/firm/{firm_id}")
+    if company:
+        query = company if not city else f"{company} {city}"
+        urls.append(f"https://2gis.ru/search/{quote_plus(query)}")
+
+    html = ""
+    phones: list[str] = []
+    for url in urls:
+        page_html = _fetch_2gis_html(url)
+        if not page_html:
+            continue
+        page_phones = _extract_phones(page_html)
+        if page_phones:
+            html = page_html
+            phones = page_phones
+            break
+        # Keep the last non-empty HTML so we can still pull emails if phones missed
+        html = page_html
+
+    if not html:
+        return result
+
+    # Emails: regex across HTML with false-positive filtering
+    emails_raw = _EMAIL_RE.findall(html)
+    filtered_emails = []
+    for e in emails_raw:
+        e_low = e.lower()
+        # Reject CDN/static resources and 2GIS internal addresses
+        if any(bad in e_low for bad in (
+            ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif",
+            ".woff", ".ttf", ".css", ".js",
+            "2gis.ru", "2gis.com", "example.com", "sentry",
+        )):
+            continue
+        filtered_emails.append(e_low)
+    emails = _dedup_preserve_order(filtered_emails)
+
+    result["phones"] = phones[:5]
+    result["emails"] = emails[:5]
+    # Address is non-trivial to extract reliably from search HTML; leave empty
+    # and rely on the 2GIS API address that was saved at collection time.
+    return result
