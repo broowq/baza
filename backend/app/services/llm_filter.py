@@ -327,7 +327,17 @@ def _rule_based_competitor_filter(
             kept.append(c)
             continue
 
-        # Step 5: No match — REJECT (strict)
+        # Step 5: Maps-sourced leads (2GIS, Yandex) with address — KEEP.
+        # These came from a targeted segment query ("бизнес-центр Екатеринбург")
+        # so they ARE the target audience by definition, even if their company
+        # name doesn't happen to contain the Russian segment word (e.g. "DDX
+        # Fitness" searched via "фитнес-клуб" query).
+        is_maps = c.get("source") in {"2gis", "yandex_maps"}
+        if is_maps and c.get("address"):
+            kept.append(c)
+            continue
+
+        # Step 6: No match — REJECT (strict)
         rejected_irrelevant += 1
 
     logger.info(

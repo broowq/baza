@@ -389,6 +389,11 @@ def _candidate_relevance_score(
             score += 10
         if categories:
             score += 8
+        # 2GIS/Yandex results were fetched via a targeted segment query (e.g.
+        # "бизнес-центр Екатеринбург"), so the items ARE the target audience
+        # by definition. Give a strong baseline bonus to counteract penalties
+        # for missing website/domain — these are real businesses on the map.
+        score += 18
 
     contact_text = f"{snippet} {address}"
     if re.search(r"\+7[\s\-(]?\d", contact_text) or re.search(r"8\s?\(\d{3}\)", contact_text):
