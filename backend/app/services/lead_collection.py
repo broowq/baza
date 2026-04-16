@@ -1,4 +1,6 @@
 import functools
+import hashlib
+import json as _json
 import random
 import time
 from html import unescape
@@ -9,12 +11,36 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 import pymorphy3
+import redis
 
 _morph = pymorphy3.MorphAnalyzer()
 
 from app.core.config import get_settings
 from app.utils.contact_parser import extract_contacts
 from app.utils.url_tools import _is_safe_url, extract_domain, get_base_domain, is_aggregator_domain, is_junk_result, is_real_domain, normalize_url
+
+# ─── Redis cache for 2GIS API ───────────────────────────────────────────────
+# Caches raw API responses to avoid burning quota on repeated queries.
+# Same "стоматология Казань" from two different users → 1 API call, not 2.
+_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
+_CACHE_PREFIX = "2gis:v1:"
+
+def _get_redis() -> redis.Redis | None:
+    """Lazy Redis connection for caching (sync, uses DB 3 to avoid collisions)."""
+    try:
+        url = get_settings().redis_url  # e.g. redis://localhost:6379/0
+        # Use DB 3 for 2GIS cache (0=app, 1=celery broker, 2=celery results)
+        base = url.rsplit("/", 1)[0] if "/" in url else url
+        return redis.Redis.from_url(f"{base}/3", decode_responses=True, socket_timeout=2)
+    except Exception:
+        return None
+
+
+def _cache_key(prefix: str, *parts: str) -> str:
+    """Build a stable cache key from arbitrary parts."""
+    raw = "|".join(str(p).lower().strip() for p in parts)
+    digest = hashlib.md5(raw.encode()).hexdigest()[:12]
+    return f"{_CACHE_PREFIX}{prefix}:{digest}"
 
 DEFAULT_USER_AGENT = "BAZA-Bot/1.0 (+https://localhost)"
 TAG_RE = re.compile(r"<[^>]+>")
@@ -751,30 +777,46 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
     return results[:limit]
 
 
+_CITY_ALIASES = {
+    "спб": "Санкт-Петербург",
+    "питер": "Санкт-Петербург",
+    "мск": "Москва",
+    "екб": "Екатеринбург",
+    "нск": "Новосибирск",
+    "нн": "Нижний Новгород",
+    "ростов": "Ростов-на-Дону",
+    "волгоград": "Волгоград",
+}
+
+
 @functools.lru_cache(maxsize=512)
 def _resolve_2gis_city_id(geo: str) -> str | None:
-    """Resolve a city name to a 2GIS city ID via the API."""
+    """Resolve a city name to a 2GIS city ID.
+
+    Checks Redis cache first (30-day TTL — cities don't change), then API.
+    Each cache hit saves 1 API call.
+    """
     settings = get_settings()
     api_key = settings.twogis_api_key
     if not api_key:
         return None
 
-    # Normalize: strip whitespace, lowercase
     city = geo.strip().lower().replace("ё", "е")
+    city_query = _CITY_ALIASES.get(city, geo.strip())
+    cache_k = _cache_key("city", city_query)
 
-    # Common aliases
-    ALIASES = {
-        "спб": "Санкт-Петербург",
-        "питер": "Санкт-Петербург",
-        "мск": "Москва",
-        "екб": "Екатеринбург",
-        "нск": "Новосибирск",
-        "нн": "Нижний Новгород",
-        "ростов": "Ростов-на-Дону",
-        "волгоград": "Волгоград",
-    }
-    city_query = ALIASES.get(city, geo.strip())
+    # Try Redis cache
+    r = _get_redis()
+    if r:
+        try:
+            cached = r.get(cache_k)
+            if cached is not None:
+                return cached if cached != "__none__" else None
+        except Exception:
+            pass
 
+    # API call
+    city_id: str | None = None
     try:
         with httpx.Client(timeout=5.0) as client:
             resp = client.get(
@@ -787,16 +829,22 @@ def _resolve_2gis_city_id(geo: str) -> str | None:
                     "page_size": 1,
                 },
             )
-            if resp.status_code != 200:
-                return None
-            data = resp.json()
-            items = data.get("result", {}).get("items", [])
-            if items:
-                return str(items[0]["id"])
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("result", {}).get("items", [])
+                if items:
+                    city_id = str(items[0]["id"])
     except Exception as e:
         logger.warning(f"2GIS city resolve failed for '{geo}': {e}")
 
-    return None
+    # Store in Redis (30 days — cities are immutable)
+    if r:
+        try:
+            r.set(cache_k, city_id or "__none__", ex=30 * 24 * 60 * 60)
+        except Exception:
+            pass
+
+    return city_id
 
 
 def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
@@ -804,6 +852,18 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
     api_key = settings.twogis_api_key
     if not api_key:
         return []
+
+    # ── Redis cache: same (niche, geo) → skip API call entirely ──
+    cache_k = _cache_key("search", niche, geo, str(limit))
+    r = _get_redis()
+    if r:
+        try:
+            cached = r.get(cache_k)
+            if cached is not None:
+                logger.info("2GIS cache HIT for %r/%r (saved %d+ API calls)", niche, geo, 1)
+                return _json.loads(cached)
+        except Exception:
+            pass
 
     city_id = _resolve_2gis_city_id(geo)
     # 2GIS API limits: page_size MUST be 1..10 (undocumented limit — API returns
@@ -935,7 +995,17 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                 time.sleep(0.3)
     except Exception as exc:
         logger.warning("2GIS search failed for '%s %s': %s", niche, geo, exc, exc_info=True)
-    return results[:limit]
+
+    final = results[:limit]
+
+    # ── Store in Redis cache (7 days) — only if we got real results ──
+    if final and r:
+        try:
+            r.set(cache_k, _json.dumps(final, ensure_ascii=False, default=str), ex=_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+
+    return final
 
 
 def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
