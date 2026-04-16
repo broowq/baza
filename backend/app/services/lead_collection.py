@@ -1008,6 +1008,148 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
     return final
 
 
+# ─── 2GIS scrape-based search (no API quota) ────────────────────────────────
+# Parses the embedded initialState JSON from public 2gis.ru search pages.
+# Used as primary search path; API fallback only when scraping fails.
+
+_CITY_SLUG_MAP = {
+    # Russian city name → 2gis.ru URL slug (Latin transliteration).
+    # 2GIS uses unique slugs that DON'T follow standard transliteration rules.
+    "москва": "moscow", "санкт-петербург": "spb", "петербург": "spb",
+    "новосибирск": "novosibirsk", "екатеринбург": "ekaterinburg",
+    "казань": "kazan", "красноярск": "krasnoyarsk", "воронеж": "voronezh",
+    "краснодар": "krasnodar", "ростов-на-дону": "rostov", "ростов": "rostov",
+    "пермь": "perm", "томск": "tomsk", "барнаул": "barnaul", "омск": "omsk",
+    "челябинск": "chelyabinsk", "самара": "samara", "уфа": "ufa",
+    "волгоград": "volgograd", "нижний новгород": "n_novgorod",
+    "тюмень": "tyumen", "иркутск": "irkutsk", "кемерово": "kemerovo",
+    "тула": "tula", "ярославль": "yaroslavl", "хабаровск": "khabarovsk",
+    "владивосток": "vladivostok", "саратов": "saratov", "тольятти": "tolyatti",
+    "оренбург": "orenburg", "ижевск": "izhevsk", "рязань": "ryazan",
+    "калининград": "kaliningrad", "пенза": "penza", "сочи": "sochi",
+    "астрахань": "astrakhan", "липецк": "lipetsk", "курск": "kursk",
+    "брянск": "bryansk", "белгород": "belgorod", "тверь": "tver",
+    "сургут": "surgut", "набережные челны": "nabchelny", "архангельск": "arkhangelsk",
+    "владимир": "vladimir", "смоленск": "smolensk", "калуга": "kaluga",
+    "чита": "chita", "орел": "orel", "новокузнецк": "novokuznetsk",
+    "мурманск": "murmansk", "вологда": "vologda", "якутск": "yakutsk",
+}
+
+
+def _city_to_slug(geo: str) -> str | None:
+    """Convert a Russian city name (from geography) to a 2gis.ru URL slug.
+
+    Returns None if the city is not in our map (fallback to API needed).
+    """
+    city = geo.strip().lower().replace("ё", "е")
+    # Try exact match first
+    if city in _CITY_SLUG_MAP:
+        return _CITY_SLUG_MAP[city]
+    # Try extracting city from longer geo strings like "Томск и область"
+    for known, slug in _CITY_SLUG_MAP.items():
+        if known in city:
+            return slug
+    return None
+
+
+def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
+    """Search 2GIS by scraping the public 2gis.ru page (zero API calls).
+
+    Parses the embedded initialState JSON from the server-rendered HTML.
+    Returns the same dict format as _search_2gis (API version) so the caller
+    can swap them transparently.
+    """
+    slug = _city_to_slug(geo)
+    if not slug:
+        logger.debug("2GIS scrape: no slug for geo=%r, skip", geo)
+        return []
+
+    # Redis cache (same key prefix as API, but with :scrape suffix)
+    cache_k = _cache_key("scrape", niche, slug, str(limit))
+    r = _get_redis()
+    if r:
+        try:
+            cached = r.get(cache_k)
+            if cached is not None:
+                logger.info("2GIS scrape cache HIT for %r/%r", niche, slug)
+                return _json.loads(cached)
+        except Exception:
+            pass
+
+    url = f"https://2gis.ru/{slug}/search/{quote_plus(niche)}"
+    html = _fetch_2gis_html(url)
+    if not html or len(html) < 5000:
+        return []
+
+    # ── Parse companies from embedded JSON ──
+    # Items have: "primary":"CompanyName" near "org":{"id":"..."} and
+    # "address_name":"..." earlier in the same item block.
+
+    # 1) Ordered list of company short names (deduped)
+    names: list[tuple[str, int]] = []
+    for m in re.finditer(r'"primary":"([^"]{2,80})"', html):
+        n = m.group(1)
+        if n not in [x[0] for x in names]:
+            names.append((n, m.start()))
+
+    # 2) Ordered addresses
+    addrs = [(m.group(1), m.start()) for m in re.finditer(r'"address_name":"([^"]+)"', html)]
+
+    # 3) Org IDs (firm_id): appear shortly after name_ex.primary
+    org_ids = [(m.group(1), m.start()) for m in re.finditer(r'"org":\{[^}]*"id":"(\d+)"', html)]
+
+    # 4) Build candidates by correlating positions
+    results: list[dict] = []
+    seen_names: set[str] = set()
+    for name, npos in names[:limit * 2]:  # over-fetch to handle junk
+        if name in seen_names:
+            continue
+        # Skip junk entries (generic names that aren't businesses)
+        if len(name) < 3 or name.lower() in ("интернет-портал", "интернет"):
+            continue
+
+        # Find closest org ID after this name
+        firm_id = ""
+        for oid, opos in org_ids:
+            if opos > npos and opos - npos < 800:
+                firm_id = oid
+                break
+
+        # Find closest preceding address_name
+        address = ""
+        for aname, apos in reversed(addrs):
+            if apos < npos:
+                address = aname
+                break
+
+        seen_names.add(name)
+        results.append({
+            "company": name[:180],
+            "city": geo.strip(),
+            "website": "",
+            "domain": "",
+            "phone": "",
+            "source_url": url,
+            "snippet": address[:400],
+            "address": address[:300],
+            "demo": False,
+            "source": "2gis",
+            "firm_id": firm_id,
+        })
+        if len(results) >= limit:
+            break
+
+    # Cache results (7 days) — only if we actually found something
+    if results and r:
+        try:
+            r.set(cache_k, _json.dumps(results, ensure_ascii=False, default=str), ex=_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+
+    logger.info("2GIS scrape: %d results for %r in %s (0 API calls)", len(results), niche, slug)
+    return results
+
+
 def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
     # Disabled: HTML scraping of SPA map pages (2GIS, Yandex Maps) produces
     # garbage data — the meaningful content is loaded via JS, not in the HTML.
@@ -1154,9 +1296,14 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
             except Exception:
                 logger.warning("Yandex Maps search error for '%s'", term, exc_info=True)
 
+        # 2GIS: try scraping the public site first (free, no API quota).
+        # Fall back to paid API only if scraping returns nothing.
         try:
             if len(collected) < oversample_limit:
-                twogis_results = _search_2gis(term, effective_geo, per_term_limit)
+                twogis_results = _search_2gis_scrape(term, effective_geo, per_term_limit)
+                if not twogis_results:
+                    # Scrape failed (captcha, unknown city, etc.) — fall back to API
+                    twogis_results = _search_2gis(term, effective_geo, per_term_limit)
                 collect_candidates(twogis_results)
                 if twogis_results:
                     logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), term, effective_geo)
