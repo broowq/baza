@@ -133,15 +133,20 @@ _PRODUCT_TO_CUSTOMERS = [
         "target_types": ["Строительные компании", "Застройщики", "Подрядчики", "Ремонтные бригады"],
         "search_niche": "строительная компания застройщик подрядчик ремонт квартир",
     },
-    # Wood / Timber — raw timber materials (not furniture)
+    # Wood / Timber / Lumber — raw timber materials (not furniture)
     {
-        "keywords": ["древесин", "пиломатериал", "брус ", "доска ", "фанер", "деревообработк",
-                      "вагонк", "паркет", "лесоматериал", "дерев"],
+        "keywords": ["древесин", "пиломатериал", "брус", "доска", "фанер", "деревообработк",
+                      "вагонк", "паркет", "лесоматериал", "дерев",
+                      "лес ", "леса", "лесу", "переработка леса", "кругляк",
+                      "опилк", "щепа", "сруб", "каркасн", "погонаж", "оцилиндровк"],
         "niche": "мебельное производство, строительство, столярные мастерские",
         "segments": ["мебельная фабрика", "столярная мастерская", "строительная компания",
-                     "дизайн интерьера", "бани под ключ", "деревянное домостроение"],
-        "target_types": ["Мебельные фабрики", "Столярные мастерские", "Строители деревянных домов"],
-        "search_niche": "мебельная фабрика столярная мастерская деревянное домостроение",
+                     "деревянное домостроение", "баня под ключ", "подрядчик",
+                     "оптовая база стройматериалов", "производство срубов",
+                     "дачное строительство", "застройщик"],
+        "target_types": ["Мебельные фабрики", "Столярные мастерские", "Строители деревянных домов",
+                         "Подрядчики", "Бани", "Дачное строительство"],
+        "search_niche": "мебельная фабрика столярная мастерская деревянное домостроение баня под ключ сруб",
     },
     # IT / Web development
     {
@@ -384,20 +389,30 @@ def _extract_geography(text: str) -> str:
         "Вологда", "Комсомольск-на-Амуре", "Мурманск", "Тамбов",
     ]
 
-    # Check for prepositional forms (в Томске → Томск)
-    city_forms = {}
-    for city in cities:
-        city_forms[city.lower()] = city
-        # Common prepositional case endings
-        if city.endswith("ск"):
-            city_forms[city.lower() + "е"] = city
-        elif city.endswith("а"):
-            city_forms[city.lower()[:-1] + "е"] = city
-        elif city.endswith("ь"):
-            city_forms[city.lower()[:-1] + "и"] = city
+    # Normalize each word in the text to nominative form via pymorphy3,
+    # then look for exact city name matches. Robust against all Russian
+    # case endings including compound cities (Санкт-Петербурге, Ростове-на-Дону).
+    city_set = {c.lower() for c in cities}
+    city_by_lc = {c.lower(): c for c in cities}
 
-    for form, original in city_forms.items():
-        if form in text:
-            return original
+    # Tokenize preserving hyphenated compounds
+    tokens = re.findall(r"[а-яё]+(?:-[а-яё]+)*", text.lower())
+    normalized_tokens: list[str] = []
+    for tok in tokens:
+        try:
+            normalized_tokens.append(_morph.parse(tok)[0].normal_form)
+        except Exception:
+            normalized_tokens.append(tok)
+
+    # Also keep the raw (non-normalized) tokens for compound cities where
+    # pymorphy may not normalize "ростове-на-дону" as a whole unit.
+    combined = " ".join(normalized_tokens) + " " + " ".join(tokens)
+
+    # Try longest cities first so "Санкт-Петербург" wins over "Петербург"
+    for city_lc in sorted(city_set, key=len, reverse=True):
+        # Word-boundary match
+        pattern = rf"(?<![а-яё]){re.escape(city_lc)}(?![а-яё])"
+        if re.search(pattern, combined):
+            return city_by_lc[city_lc]
 
     return "Россия"
