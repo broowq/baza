@@ -76,8 +76,11 @@ _EDITORIAL_OR_DIRECTORY_DOMAINS = {
 
 _ARTICLE_OR_DIRECTORY_HINTS = [
     "рейтинг", "лучших", "лучшие", "лучший", "топ 10", "топ-10",
-    "отзывы", "обзор", "сравнение", "подборка", "список компаний",
-    "каталог компаний", "каталог фирм", "справочник", "адреса и телефоны",
+    # "обзор" and "подборка" removed — they legitimately appear in B2B case-study
+    # titles like "подборка лучших поставщиков для HoReCa" which are useful leads.
+    "список компаний", "каталог компаний", "каталог фирм",
+    "справочник", "адреса и телефоны",
+    "что такое", "как работает", "значение слова", "история развития",
 ]
 
 _PATH_DIRECTORY_HINTS = [
@@ -110,16 +113,17 @@ _PATH_DIRECTORY_HINTS = [
 # File extensions that indicate not-a-lead (documents, downloads)
 _REJECT_URL_EXTENSIONS = (".xls", ".xlsx", ".pdf", ".doc", ".docx", ".zip", ".rar", ".xml")
 
+# Words that signal "this is a real company" WITHOUT implying they sell the product.
+# Words like "купить", "прайс", "заказать", "магазин", "оптом", "поставщик" used to be
+# here, but they're competitor signals (see _COMPETITOR_SIGNALS below) — having them
+# in both lists let sellers score +10 biz bonus before the competitor penalty kicked in.
 _BIZ_SIGNAL_WORDS = [
-    "купить", "заказать", "доставка", "прайс", "цена", "стоимость",
-    "ооо", "оао", "зао", "ип ", "компания", "предприятие",
-    "производств", "магазин", "услуг", "оптом", "каталог",
-    "склад", "оборудован", "продаж", "аренд", "монтаж",
-    "ремонт", "строительств", "поставщик", "подрядчик",
-    "прайс-лист", "распродаж", "акция", "скидк",
-    "официальный сайт", "официальный дилер",
+    "ооо", "оао", "зао", "ип ", "компания", "предприятие", "организация",
+    "услуг", "сервис",
     "звоните", "наш адрес", "контакты", "телефон:",
-    "+7", "8 (", "info@", "sale@", "zakaz@",
+    "+7", "8 (", "info@",
+    "режим работы", "график работы",
+    "официальный сайт",
 ]
 
 _ALLOWED_TLDS = frozenset({
