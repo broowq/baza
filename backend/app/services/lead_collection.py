@@ -1085,27 +1085,57 @@ def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
         except Exception:
             pass
 
-    url = f"https://2gis.ru/{slug}/search/{quote_plus(niche)}"
-    html = _fetch_2gis_html(url)
-    if not html or len(html) < 5000:
+    base_url = f"https://2gis.ru/{slug}/search/{quote_plus(niche)}"
+    # Fetch multiple pages (2gis.ru serves /page/N). Each page gives ~15-20 NEW
+    # companies. Cap at 4 pages (~50-60 items) to bound latency and respect the
+    # remote site.
+    max_pages = min(4, max(1, (limit + 14) // 15))
+    merged_names: list[tuple[str, int]] = []
+    merged_addrs: list[tuple[str, int]] = []
+    merged_org_ids: list[tuple[str, int]] = []
+    pos_offset = 0
+
+    for page_num in range(1, max_pages + 1):
+        page_url = base_url if page_num == 1 else f"{base_url}/page/{page_num}"
+        html = _fetch_2gis_html(page_url)
+        if not html or len(html) < 5000:
+            break
+
+        # Extract per-page matches; shift positions by cumulative offset so
+        # the correlation logic below (proximity-based) still works across pages.
+        page_primaries = [
+            (m.group(1), m.start() + pos_offset)
+            for m in re.finditer(r'"primary":"([^"]{2,80})"', html)
+        ]
+        merged_names.extend(page_primaries)
+        merged_addrs.extend(
+            (m.group(1), m.start() + pos_offset)
+            for m in re.finditer(r'"address_name":"([^"]+)"', html)
+        )
+        merged_org_ids.extend(
+            (m.group(1), m.start() + pos_offset)
+            for m in re.finditer(r'"org":\{[^}]*"id":"(\d+)"', html)
+        )
+        pos_offset += len(html)
+
+        # Short-circuit if we already have well more than requested
+        if len({n for n, _ in merged_names}) >= limit + 5:
+            break
+        time.sleep(0.2 + random.random() * 0.2)
+
+    if not merged_names:
         return []
 
-    # ── Parse companies from embedded JSON ──
-    # Items have: "primary":"CompanyName" near "org":{"id":"..."} and
-    # "address_name":"..." earlier in the same item block.
-
-    # 1) Ordered list of company short names (deduped)
+    # 1) Dedupe names preserving order
     names: list[tuple[str, int]] = []
-    for m in re.finditer(r'"primary":"([^"]{2,80})"', html):
-        n = m.group(1)
-        if n not in [x[0] for x in names]:
-            names.append((n, m.start()))
+    seen_primary: set[str] = set()
+    for n, p in merged_names:
+        if n not in seen_primary:
+            seen_primary.add(n)
+            names.append((n, p))
 
-    # 2) Ordered addresses
-    addrs = [(m.group(1), m.start()) for m in re.finditer(r'"address_name":"([^"]+)"', html)]
-
-    # 3) Org IDs (firm_id): appear shortly after name_ex.primary
-    org_ids = [(m.group(1), m.start()) for m in re.finditer(r'"org":\{[^}]*"id":"(\d+)"', html)]
+    addrs = merged_addrs
+    org_ids = merged_org_ids
 
     # 4) Build candidates by correlating positions
     results: list[dict] = []
@@ -1138,7 +1168,7 @@ def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
             "website": "",
             "domain": "",
             "phone": "",
-            "source_url": url,
+            "source_url": base_url,
             "snippet": address[:400],
             "address": address[:300],
             "demo": False,
