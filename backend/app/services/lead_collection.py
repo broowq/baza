@@ -362,13 +362,11 @@ def _candidate_relevance_score(
     elif niche_terms and title_hits == 0:
         score -= 8
 
-    # Segment matching — bonus for matching target customer type
+    # Segment matching — bonus for matching target customer type.
+    # Use _build_match_terms so segment words are lemmatized + stem-matched
+    # (avoids missing "молочные фермы" ↔ "молочного производства" due to case).
     if segments:
-        seg_terms = set()
-        for seg in (segments or []):
-            for word in seg.lower().replace("ё", "е").split():
-                if len(word) >= 3:
-                    seg_terms.add(word)
+        seg_terms = _build_match_terms(*segments)
         seg_hits = sum(1 for term in seg_terms if term in combined)
         score += min(20, seg_hits * 6)
 
