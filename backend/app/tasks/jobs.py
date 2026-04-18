@@ -223,6 +223,26 @@ def collect_leads_task(job_id: str) -> None:
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
         send_telegram(f"Lead collection finished. Job={job.id} Added={job.added_count}")
+
+        # ─── Auto-enrich freshly collected leads ───
+        # User expectation: when a project finishes collecting, phones/emails
+        # should already be populated — not in a separate manual step.
+        if added > 0 and not quota_stopped:
+            try:
+                enrich_job = CollectionJob(
+                    organization_id=job.organization_id,
+                    project_id=job.project_id,
+                    status=JobStatus.queued,
+                    kind="enrich",
+                    requested_limit=added,
+                )
+                db.add(enrich_job)
+                db.commit()
+                enrich_leads_task.delay(str(enrich_job.id))
+                logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
+                            job.project_id, enrich_job.id)
+            except Exception:
+                logger.warning("Failed to auto-queue enrich after collect", exc_info=True)
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(
             "collect_leads_task transient error for job_id=%s (retry %s/%s): %s",
