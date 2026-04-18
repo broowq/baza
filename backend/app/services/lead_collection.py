@@ -1118,9 +1118,26 @@ def _try_auto_discover_slug(city_lower: str) -> str | None:
     Cheap heuristic — most Russian cities follow simple transliteration
     rules. We try a few candidates and HEAD-request each. First 200 wins.
     Returns None if nothing matches (caller should fall back).
+
+    Two-tier cache:
+      1. In-process dict (fastest)
+      2. Redis (DB 3, 90-day TTL — slugs don't change)
     """
     if city_lower in _AUTO_SLUG_CACHE:
         return _AUTO_SLUG_CACHE[city_lower]
+
+    # Check Redis
+    r_redis = _get_redis()
+    redis_k = f"{_CACHE_PREFIX}slug_probe:{hashlib.md5(city_lower.encode()).hexdigest()[:12]}"
+    if r_redis:
+        try:
+            cached = r_redis.get(redis_k)
+            if cached is not None:
+                value = None if cached == "__none__" else cached
+                _AUTO_SLUG_CACHE[city_lower] = value
+                return value
+        except Exception:
+            pass
 
     # Build transliteration candidates
     translit_table = {
@@ -1152,6 +1169,11 @@ def _try_auto_discover_slug(city_lower: str) -> str | None:
                     )
                     if r.status_code == 200:
                         _AUTO_SLUG_CACHE[city_lower] = cand
+                        if r_redis:
+                            try:
+                                r_redis.set(redis_k, cand, ex=90 * 24 * 60 * 60)
+                            except Exception:
+                                pass
                         logger.info("Auto-discovered 2GIS slug: %r → %r", city_lower, cand)
                         return cand
                 except httpx.RequestError:
@@ -1160,6 +1182,11 @@ def _try_auto_discover_slug(city_lower: str) -> str | None:
         pass
 
     _AUTO_SLUG_CACHE[city_lower] = None
+    if r_redis:
+        try:
+            r_redis.set(redis_k, "__none__", ex=7 * 24 * 60 * 60)
+        except Exception:
+            pass
     return None
 
 
