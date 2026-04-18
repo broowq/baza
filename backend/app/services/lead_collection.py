@@ -1478,9 +1478,19 @@ _BROWSER_UAS = (
 )
 # Keep the old name as the first UA so legacy callers still work.
 _BROWSER_UA = _BROWSER_UAS[0]
-# Russian phone numbers come in +7, bare-7, or 8-prefix forms; we accept all three.
-# Separators ({0,3}) cover combinations like ` (`, `) `, etc. between digit groups.
-_PHONE_RE = re.compile(r"(?:\+7|\b8)[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{2}[\s\-()]{0,3}\d{2}")
+# Russian phone numbers: +7 or 8-prefix. The first 3-digit group MUST be a real
+# Russian area code (mobile 9xx, fixed-line 3xx/4xx/8xx) — this filters out
+# phantom matches from coordinate floats (84.85134...) and hash strings in URLs
+# (868398585595b6b62608.js) that happen to start with 8 or 7.
+# The `(?<![\w.\d])` lookbehind blocks matches inside decimals/identifiers.
+_PHONE_RE = re.compile(
+    r"(?<![\w.\d])"                             # not after digit/dot/word char
+    r"(?:\+7|8)"                                 # +7 or 8 prefix
+    r"[\s\-()]{0,3}"
+    r"(?:[349]\d{2}|800)"                        # valid Russian area code: 3xx/4xx/8xx/9xx (non-capturing)
+    r"[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{2}[\s\-()]{0,3}\d{2}"
+    r"(?![\d.])"                                 # not before digit/dot (avoids coordinate floats)
+)
 _TEL_LINK_RE = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
 # Stricter email regex — requires TLD of 2-10 chars and forbids the dot-ending seen in fragment matches.
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}\.[a-zA-Z]{2,10}\b")
@@ -1596,11 +1606,21 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
     # Try URL paths in order; stop at the first one that yields any phone.
     # 2gis.ru returns 200 even for non-existent firm IDs ("ничего не найдено"),
     # so we must fall back on empty content, not just HTTP errors.
+    #
+    # IMPORTANT: bare /firm/{id} 301-redirects to /moscow/firm/{id} which 404s
+    # for non-Moscow firms. We MUST prefix with the actual city slug (e.g.
+    # /tomsk/firm/{id}). Without that the firm-page enrichment is dead code.
     urls: list[str] = []
-    if firm_id:
+    slug = _city_to_slug(city) if city else None
+    if firm_id and slug:
+        urls.append(f"https://2gis.ru/{slug}/firm/{firm_id}")
+    if firm_id and not slug:
+        # No slug — try bare URL anyway as last resort (works for Moscow only)
         urls.append(f"https://2gis.ru/firm/{firm_id}")
     if company:
         query = company if not city else f"{company} {city}"
+        if slug:
+            urls.append(f"https://2gis.ru/{slug}/search/{quote_plus(query)}")
         urls.append(f"https://2gis.ru/search/{quote_plus(query)}")
 
     html = ""
