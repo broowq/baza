@@ -1737,8 +1737,69 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
         filtered_emails.append(e_low)
     emails = _dedup_preserve_order(filtered_emails)
 
+    # If no emails on the firm page, try to extract the company's own website
+    # from the firm-page HTML and scrape that for emails. ~15-20% of firms
+    # link their own site, which usually has a /contacts page with email.
+    if not emails:
+        external_url = _extract_org_website_from_2gis_html(html)
+        if external_url:
+            try:
+                website_contacts = enrich_website_contacts(external_url)
+                website_emails = website_contacts.get("emails") or []
+                if website_emails:
+                    emails = _dedup_preserve_order(website_emails)
+                # Also pick up any extra phones the website has
+                website_phones = website_contacts.get("phones") or []
+                for wp in website_phones:
+                    np = _normalize_phone(wp) if not wp.startswith("+") else wp
+                    if np and np not in phones and 11 <= len(re.sub(r"\D", "", np)) <= 12:
+                        phones.append(np)
+            except Exception:
+                logger.debug("website enrichment via 2gis-link failed", exc_info=True)
+
     result["phones"] = phones[:5]
     result["emails"] = emails[:5]
     # Address is non-trivial to extract reliably from search HTML; leave empty
     # and rely on the 2GIS API address that was saved at collection time.
     return result
+
+
+# Domains that are infrastructure/tracking/social — NOT a real company website
+_NON_COMPANY_DOMAIN_PARTS = (
+    "2gis", "yandex", "google", "vk.com", "vk.ru", "facebook", "instagram",
+    "ok.ru", "twitter", "t.me", "telegram", "mail.ru", "rambler",
+    "metrika", "gstatic", "googletagmanager", "googleapis",
+    "sberbank", "sber.ru", "id.sber", "russpass", "w3.org",
+    "top-fwz", "serving-sys", "doubleclick", "adservices",
+    "cloudflare", "cdnjs", "jsdelivr", "fontawesome",
+    "youtube.com", "youtu.be", "tiktok",
+)
+
+
+def _extract_org_website_from_2gis_html(html: str) -> str | None:
+    """Find the company's own website URL inside a 2gis.ru firm-page HTML.
+
+    Returns the first plausible external URL (excluding social/tracking/CDN).
+    """
+    if not html:
+        return None
+    candidates: list[str] = []
+    # Look for url-like strings first; cap iteration
+    for m in re.finditer(r'https?://([a-zA-Z0-9.\-]+)/?[a-zA-Z0-9._\-/]*', html):
+        url = m.group(0).rstrip('",\'')
+        host = m.group(1).lower()
+        if any(bad in host for bad in _NON_COMPANY_DOMAIN_PARTS):
+            continue
+        # Must look like a real domain (TLD 2-6 chars)
+        if not re.match(r'^[a-z0-9.\-]+\.[a-z]{2,6}$', host):
+            continue
+        # Skip very long URLs (probably tracking pixels)
+        if len(url) > 150:
+            continue
+        candidates.append(url)
+        if len(candidates) >= 5:
+            break
+    if not candidates:
+        return None
+    # Prefer the shortest URL (usually the homepage, not a tracking pixel)
+    return sorted(candidates, key=len)[0]
