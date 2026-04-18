@@ -293,15 +293,20 @@ def run_selected_enrichment(
 @router.get("/jobs/project/{project_id}", response_model=list[CollectionJobOut])
 def list_jobs(
     project_id: str,
+    limit: int = Query(default=50, ge=1, le=500),
     organization: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ):
+    """List recent collection/enrichment jobs (default last 50, max 500)."""
     project = db.get(Project, project_id)
     if not project or project.organization_id != organization.id or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Проект не найден")
     return (
         db.execute(
-            select(CollectionJob).where(CollectionJob.project_id == project.id).order_by(CollectionJob.created_at.desc())
+            select(CollectionJob)
+            .where(CollectionJob.project_id == project.id)
+            .order_by(CollectionJob.created_at.desc())
+            .limit(limit)
         )
         .scalars()
         .all()

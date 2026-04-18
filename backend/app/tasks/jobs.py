@@ -207,7 +207,14 @@ def collect_leads_task(job_id: str) -> None:
                 job.updated_at = datetime.now(timezone.utc)
                 db.commit()
         job.added_count = added
-        organization = db.get(Organization, job.organization_id)
+        # SELECT FOR UPDATE to prevent race when two collect jobs finish at the
+        # same time and both read+write leads_used_current_month concurrently
+        # (lost-update would let them collectively bypass the monthly cap).
+        organization = db.execute(
+            select(Organization)
+            .where(Organization.id == job.organization_id)
+            .with_for_update()
+        ).scalar_one_or_none()
         if organization:
             organization.leads_used_current_month += added
         job.status = JobStatus.done
