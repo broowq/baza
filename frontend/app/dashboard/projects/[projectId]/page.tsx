@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, Play, RefreshCw, Sparkles, Hash, Mail, TrendingUp, Users } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Play, RefreshCw, Sparkles, Hash, Mail, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -166,7 +166,10 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  const [exporting, setExporting] = useState(false);
   const exportCsv = async () => {
+    if (exporting) return;
+    setExporting(true);
     try {
       const response = await apiFetch(`/leads/project/${projectId}/export`);
       const blob = await response.blob();
@@ -177,6 +180,8 @@ export default function ProjectDetailsPage() {
       toast.success("CSV выгружен");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ошибка экспорта");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -229,15 +234,27 @@ export default function ProjectDetailsPage() {
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             {/* Collect group */}
             <Button size="sm" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 500)}>
-              <Play size={12} className="mr-1.5" /> Собрать лиды
+              {collectBusy ? (
+                <><Loader2 size={12} className="mr-1.5 animate-spin" /> Собираем…</>
+              ) : (
+                <><Play size={12} className="mr-1.5" /> Собрать лиды</>
+              )}
             </Button>
             {/* Actions */}
             <div className="flex items-center gap-1.5">
               <Button size="sm" variant="outline" disabled={running || enrichBusy || !canManage} onClick={() => queueJob("enrich", 200)}>
-                <Sparkles size={12} /> Обогатить
+                {enrichBusy ? (
+                  <><Loader2 size={12} className="mr-1 animate-spin" /> Обогащаем…</>
+                ) : (
+                  <><Sparkles size={12} /> Обогатить</>
+                )}
               </Button>
-              <Button size="sm" variant="ghost" onClick={exportCsv}>
-                <Download size={12} /> CSV
+              <Button size="sm" variant="ghost" onClick={exportCsv} disabled={exporting}>
+                {exporting ? (
+                  <><Loader2 size={12} className="animate-spin" /> CSV…</>
+                ) : (
+                  <><Download size={12} /> CSV</>
+                )}
               </Button>
             </div>
           </div>
