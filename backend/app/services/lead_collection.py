@@ -1533,7 +1533,14 @@ def enrich_website_contacts(base_url: str) -> dict:
     if not domain or is_aggregator_domain(domain):
         return {"emails": [], "phones": [], "addresses": []}
     root_url = f"{parsed.scheme or 'https'}://{domain}"
-    candidate_paths = ["/", "/contacts", "/contact", "/contact-us", "/about", "/about-us", "/kontakty", "/o-kompanii"]
+    # Russian + EN common contact/about pages. Order matters — most likely first.
+    candidate_paths = [
+        "/", "/contacts", "/contact", "/contact-us", "/contacts/",
+        "/about", "/about-us", "/about/",
+        "/kontakty", "/kontakty/", "/o-kompanii", "/o-kompanii/",
+        "/kontakti", "/o-nas", "/info", "/info/",
+        "/footer", "/header",  # contacts often in header/footer fragments
+    ]
     gathered_text = ""
     gathered_html = ""
     robots = RobotFileParser()
