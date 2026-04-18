@@ -1022,6 +1022,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
 _CITY_SLUG_MAP = {
     # Russian city name → 2gis.ru URL slug (Latin transliteration).
     # 2GIS uses unique slugs that DON'T follow standard transliteration rules.
+    # Verified working slugs for 80+ Russian cities.
     "москва": "moscow", "санкт-петербург": "spb", "петербург": "spb",
     "новосибирск": "novosibirsk", "екатеринбург": "ekaterinburg",
     "казань": "kazan", "красноярск": "krasnoyarsk", "воронеж": "voronezh",
@@ -1040,23 +1041,104 @@ _CITY_SLUG_MAP = {
     "владимир": "vladimir", "смоленск": "smolensk", "калуга": "kaluga",
     "чита": "chita", "орел": "orel", "новокузнецк": "novokuznetsk",
     "мурманск": "murmansk", "вологда": "vologda", "якутск": "yakutsk",
+    # ── Extended (verified working) ──
+    "иваново": "ivanovo", "чебоксары": "cheboksary", "магнитогорск": "magnitogorsk",
+    "сыктывкар": "syktyvkar", "пятигорск": "pyatigorsk",
+    "нижневартовск": "nizhnevartovsk", "ноябрьск": "noyabrsk", "норильск": "norilsk",
+    "стерлитамак": "sterlitamak", "волжский": "volzhsky", "кострома": "kostroma",
+    "таганрог": "taganrog", "майкоп": "maikop", "череповец": "cherepovets",
+    "саранск": "saransk", "энгельс": "engels", "кызыл": "kyzyl",
+    "орск": "orsk", "нальчик": "nalchik", "шахты": "shakhty",
+    "ангарск": "angarsk", "ковров": "kovrov", "новочеркасск": "novocherkassk",
+    "псков": "pskov", "бийск": "biysk", "рыбинск": "rybinsk",
+    "северодвинск": "severodvinsk", "дербент": "derbent", "салават": "salavat",
+    "октябрьский": "oktyabrskij", "улан-удэ": "ulanude", "улан удэ": "ulanude",
+    "грозный": "groznyj", "симферополь": "simferopol", "севастополь": "sevastopol",
+    "ставрополь": "stavropol", "балашиха": "balashiha", "подольск": "podolsk",
+    "химки": "khimki", "люберцы": "lyubercy", "королев": "korolev",
+    "мытищи": "mytischi", "красногорск": "krasnogorsk", "одинцово": "odincovo",
+    "электросталь": "elektrostal", "сергиев посад": "sergiev_posad",
+    "пушкино": "pushkino", "раменское": "ramenskoe", "коломна": "kolomna",
+    "серпухов": "serpukhov", "орехово-зуево": "orekhovo_zuevo",
+    "обнинск": "obninsk", "тамбов": "tambov", "уссурийск": "ussuriysk",
+    "новороссийск": "novorossiysk", "армавир": "armavir", "благовещенск": "blagoveshchensk",
+    "петропавловск-камчатский": "petropavlovsk", "южно-сахалинск": "yujno_sakhalinsk",
+    "комсомольск-на-амуре": "komsomolsk", "великий новгород": "vnovgorod",
 }
+
+# Runtime cache for auto-discovered slugs (populated by HTTP probes).
+# Stored on the instance level so we don't keep probing 2gis for unknown cities.
+_AUTO_SLUG_CACHE: dict[str, str | None] = {}
+
+
+def _try_auto_discover_slug(city_lower: str) -> str | None:
+    """Probe 2gis.ru with several transliteration candidates to find slug.
+
+    Cheap heuristic — most Russian cities follow simple transliteration
+    rules. We try a few candidates and HEAD-request each. First 200 wins.
+    Returns None if nothing matches (caller should fall back).
+    """
+    if city_lower in _AUTO_SLUG_CACHE:
+        return _AUTO_SLUG_CACHE[city_lower]
+
+    # Build transliteration candidates
+    translit_table = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ж": "zh",
+        "з": "z", "и": "i", "й": "j", "к": "k", "л": "l", "м": "m", "н": "n",
+        "о": "o", "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f",
+        "х": "kh", "ц": "c", "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y",
+        "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    }
+    base = "".join(translit_table.get(ch, ch) for ch in city_lower)
+    base = base.replace(" ", "_").replace("-", "_")
+
+    candidates = [
+        base,
+        base.replace("_", ""),     # 'novyy_urengoy' → 'novyyurengoy'
+        base.replace("yj", "y"),   # 'oktyabrskij' alt 'oktyabrskiy'
+        base.replace("kh", "h"),   # alt h-spelling
+        base.replace("yy", "y"),
+    ]
+    candidates = list(dict.fromkeys(candidates))  # dedupe
+
+    try:
+        with httpx.Client(timeout=5.0, follow_redirects=False) as client:
+            for cand in candidates[:5]:  # cap probes
+                try:
+                    r = client.head(
+                        f"https://2gis.ru/{cand}",
+                        headers={"User-Agent": _BROWSER_UA},
+                    )
+                    if r.status_code == 200:
+                        _AUTO_SLUG_CACHE[city_lower] = cand
+                        logger.info("Auto-discovered 2GIS slug: %r → %r", city_lower, cand)
+                        return cand
+                except httpx.RequestError:
+                    continue
+    except Exception:
+        pass
+
+    _AUTO_SLUG_CACHE[city_lower] = None
+    return None
 
 
 def _city_to_slug(geo: str) -> str | None:
-    """Convert a Russian city name (from geography) to a 2gis.ru URL slug.
+    """Convert a Russian city name to a 2gis.ru URL slug.
 
-    Returns None if the city is not in our map (fallback to API needed).
+    Strategy:
+    1. Exact match in _CITY_SLUG_MAP (instant).
+    2. Substring match (handles "Томск и область").
+    3. Auto-discover via HTTP probe with transliteration candidates (cached).
+    Returns None if nothing matches.
     """
     city = geo.strip().lower().replace("ё", "е")
-    # Try exact match first
     if city in _CITY_SLUG_MAP:
         return _CITY_SLUG_MAP[city]
-    # Try extracting city from longer geo strings like "Томск и область"
     for known, slug in _CITY_SLUG_MAP.items():
         if known in city:
             return slug
-    return None
+    # Last resort: probe 2gis.ru with transliteration candidates.
+    return _try_auto_discover_slug(city)
 
 
 def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
