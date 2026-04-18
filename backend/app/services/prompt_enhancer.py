@@ -564,55 +564,65 @@ def _augment_with_2gis_categories(
     seen_lower: set[str] = {s.lower() for s in seed_segments}
     try:
         import httpx
+        import concurrent.futures
         from urllib.parse import quote_plus, unquote
         ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " \
              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
-            for probe in probes:
-                url = f"https://2gis.ru/{slug}/search/{quote_plus(probe)}"
-                try:
-                    r = client.get(url, headers={
-                        "User-Agent": ua,
-                        "Accept-Language": "ru-RU,ru;q=0.9",
-                        "Accept-Encoding": "gzip, deflate",
-                    })
-                except Exception:
+        headers = {
+            "User-Agent": ua,
+            "Accept-Language": "ru-RU,ru;q=0.9",
+            "Accept-Encoding": "gzip, deflate",
+        }
+
+        def _fetch_one(probe: str) -> str:
+            url = f"https://2gis.ru/{slug}/search/{quote_plus(probe)}"
+            try:
+                with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+                    r = client.get(url, headers=headers)
+                if r.status_code == 200 and len(r.text) >= 5000:
+                    return r.text
+            except Exception:
+                pass
+            return ""
+
+        # Parallelise probes — previously serial, took 4× longer.
+        probe_htmls: list[str] = []
+        if probes:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(probes))) as ex:
+                probe_htmls = list(ex.map(_fetch_one, probes))
+
+        _GENERIC_CATEGORY_BLOCKLIST = {
+            "компания", "офис продаж", "торговая фирма", "фирма",
+            "офис", "торговый дом", "торговая компания",
+            "производственная компания", "сервисная компания",
+            "экспертная компания", "консалтинговая компания",
+            "посредническая компания", "представительство",
+            "снеки", "продукция", "товары",
+            "оптово-розничная компания", "торгово-сервисная компания",
+            "торгово-производственная компания", "торгово-производственная фирма",
+            "производственно-коммерческая фирма",
+        }
+        done = False
+        for html in probe_htmls:
+            if done or not html:
+                continue
+            cats = re.findall(
+                r'href="/[a-z]+/search/([^"]+)"[^>]*class="_1jvng3r"',
+                html,
+            )
+            for c in cats:
+                name = unquote(c).replace("+", " ").strip().lower()
+                if not name or len(name) > 80 or name in seen_lower:
                     continue
-                if r.status_code != 200 or len(r.text) < 5000:
+                # Filter competitors (contain user's product words)
+                if any(pw in name for pw in product_words):
                     continue
-                # Extract sibling category hrefs (class=_1jvng3r is the
-                # category-chip marker on 2gis.ru search pages as of 2026-04)
-                cats = re.findall(
-                    r'href="/[a-z]+/search/([^"]+)"[^>]*class="_1jvng3r"',
-                    r.text,
-                )
-                for c in cats:
-                    name = unquote(c).replace("+", " ").strip().lower()
-                    if not name or len(name) > 80 or name in seen_lower:
-                        continue
-                    # Skip categories whose name contains user's product words
-                    # (those are competitors, not customers)
-                    if any(pw in name for pw in product_words):
-                        continue
-                    # Skip over-generic ones that add no signal
-                    _GENERIC_CATEGORY_BLOCKLIST = {
-                        "компания", "офис продаж", "торговая фирма", "фирма",
-                        "офис", "торговый дом", "торговая компания",
-                        "производственная компания", "сервисная компания",
-                        "экспертная компания", "консалтинговая компания",
-                        "посредническая компания", "представительство",
-                        "снеки", "продукция", "товары",
-                        "оптово-розничная компания", "торгово-сервисная компания",
-                        "торгово-производственная компания", "торгово-производственная фирма",
-                        "производственно-коммерческая фирма",
-                    }
-                    if name in _GENERIC_CATEGORY_BLOCKLIST:
-                        continue
-                    discovered.append(name)
-                    seen_lower.add(name)
-                    if len(discovered) >= 15:
-                        break
+                if name in _GENERIC_CATEGORY_BLOCKLIST:
+                    continue
+                discovered.append(name)
+                seen_lower.add(name)
                 if len(discovered) >= 15:
+                    done = True
                     break
     except Exception as exc:
         logger.info("2GIS category discovery failed: %s", exc)
