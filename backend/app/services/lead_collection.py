@@ -25,13 +25,27 @@ from app.utils.url_tools import _is_safe_url, extract_domain, get_base_domain, i
 _CACHE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 _CACHE_PREFIX = "2gis:v1:"
 
-def _get_redis() -> redis.Redis | None:
-    """Lazy Redis connection for caching (sync, uses DB 3 to avoid collisions)."""
+# Module-level singleton Redis client. Re-using the client across requests
+# lets us avoid reconnection overhead and prevents connection-pool leaks under
+# concurrent load (each _get_redis() call used to create a new client).
+_REDIS_SINGLETON: "redis.Redis | None" = None
+
+
+def _get_redis() -> "redis.Redis | None":
+    """Return a shared Redis client on DB 3 (cache). Thread-safe — redis.Redis
+    manages its own internal connection pool.
+    """
+    global _REDIS_SINGLETON
+    if _REDIS_SINGLETON is not None:
+        return _REDIS_SINGLETON
     try:
         url = get_settings().redis_url  # e.g. redis://localhost:6379/0
         # Use DB 3 for 2GIS cache (0=app, 1=celery broker, 2=celery results)
         base = url.rsplit("/", 1)[0] if "/" in url else url
-        return redis.Redis.from_url(f"{base}/3", decode_responses=True, socket_timeout=2)
+        _REDIS_SINGLETON = redis.Redis.from_url(
+            f"{base}/3", decode_responses=True, socket_timeout=2, socket_connect_timeout=2,
+        )
+        return _REDIS_SINGLETON
     except Exception:
         return None
 
