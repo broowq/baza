@@ -1353,7 +1353,13 @@ def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
 
     url = f"https://yandex.ru/maps/67/{slug}/search/{quote_plus(niche)}"
     headers = {
-        "User-Agent": _BROWSER_UAS[0],
+        # Mobile UA returns ~30 business-snippet tiles per page instead of 15
+        # with desktop UA — Yandex serves a denser mobile layout in server HTML.
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+            "Version/17.0 Mobile/15E148 Safari/604.1"
+        ),
         "Accept": "text/html,application/xhtml+xml;q=0.9",
         "Accept-Language": "ru-RU,ru;q=0.9",
         "Accept-Encoding": "gzip, deflate",
@@ -1409,105 +1415,6 @@ def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
 
     logger.info("Yandex scrape: %d results for %r in %s", len(results), niche, slug)
     return results
-
-
-def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
-    # Disabled: HTML scraping of SPA map pages (2GIS, Yandex Maps) produces
-    # garbage data — the meaningful content is loaded via JS, not in the HTML.
-    return []
-    settings = get_settings()
-    map_queries = [
-        f"site:2gis.ru {niche} {geo}",
-        f"site:yandex.ru/maps {niche} {geo}",
-        f"site:yandex.ru/maps {niche} {geo} компания",
-    ]
-
-    raw_items: list[dict] = []
-    try:
-        with httpx.Client(timeout=settings.searxng_timeout_seconds, follow_redirects=True) as client:
-            for query in map_queries:
-                if len(raw_items) >= limit * 2:
-                    break
-                url = f"{settings.searxng_url}/search?q={quote_plus(query)}&format=json&pageno=1"
-                for attempt in range(2):
-                    try:
-                        resp = client.get(url)
-                        resp.raise_for_status()
-                        payload = resp.json()
-                        for item in payload.get("results", []):
-                            title = (item.get("title") or "").strip()
-                            snippet = (item.get("content") or "").strip()
-                            source_url = item.get("url", "")
-
-                            clean_title = re.sub(
-                                r"\s*[\|–\-—]\s*(2ГИС|2GIS|Яндекс|Yandex).*$",
-                                "",
-                                title,
-                                flags=re.IGNORECASE,
-                            ).strip()
-                            clean_title = re.sub(r"^[\U0001F300-\U0001FFFE\s]+", "", clean_title).strip()
-                            if not clean_title:
-                                continue
-                            raw_items.append(
-                                {
-                                    "company": clean_title[:180],
-                                    "city": geo,
-                                    "website": "",
-                                    "domain": "",
-                                    "source_url": source_url,
-                                    "snippet": snippet[:400],
-                                    "demo": False,
-                                    "source": "maps_searxng",
-                                }
-                            )
-                        break
-                    except Exception:
-                        if attempt == 0:
-                            time.sleep(0.5)
-                time.sleep(0.3)
-    except Exception:
-        logger.warning("Maps SearXNG search failed for '%s %s'", niche, geo)
-
-    enriched: list[dict] = []
-    seen_domains: set[str] = set()
-    for item in raw_items:
-        source_url = item["source_url"]
-        if "2gis.ru" in source_url or "yandex.ru/maps" in source_url:
-            if not _is_safe_url(source_url):
-                continue
-            try:
-                with httpx.Client(timeout=8.0, follow_redirects=True) as client:
-                    resp = client.get(source_url, headers={"User-Agent": DEFAULT_USER_AGENT})
-                    if resp.status_code < 400:
-                        html = resp.text[:80000]
-                        websites = re.findall(r'href=["\']?(https?://[^"\'<>\s]+)', html)
-                        for website in websites:
-                            website_domain = extract_domain(website)
-                            website_base = get_base_domain(website_domain)
-                            if (
-                                website_domain
-                                and is_real_domain(website_domain)
-                                and not is_aggregator_domain(website_domain)
-                                and website_base not in seen_domains
-                                and "2gis" not in website_domain
-                                and "yandex" not in website_domain
-                                and "google" not in website_domain
-                            ):
-                                seen_domains.add(website_base)
-                                enriched.append(
-                                    {
-                                        **item,
-                                        "website": normalize_url(website),
-                                        "domain": website_domain,
-                                    }
-                                )
-                                break
-            except Exception:
-                pass
-            time.sleep(0.2)
-        if len(enriched) >= limit:
-            break
-    return enriched[:limit]
 
 
 def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
@@ -1619,20 +1526,6 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
         searxng_accessible = True
     except Exception:
         logger.exception("SearXNG search failed")
-
-    try:
-        if len(collected) < oversample_limit:
-            maps_results = _search_maps_via_searxng(effective_niche, effective_geo, oversample_limit - len(collected))
-            collect_candidates(maps_results)
-            if maps_results:
-                logger.info(
-                    "Maps via SearXNG returned %d results for '%s %s'",
-                    len(maps_results),
-                    effective_niche,
-                    effective_geo,
-                )
-    except Exception:
-        logger.warning("Maps SearXNG search error", exc_info=True)
 
     try:
         if len(collected) < oversample_limit:
