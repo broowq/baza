@@ -496,10 +496,176 @@ def enhance_prompt(raw_prompt: str) -> dict:
     if llm_client.is_configured():
         result = _try_llm_enhance(raw_prompt)
         if result:
+            # Augment LLM segments with auto-discovered 2GIS categories
+            result["segments"] = _augment_with_2gis_categories(
+                result.get("segments") or [],
+                result.get("geography", ""),
+                raw_prompt,
+            )
             return result
 
     # Fallback to smart rule-based enhancement
-    return _smart_fallback(raw_prompt)
+    result = _smart_fallback(raw_prompt)
+    # Always augment with 2GIS-discovered categories — especially important
+    # when rule-based found nothing (unknown industry) or only a few segments.
+    result["segments"] = _augment_with_2gis_categories(
+        result.get("segments") or [],
+        result.get("geography", ""),
+        raw_prompt,
+    )
+    # If fallback found 0 segments, use 2GIS-discovered ones as primary
+    if not result.get("target_customer_types") and result.get("segments"):
+        result["target_customer_types"] = [s.capitalize() for s in result["segments"][:6]]
+        result["explanation"] = "Сегменты подобраны автоматически из 2GIS по ключевым словам."
+    return result
+
+
+def _augment_with_2gis_categories(
+    seed_segments: list[str],
+    geography: str,
+    raw_prompt: str,
+) -> list[str]:
+    """Extract additional customer categories from 2GIS search pages.
+
+    Strategy:
+      1. Try seed_segments one by one on 2gis.ru/{slug}/search/{segment}.
+         Each page lists sibling categories the platform thinks are related.
+      2. Collect unique sibling category names.
+      3. Filter out sellers (categories that contain user's product keywords
+         — they sell the same thing as the user).
+      4. Merge with seed_segments, cap at 20.
+
+    Falls back gracefully: if 2gis is unreachable, just returns seed_segments.
+    """
+    try:
+        from app.services.lead_collection import _city_to_slug
+    except Exception:
+        return seed_segments
+
+    if not geography:
+        return seed_segments
+    slug = _city_to_slug(geography)
+    if not slug:
+        return seed_segments
+
+    # Build competitor filter: words that appear in user's prompt describing
+    # what THEY sell. Other businesses in categories with these words are
+    # competitors, not customers.
+    product_words = _extract_prompt_product_words(raw_prompt)
+
+    # Seeds to probe: first 3 seed segments + top product keywords as fallback
+    probes: list[str] = []
+    for s in (seed_segments or [])[:3]:
+        probes.append(s)
+    if len(probes) < 3 and product_words:
+        # For unknown industries, use most specific product word as probe
+        probes.append(product_words[0] if product_words else raw_prompt[:60])
+    probes = [p for p in probes if p and len(p) >= 3][:4]
+
+    discovered: list[str] = []
+    seen_lower: set[str] = {s.lower() for s in seed_segments}
+    try:
+        import httpx
+        from urllib.parse import quote_plus, unquote
+        ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " \
+             "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+        with httpx.Client(timeout=8.0, follow_redirects=True) as client:
+            for probe in probes:
+                url = f"https://2gis.ru/{slug}/search/{quote_plus(probe)}"
+                try:
+                    r = client.get(url, headers={
+                        "User-Agent": ua,
+                        "Accept-Language": "ru-RU,ru;q=0.9",
+                        "Accept-Encoding": "gzip, deflate",
+                    })
+                except Exception:
+                    continue
+                if r.status_code != 200 or len(r.text) < 5000:
+                    continue
+                # Extract sibling category hrefs (class=_1jvng3r is the
+                # category-chip marker on 2gis.ru search pages as of 2026-04)
+                cats = re.findall(
+                    r'href="/[a-z]+/search/([^"]+)"[^>]*class="_1jvng3r"',
+                    r.text,
+                )
+                for c in cats:
+                    name = unquote(c).replace("+", " ").strip().lower()
+                    if not name or len(name) > 80 or name in seen_lower:
+                        continue
+                    # Skip categories whose name contains user's product words
+                    # (those are competitors, not customers)
+                    if any(pw in name for pw in product_words):
+                        continue
+                    # Skip over-generic ones that add no signal
+                    if name in ("компания", "офис продаж", "торговая фирма", "фирма"):
+                        continue
+                    discovered.append(name)
+                    seen_lower.add(name)
+                    if len(discovered) >= 15:
+                        break
+                if len(discovered) >= 15:
+                    break
+    except Exception as exc:
+        logger.info("2GIS category discovery failed: %s", exc)
+
+    # Merge: seed first (priority), then discovered. Cap at 20.
+    merged: list[str] = []
+    for s in seed_segments:
+        if s.lower() not in {m.lower() for m in merged}:
+            merged.append(s)
+    for d in discovered:
+        if d.lower() not in {m.lower() for m in merged}:
+            merged.append(d)
+        if len(merged) >= 20:
+            break
+
+    if discovered:
+        logger.info(
+            "2GIS category discovery: %d seed + %d auto-discovered = %d total segments",
+            len(seed_segments), len(discovered), len(merged),
+        )
+    return merged
+
+
+def _extract_prompt_product_words(prompt: str) -> list[str]:
+    """Extract product/service root words from a business description.
+
+    These are used to filter out competitor categories from 2GIS discovery.
+    Example: "продаю пиломатериалы в Томске" → ["пиломатериал", "пилом", "дерев", "лес"].
+    """
+    text = (prompt or "").lower().replace("ё", "е")
+    # Strip action verbs and prepositions
+    for w in ("продаю", "продаем", "продаём", "предлагаю", "оказываю", "оказываем",
+              "производим", "производу", "поставляем", "поставляю", "делаем", "делаю",
+              "мы ", "мой ", "моя ", "наш ", "наша ", "в ", "для ", "и ", "с ", "на ",
+              "по ", "из ", "под ", "через "):
+        text = text.replace(w, " ")
+    # Also strip city names
+    for city in _CITY_STRIP:
+        text = text.replace(city.lower(), " ")
+    # Tokens with length ≥4 are candidates
+    words = re.findall(r"[а-яa-z]{4,}", text)
+    # Use 5-char stems for lemmatization-less matching
+    stems = []
+    for w in words:
+        stem = w[:5] if len(w) >= 6 else w
+        if stem not in stems:
+            stems.append(stem)
+    return stems[:10]
+
+
+# Pre-built set of Russian city names (lowercased) to strip from product-word
+# extraction. Used by _extract_prompt_product_words.
+_CITY_STRIP = (
+    "москва", "спб", "санкт-петербурге", "санкт-петербург", "петербург",
+    "новосибирск", "екатеринбург", "казань", "красноярск", "нижний новгород",
+    "челябинск", "самара", "омск", "уфа", "пермь", "волгоград", "воронеж",
+    "краснодар", "ростов", "саратов", "тюмень", "томск", "барнаул", "иркутск",
+    "ярославль", "владивосток", "хабаровск", "кемерово", "тула", "пенза",
+    "рязань", "калининград", "астрахань", "липецк", "курск", "брянск",
+    "белгород", "тверь", "сургут", "архангельск", "владимир", "смоленск",
+    "калуга", "чита", "орел", "вологда", "якутск",
+)
 
 
 def _try_llm_enhance(raw_prompt: str) -> dict | None:
