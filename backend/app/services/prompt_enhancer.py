@@ -647,30 +647,53 @@ def _augment_with_2gis_categories(
 
 
 def _extract_prompt_product_words(prompt: str) -> list[str]:
-    """Extract product/service root words from a business description.
+    """Extract product/service lemmas from a business description.
 
-    These are used to filter out competitor categories from 2GIS discovery.
-    Example: "продаю пиломатериалы в Томске" → ["пиломатериал", "пилом", "дерев", "лес"].
+    Used to filter out competitor categories from 2GIS discovery. Uses pymorphy3
+    lemmatization so "пиломатериалы" / "пиломатериалов" / "пиломатериал" all
+    reduce to the same stem — letting us match "магазин пиломатериалов" as a
+    competitor even when the prompt says "пиломатериалы".
     """
     text = (prompt or "").lower().replace("ё", "е")
     # Strip action verbs and prepositions
     for w in ("продаю", "продаем", "продаём", "предлагаю", "оказываю", "оказываем",
               "производим", "производу", "поставляем", "поставляю", "делаем", "делаю",
+              "занимаюсь", "занимаемся", "работаю", "работаем", "ищем",
               "мы ", "мой ", "моя ", "наш ", "наша ", "в ", "для ", "и ", "с ", "на ",
               "по ", "из ", "под ", "через "):
         text = text.replace(w, " ")
-    # Also strip city names
     for city in _CITY_STRIP:
         text = text.replace(city.lower(), " ")
-    # Tokens with length ≥4 are candidates
+
+    # Lemmatize with pymorphy3 — same analyzer used in lead_collection.
+    try:
+        from app.services.lead_collection import _morph
+    except Exception:
+        _morph = None
+
     words = re.findall(r"[а-яa-z]{4,}", text)
-    # Use 5-char stems for lemmatization-less matching
-    stems = []
+    result: list[str] = []
+    seen: set[str] = set()
     for w in words:
-        stem = w[:5] if len(w) >= 6 else w
-        if stem not in stems:
-            stems.append(stem)
-    return stems[:10]
+        # Generate multiple matching forms for robust substring check
+        candidates = {w, w[:5] if len(w) >= 6 else w, w[:6] if len(w) >= 7 else w}
+        if _morph is not None:
+            try:
+                lemma = _morph.parse(w)[0].normal_form.replace("ё", "е")
+                candidates.add(lemma)
+                if len(lemma) >= 6:
+                    candidates.add(lemma[:6])
+                if len(lemma) >= 5:
+                    candidates.add(lemma[:5])
+            except Exception:
+                pass
+        for c in candidates:
+            if c and c not in seen:
+                seen.add(c)
+                result.append(c)
+    # Keep short distinct stems first; cap size
+    result.sort(key=len)
+    return result[:15]
 
 
 # Pre-built set of Russian city names (lowercased) to strip from product-word
