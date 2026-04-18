@@ -506,17 +506,15 @@ def enhance_prompt(raw_prompt: str) -> dict:
 
     # Fallback to smart rule-based enhancement
     result = _smart_fallback(raw_prompt)
-    # Always augment with 2GIS-discovered categories — especially important
-    # when rule-based found nothing (unknown industry) or only a few segments.
-    result["segments"] = _augment_with_2gis_categories(
-        result.get("segments") or [],
-        result.get("geography", ""),
-        raw_prompt,
-    )
-    # If fallback found 0 segments, use 2GIS-discovered ones as primary
-    if not result.get("target_customer_types") and result.get("segments"):
-        result["target_customer_types"] = [s.capitalize() for s in result["segments"][:6]]
-        result["explanation"] = "Сегменты подобраны автоматически из 2GIS по ключевым словам."
+    seed_count = len(result.get("segments") or [])
+    # Only augment via 2GIS if rule-based found something — otherwise the probes
+    # search by user's own product words and return mostly noise (sellers).
+    # For totally unknown niches, better to return [] and let user add segments
+    # manually than to populate them with unrelated categories.
+    if seed_count >= 3:
+        result["segments"] = _augment_with_2gis_categories(
+            result["segments"], result.get("geography", ""), raw_prompt,
+        )
     return result
 
 
@@ -597,7 +595,18 @@ def _augment_with_2gis_categories(
                     if any(pw in name for pw in product_words):
                         continue
                     # Skip over-generic ones that add no signal
-                    if name in ("компания", "офис продаж", "торговая фирма", "фирма"):
+                    _GENERIC_CATEGORY_BLOCKLIST = {
+                        "компания", "офис продаж", "торговая фирма", "фирма",
+                        "офис", "торговый дом", "торговая компания",
+                        "производственная компания", "сервисная компания",
+                        "экспертная компания", "консалтинговая компания",
+                        "посредническая компания", "представительство",
+                        "снеки", "продукция", "товары",
+                        "оптово-розничная компания", "торгово-сервисная компания",
+                        "торгово-производственная компания", "торгово-производственная фирма",
+                        "производственно-коммерческая фирма",
+                    }
+                    if name in _GENERIC_CATEGORY_BLOCKLIST:
                         continue
                     discovered.append(name)
                     seen_lower.add(name)
