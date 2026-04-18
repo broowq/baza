@@ -1296,6 +1296,121 @@ def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
     return results
 
 
+# ─── Yandex Maps scrape (public site, no API key needed) ─────────────────────
+# Yandex Maps renders 15 business-snippet tiles per page in server HTML —
+# usable as a free parallel source to 2GIS for coverage.
+
+_YANDEX_CITY_SLUG_MAP = {
+    # City name → Yandex Maps URL slug (usually same as 2GIS but double-check
+    # for multi-word cities)
+    "москва": "moscow", "санкт-петербург": "saint-petersburg", "петербург": "saint-petersburg",
+    "новосибирск": "novosibirsk", "екатеринбург": "yekaterinburg",
+    "казань": "kazan", "красноярск": "krasnoyarsk", "воронеж": "voronezh",
+    "краснодар": "krasnodar", "ростов-на-дону": "rostov-na-donu", "ростов": "rostov-na-donu",
+    "пермь": "perm", "томск": "tomsk", "барнаул": "barnaul", "омск": "omsk",
+    "челябинск": "chelyabinsk", "самара": "samara", "уфа": "ufa",
+    "волгоград": "volgograd", "нижний новгород": "nizhny-novgorod",
+    "тюмень": "tyumen", "иркутск": "irkutsk", "кемерово": "kemerovo",
+    "тула": "tula", "ярославль": "yaroslavl", "хабаровск": "khabarovsk",
+    "владивосток": "vladivostok", "саратов": "saratov", "тольятти": "tolyatti",
+    "оренбург": "orenburg", "ижевск": "izhevsk", "рязань": "ryazan",
+    "калининград": "kaliningrad", "пенза": "penza", "сочи": "sochi",
+    "астрахань": "astrakhan", "липецк": "lipetsk", "курск": "kursk",
+    "брянск": "bryansk", "белгород": "belgorod", "тверь": "tver",
+    "сургут": "surgut", "владимир": "vladimir", "смоленск": "smolensk",
+    "калуга": "kaluga", "чита": "chita", "вологда": "vologda",
+}
+
+
+def _yandex_city_slug(geo: str) -> str | None:
+    city = (geo or "").strip().lower().replace("ё", "е")
+    if city in _YANDEX_CITY_SLUG_MAP:
+        return _YANDEX_CITY_SLUG_MAP[city]
+    # Fallback to 2GIS slug as approximation
+    return _city_to_slug(geo)
+
+
+def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
+    """Scrape Yandex.Maps public search page for business listings.
+
+    Same principle as _search_2gis_scrape — zero API quota consumed.
+    Each result page has ~15 business-snippet tiles rendered server-side.
+    """
+    slug = _yandex_city_slug(geo)
+    if not slug:
+        return []
+
+    cache_k = _cache_key("yandex_scrape", niche, slug, str(limit))
+    r_redis = _get_redis()
+    if r_redis:
+        try:
+            cached = r_redis.get(cache_k)
+            if cached is not None:
+                logger.info("Yandex scrape cache HIT for %r/%r", niche, slug)
+                return _json.loads(cached)
+        except Exception:
+            pass
+
+    url = f"https://yandex.ru/maps/67/{slug}/search/{quote_plus(niche)}"
+    headers = {
+        "User-Agent": _BROWSER_UAS[0],
+        "Accept": "text/html,application/xhtml+xml;q=0.9",
+        "Accept-Language": "ru-RU,ru;q=0.9",
+        "Accept-Encoding": "gzip, deflate",
+    }
+    try:
+        with httpx.Client(timeout=12.0, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+    except Exception:
+        return []
+    if resp.status_code != 200 or len(resp.text) < 10000:
+        return []
+    html = resp.text
+
+    # Tiles are in business-snippet blocks — 3 fields each (name, category, address)
+    snippet_texts = re.findall(
+        r'class="[^"]*business-snippet[^"]*"[^>]*>([^<]+)<',
+        html,
+    )
+    # Group by 3: [name, category, address]
+    results: list[dict] = []
+    for i in range(0, len(snippet_texts) - 2, 3):
+        name = snippet_texts[i].strip()
+        category = snippet_texts[i + 1].strip()
+        address = snippet_texts[i + 2].strip()
+        # Filter: address must contain street markers
+        if not re.search(r"(ул\.|пр\.|просп\.|проспект|пер\.|переулок|пл\.|площадь|ш\.|шоссе|бульвар|набережная|наб\.|д\.|тракт)", address.lower()):
+            continue
+        # Filter junk names
+        if len(name) < 3 or name.lower() in ("реклама", "подробнее"):
+            continue
+        results.append({
+            "company": name[:180],
+            "city": geo.strip(),
+            "website": "",
+            "domain": "",
+            "phone": "",
+            "source_url": url,
+            "snippet": f"{category} {address}".strip()[:400],
+            "address": address[:300],
+            "categories": [category] if category else [],
+            "demo": False,
+            "source": "yandex_maps",
+            "firm_id": "",
+        })
+        if len(results) >= limit:
+            break
+
+    if results and r_redis:
+        try:
+            r_redis.set(cache_k, _json.dumps(results, ensure_ascii=False, default=str), ex=_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+
+    logger.info("Yandex scrape: %d results for %r in %s", len(results), niche, slug)
+    return results
+
+
 def _search_maps_via_searxng(niche: str, geo: str, limit: int) -> list[dict]:
     # Disabled: HTML scraping of SPA map pages (2GIS, Yandex Maps) produces
     # garbage data — the meaningful content is loaded via JS, not in the HTML.
@@ -1432,18 +1547,7 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     per_term_limit = max(oversample_limit // max(len(map_search_terms), 1), 20)
 
     for term in map_search_terms:
-        if use_yandex:
-            try:
-                if len(collected) < oversample_limit:
-                    yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
-                    collect_candidates(yandex_results)
-                    if yandex_results:
-                        logger.info("Yandex Maps returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
-            except Exception:
-                logger.warning("Yandex Maps search error for '%s'", term, exc_info=True)
-
-        # 2GIS: try scraping the public site first (free, no API quota).
-        # Fall back to paid API only if scraping returns nothing.
+        # 2GIS scrape first — primary source, 40-60 results per term.
         try:
             if len(collected) < oversample_limit:
                 twogis_results = _search_2gis_scrape(term, effective_geo, per_term_limit)
@@ -1455,6 +1559,30 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
                     logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), term, effective_geo)
         except Exception:
             logger.warning("2GIS search error for '%s'", term, exc_info=True)
+
+        # Yandex Maps scrape — parallel free source. Adds coverage for firms
+        # that Yandex indexes better than 2GIS (especially newer/smaller businesses).
+        try:
+            if len(collected) < oversample_limit:
+                yandex_scrape_results = _search_yandex_maps_scrape(term, effective_geo, per_term_limit)
+                collect_candidates(yandex_scrape_results)
+                if yandex_scrape_results:
+                    logger.info("Yandex scrape returned %d results for '%s %s'",
+                                len(yandex_scrape_results), term, effective_geo)
+        except Exception:
+            logger.warning("Yandex scrape error for '%s'", term, exc_info=True)
+
+        # Yandex Maps API — if the key is still valid (disabled by circuit
+        # breaker on 401/403/429 — see _search_yandex_maps).
+        if use_yandex:
+            try:
+                if len(collected) < oversample_limit:
+                    yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
+                    collect_candidates(yandex_results)
+                    if yandex_results:
+                        logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
+            except Exception:
+                logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
 
         time.sleep(0.2)
 
