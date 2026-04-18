@@ -732,7 +732,16 @@ def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
     }
 
 
+# Circuit-breaker for Yandex Maps. After N consecutive 401/403/429 we stop
+# calling the API for the rest of the worker process — saves seconds per project
+# of wasted HTTP latency to a known-broken upstream.
+_YANDEX_DEAD_KEY = False
+
+
 def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -> list[dict]:
+    global _YANDEX_DEAD_KEY
+    if _YANDEX_DEAD_KEY:
+        return []
     settings = get_settings()
     if not settings.yandex_maps_api_key:
         return []
@@ -743,7 +752,18 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
 
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            bbox = _resolve_yandex_geo_bbox(client, geo, settings) if geo else None
+            try:
+                bbox = _resolve_yandex_geo_bbox(client, geo, settings) if geo else None
+            except httpx.HTTPStatusError as exc:
+                # 401/403 = dead key, 429 = rate limited; both → skip future calls
+                if exc.response.status_code in (401, 403, 429):
+                    _YANDEX_DEAD_KEY = True
+                    logger.warning(
+                        "Yandex Maps key DEAD (HTTP %s on bbox lookup) — disabling for process lifetime",
+                        exc.response.status_code,
+                    )
+                    return []
+                raise
             for query in queries:
                 if len(results) >= limit:
                     break
@@ -760,8 +780,15 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
                         params["bbox"] = bbox
                         params["rspn"] = 1
 
-                    response = client.get(_YANDEX_SEARCH_URL, params=params)
-                    response.raise_for_status()
+                    try:
+                        response = client.get(_YANDEX_SEARCH_URL, params=params)
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as exc:
+                        if exc.response.status_code in (401, 403, 429):
+                            _YANDEX_DEAD_KEY = True
+                            logger.warning("Yandex Maps key DEAD — disabling")
+                            return results
+                        raise
                     features = response.json().get("features") or []
                     if not features:
                         break
