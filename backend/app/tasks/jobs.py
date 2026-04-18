@@ -227,20 +227,40 @@ def collect_leads_task(job_id: str) -> None:
         # ─── Auto-enrich freshly collected leads ───
         # User expectation: when a project finishes collecting, phones/emails
         # should already be populated — not in a separate manual step.
+        #
+        # Idempotency: collect_leads_task may be retried by Celery on transient
+        # errors (ConnectionError/TimeoutError). Use SELECT FOR UPDATE to avoid
+        # queueing a 2nd auto-enrich job when the first retry already queued one.
         if added > 0 and not quota_stopped:
             try:
-                enrich_job = CollectionJob(
-                    organization_id=job.organization_id,
-                    project_id=job.project_id,
-                    status=JobStatus.queued,
-                    kind="enrich",
-                    requested_limit=added,
-                )
-                db.add(enrich_job)
-                db.commit()
-                enrich_leads_task.delay(str(enrich_job.id))
-                logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
-                            job.project_id, enrich_job.id)
+                existing_auto_enrich = db.execute(
+                    select(CollectionJob)
+                    .where(
+                        CollectionJob.project_id == job.project_id,
+                        CollectionJob.kind == "enrich",
+                        CollectionJob.status.in_([JobStatus.queued, JobStatus.running]),
+                        CollectionJob.created_at >= job.created_at,
+                    )
+                    .with_for_update(skip_locked=True)
+                ).scalar_one_or_none()
+                if existing_auto_enrich:
+                    logger.info(
+                        "Auto-enrich already queued (job=%s), skipping duplicate",
+                        existing_auto_enrich.id,
+                    )
+                else:
+                    enrich_job = CollectionJob(
+                        organization_id=job.organization_id,
+                        project_id=job.project_id,
+                        status=JobStatus.queued,
+                        kind="enrich",
+                        requested_limit=added,
+                    )
+                    db.add(enrich_job)
+                    db.commit()
+                    enrich_leads_task.delay(str(enrich_job.id))
+                    logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
+                                job.project_id, enrich_job.id)
             except Exception:
                 logger.warning("Failed to auto-queue enrich after collect", exc_info=True)
     except (ConnectionError, TimeoutError) as exc:
