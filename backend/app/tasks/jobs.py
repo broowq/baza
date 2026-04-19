@@ -353,6 +353,18 @@ def collect_leads_task(job_id: str) -> None:
             job.status = JobStatus.failed
             job.error = _safe_error_message(exc)
             db.commit()
+        # Alert ops — collect-job crash is unusual, worth knowing about.
+        try:
+            from app.services.notifications import send_alert
+            send_alert(
+                "error",
+                "Collect job crashed",
+                f"job_id={job_id}\nerror: {_safe_error_message(exc)[:300]}",
+                key=f"collect_crash_{type(exc).__name__}",
+                throttle_seconds=600,
+            )
+        except Exception:
+            pass
     finally:
         db.close()
 
@@ -476,6 +488,17 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             job.status = JobStatus.failed
             job.error = _safe_error_message(exc)
             db.commit()
+        try:
+            from app.services.notifications import send_alert
+            send_alert(
+                "error",
+                "Enrich job crashed",
+                f"job_id={job_id}\nerror: {_safe_error_message(exc)[:300]}",
+                key=f"enrich_crash_{type(exc).__name__}",
+                throttle_seconds=600,
+            )
+        except Exception:
+            pass
     finally:
         db.close()
 

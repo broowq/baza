@@ -38,5 +38,9 @@ celery.conf.update(
             "task": "periodic.cleanup_expired_invites",
             "schedule": crontab(minute=0, hour=3),
         },
+        "health-check": {
+            "task": "periodic.health_check",
+            "schedule": crontab(minute="*/15"),  # every 15 min
+        },
     },
 )
