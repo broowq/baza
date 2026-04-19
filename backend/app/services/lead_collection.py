@@ -784,6 +784,17 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
                         "Yandex Maps key DEAD (HTTP %s on bbox lookup) — disabling for process lifetime",
                         exc.response.status_code,
                     )
+                    try:
+                        from app.services.notifications import send_alert
+                        send_alert(
+                            "warning",
+                            f"Yandex Maps API dead (HTTP {exc.response.status_code})",
+                            "Disabling for this worker. Scrape sources still active.",
+                            key=f"yandex_api_{exc.response.status_code}",
+                            throttle_seconds=3600,
+                        )
+                    except Exception:
+                        pass
                     return []
                 raise
             for query in queries:
@@ -968,8 +979,20 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                         err.get("message"),
                         niche,
                     )
-                    # Key-blocked / quota / auth errors — stop pagination, no point retrying.
+                    # Auth/quota errors → fire ops alert (throttled to 1/hour)
                     if meta_code in (401, 403, 429):
+                        try:
+                            from app.services.notifications import send_alert
+                            send_alert(
+                                "critical",
+                                f"2GIS API blocked: {err.get('type', meta_code)}",
+                                f"Code {meta_code}: {err.get('message', '')[:200]}\n"
+                                f"Scrape continues to work; API fallback is dead.",
+                                key=f"2gis_api_{meta_code}",
+                                throttle_seconds=3600,
+                            )
+                        except Exception:
+                            pass
                         break
                     break
                 items = data.get("result", {}).get("items", [])
@@ -1863,6 +1886,19 @@ def _fetch_2gis_html(url: str) -> str:
                 # it time and rotate UA before the next attempt.
                 if attempt == 3:
                     logger.info("2gis captcha persists after 4 attempts for %s", url)
+                    # If captcha is hitting us this often, ops should know — but
+                    # throttle to 1/15min so a captcha storm doesn't spam Telegram.
+                    try:
+                        from app.services.notifications import send_alert
+                        send_alert(
+                            "warning",
+                            "2GIS captcha not bypassed",
+                            f"4 retries with UA rotation didn't beat captcha. URL: {url[:200]}",
+                            key="2gis_captcha_persistent",
+                            throttle_seconds=900,
+                        )
+                    except Exception:
+                        pass
                     return ""
                 time.sleep(1.0 * (2 ** attempt) + random.random() * 0.5)
                 continue
