@@ -301,7 +301,72 @@ export function LeadsTable({
         </div>
       )}
 
-      <div className="min-w-0 overflow-x-auto rounded-lg border" role="region" aria-label="Таблица лидов">
+      {/* Mobile: card view (md:hidden). Each lead shows ALL fields stacked
+          so users on phones can see phone/email/address without horizontal scroll. */}
+      <div className="space-y-2 md:hidden">
+        {filtered.length === 0 && (
+          <p className="rounded-lg border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
+            Нет лидов по текущим фильтрам.
+          </p>
+        )}
+        {filtered.map((lead) => {
+          const isSelected = selectedIds.includes(lead.id);
+          const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : "");
+          const scoreColor = lead.score >= SCORE_HIGH ? "text-emerald-600" : lead.score >= SCORE_MEDIUM ? "text-amber-600" : "text-red-500";
+          return (
+            <div key={lead.id} className="rounded-lg border bg-card p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={(e) => setSelectedIds((prev) =>
+                      e.target.checked ? [...new Set([...prev, lead.id])] : prev.filter((id) => id !== lead.id)
+                    )}
+                    className="mt-1 h-4 w-4 cursor-pointer rounded"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-sm break-words">{lead.company}</p>
+                    {lead.city && <p className="text-xs text-muted-foreground mt-0.5">{lead.city}</p>}
+                  </div>
+                </div>
+                <div className={`text-sm font-bold ${scoreColor} shrink-0`}>{lead.score}</div>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                {lead.phone && (
+                  <a href={`tel:${lead.phone}`} className="block text-blue-600 underline">
+                    📞 {lead.phone}
+                  </a>
+                )}
+                {lead.email && (
+                  <a href={`mailto:${lead.email}`} className="block text-blue-600 underline break-all">
+                    ✉️ {lead.email}
+                  </a>
+                )}
+                {lead.address && (
+                  <p className="text-muted-foreground">📍 {lead.address}</p>
+                )}
+                {domain && lead.website && /^https?:\/\//i.test(lead.website) && (
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block text-blue-600 underline truncate">
+                    🌐 {domain}
+                  </a>
+                )}
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <Badge variant={STATUS_VARIANTS[lead.status] ?? "secondary"} className="text-xs">
+                  {STATUS_LABELS[lead.status] ?? lead.status}
+                </Badge>
+                {!lead.enriched && (
+                  <span className="text-[10px] text-amber-600">не обогащён</span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Desktop: full table (hidden on mobile) */}
+      <div className="hidden min-w-0 overflow-x-auto rounded-lg border md:block" role="region" aria-label="Таблица лидов">
         <Table aria-label="Список лидов" className="min-w-[700px]">
           <TableHeader>
             <TableRow>
