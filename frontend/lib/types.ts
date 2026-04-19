@@ -46,6 +46,9 @@ export type Lead = {
   domain?: string;
   score: number;
   notes: string;
+  tags?: string[];
+  last_contacted_at?: string | null;
+  reminder_at?: string | null;
   status: "new" | "contacted" | "qualified" | "rejected";
   source_url: string;
   enriched: boolean;

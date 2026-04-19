@@ -42,5 +42,9 @@ celery.conf.update(
             "task": "periodic.health_check",
             "schedule": crontab(minute="*/15"),  # every 15 min
         },
+        "send-reminder-emails": {
+            "task": "periodic.send_reminder_emails",
+            "schedule": crontab(minute=0, hour="9-18"),  # hourly, business hours UTC
+        },
     },
 )

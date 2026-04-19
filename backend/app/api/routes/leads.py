@@ -410,6 +410,27 @@ def update_lead(
         lead.status = LeadStatus(payload.status)
     if payload.notes is not None:
         lead.notes = payload.notes
+    if payload.tags is not None:
+        # Sanitize tags: trim, dedupe, max 30 chars each
+        cleaned_tags = []
+        seen = set()
+        for t in payload.tags:
+            t = (t or "").strip()[:30]
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                cleaned_tags.append(t)
+        lead.tags = cleaned_tags
+    if payload.last_contacted_at is not None:
+        lead.last_contacted_at = payload.last_contacted_at
+    if payload.reminder_at is not None:
+        lead.reminder_at = payload.reminder_at
+    if payload.mark_contacted:
+        # Convenience flag — sets last_contacted_at=now() and bumps status to "contacted"
+        # if it was still "new". Lets sales click one button after a call.
+        from datetime import datetime, timezone
+        lead.last_contacted_at = datetime.now(timezone.utc)
+        if lead.status == LeadStatus.new:
+            lead.status = LeadStatus.contacted
 
     db.commit()
     db.refresh(lead)
