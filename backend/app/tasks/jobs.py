@@ -7,14 +7,79 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db.session import SessionLocal
-from app.models import CollectionJob, JobStatus, Lead, Organization, Project
+from app.core.config import get_settings
+from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
 from app.services.lead_collection import enrich_2gis_lead, enrich_website_contacts, search_leads
-from app.services.notifications import send_telegram
+from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
 from app.tasks.celery_app import celery
 from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_domain, is_real_domain, normalize_url
 
 logger = logging.getLogger(__name__)
+
+
+def _notify_owner_project_ready(db, project: Project, enriched_count: int) -> None:
+    """Email the org owner that their project is enriched and ready to view.
+
+    Best-effort — failures are logged but don't crash the enrich task.
+    """
+    # Find org owner (first owner in memberships)
+    member = db.execute(
+        select(Membership)
+        .where(Membership.organization_id == project.organization_id)
+        .where(Membership.role.in_(["owner", "admin"]))
+        .order_by(Membership.role.asc())  # 'admin' < 'owner' alpha; we want owner first
+    ).scalar_one_or_none()
+    if not member:
+        return
+    user = db.get(User, member.user_id)
+    if not user or not user.email:
+        return
+
+    # Compute lead stats for the email body
+    total_leads = db.execute(
+        select(func.count(Lead.id)).where(Lead.project_id == project.id)
+    ).scalar_one() or 0
+    with_phone = db.execute(
+        select(func.count(Lead.id))
+        .where(Lead.project_id == project.id)
+        .where(Lead.phone != "")
+    ).scalar_one() or 0
+    with_email = db.execute(
+        select(func.count(Lead.id))
+        .where(Lead.project_id == project.id)
+        .where(Lead.email != "")
+    ).scalar_one() or 0
+
+    settings = get_settings()
+    site_url = settings.frontend_app_url.rstrip("/") if getattr(settings, "frontend_app_url", None) else "https://usebaza.ru"
+    project_url = f"{site_url}/dashboard/projects/{project.id}"
+
+    subject = f"БАЗА: {total_leads} лидов готовы — {project.name[:50]}"
+    body = f"""Здравствуйте!
+
+Ваш проект "{project.name}" готов:
+
+  • Всего лидов: {total_leads}
+  • Обогащено в этом запуске: {enriched_count}
+  • С телефоном: {with_phone}
+  • С email: {with_email}
+
+Открыть проект:
+{project_url}
+
+Если вы не запускали этот сбор, проверьте кто из участников вашей организации это сделал.
+
+—
+БАЗА · usebaza.ru
+"""
+
+    try:
+        send_email_task = celery.signature("email.send_email", args=[subject, body, user.email])
+        send_email_task.delay()
+        logger.info("Notified %s about project %s ready (%d leads)", user.email, project.id, total_leads)
+    except Exception:
+        logger.warning("Failed to enqueue notification email", exc_info=True)
 
 
 def _check_quota_with_lock(db, organization_id) -> int:
@@ -378,6 +443,15 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
         send_telegram(f"Lead enrichment finished. Job={job.id} Enriched={job.enriched_count}")
+
+        # ─── User-facing notification: project ready ───
+        # Send email to the org owner so they don't have to hit refresh.
+        # Only on completed jobs with leads (skip empty/failed).
+        if enriched > 0 and project:
+            try:
+                _notify_owner_project_ready(db, project, enriched)
+            except Exception:
+                logger.warning("project-ready notification failed", exc_info=True)
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(
             "enrich_leads_task transient error for job_id=%s (retry %s/%s): %s",
