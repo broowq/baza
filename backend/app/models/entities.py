@@ -50,6 +50,9 @@ class Organization(Base):
     projects_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     users_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     can_invite_members: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Webhook URL for CRM integrations (Bitrix24, AmoCRM, etc). Each new lead
+    # is POSTed there as JSON. Empty = disabled.
+    lead_webhook_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")

@@ -383,6 +383,92 @@ def export_project_csv(
     )
 
 
+@router.get("/project/{project_id}/export.xlsx")
+def export_project_xlsx(
+    project_id: str,
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Excel export (.xlsx) — opens correctly in Excel (unlike CSV with UTF-8 BOM).
+
+    Uses openpyxl. Columns are Russian, phones/emails are hyperlinks where possible.
+    For projects > 10k leads, CSV endpoint is still preferable (memory-friendly stream).
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    project = db.get(Project, project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    safe_name = "".join(ch if ch.isascii() and (ch.isalnum() or ch in "-_") else "-" for ch in project.name.lower())
+    safe_name = "-".join(part for part in safe_name.split("-") if part) or "project"
+    file_name = f"leads-{safe_name}-{datetime.now(timezone.utc).date().isoformat()}.xlsx"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Лиды"
+
+    headers = [
+        ("Компания", 40), ("Город", 18), ("Сайт", 30), ("Email", 28),
+        ("Телефон", 18), ("Адрес", 40), ("Score", 8), ("Статус", 14),
+        ("Теги", 20), ("Последний контакт", 16), ("Напомнить", 16),
+        ("Заметка", 40),
+    ]
+    for i, (title, width) in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=i, value=title)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="2F6FBD")
+        cell.alignment = Alignment(vertical="center")
+        ws.column_dimensions[get_column_letter(i)].width = width
+    ws.row_dimensions[1].height = 22
+    ws.freeze_panes = "A2"
+
+    status_labels = {
+        "new": "Новый", "contacted": "Связались",
+        "qualified": "Квалифицирован", "rejected": "Отклонён",
+    }
+
+    row_num = 2
+    for lead in db.execute(select(Lead).where(Lead.project_id == project.id)).yield_per(500).scalars():
+        ws.cell(row=row_num, column=1, value=lead.company or "")
+        ws.cell(row=row_num, column=2, value=lead.city or "")
+        website_cell = ws.cell(row=row_num, column=3, value=lead.website or "")
+        if lead.website and lead.website.startswith("http"):
+            website_cell.hyperlink = lead.website
+            website_cell.font = Font(color="0000FF", underline="single")
+        email_cell = ws.cell(row=row_num, column=4, value=lead.email or "")
+        if lead.email:
+            email_cell.hyperlink = f"mailto:{lead.email}"
+            email_cell.font = Font(color="0000FF", underline="single")
+        phone_cell = ws.cell(row=row_num, column=5, value=lead.phone or "")
+        if lead.phone:
+            phone_cell.hyperlink = f"tel:{lead.phone}"
+            phone_cell.font = Font(color="0000FF", underline="single")
+        ws.cell(row=row_num, column=6, value=lead.address or "")
+        ws.cell(row=row_num, column=7, value=lead.score)
+        ws.cell(row=row_num, column=8, value=status_labels.get(lead.status.value, lead.status.value))
+        ws.cell(row=row_num, column=9, value=", ".join(lead.tags or []))
+        if lead.last_contacted_at:
+            ws.cell(row=row_num, column=10, value=lead.last_contacted_at.strftime("%d.%m.%Y"))
+        if lead.reminder_at:
+            ws.cell(row=row_num, column=11, value=lead.reminder_at.strftime("%d.%m.%Y"))
+        ws.cell(row=row_num, column=12, value=lead.notes or "")
+        row_num += 1
+
+    # Write to in-memory buffer
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+    )
+
+
 VALID_STATUSES = {"new", "contacted", "qualified", "rejected"}
 
 

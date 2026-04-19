@@ -493,6 +493,24 @@ export default function SettingsPage() {
                         </Button>
                       </Link>
                     </div>
+
+                    <Separator />
+
+                    {/* CRM webhook URL */}
+                    {isAdmin && (
+                      <div className="space-y-3">
+                        <div>
+                          <h3 className="text-sm font-semibold">CRM-интеграция (webhook)</h3>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            URL вашего Bitrix24 / AmoCRM / любого webhook-приёмника. Каждый новый лид (после обогащения) будет POST-иться сюда как JSON. Оставьте пустым чтобы отключить.
+                          </p>
+                        </div>
+                        <WebhookEditor
+                          currentUrl={(organization as Organization & { lead_webhook_url?: string } | null)?.lead_webhook_url ?? ""}
+                          onSaved={(url) => setOrganization((o) => o ? { ...o, lead_webhook_url: url } as Organization & { lead_webhook_url: string } : o)}
+                        />
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -815,5 +833,44 @@ export default function SettingsPage() {
         </Tabs>
       </div>
     </motion.main>
+  );
+}
+
+
+function WebhookEditor({ currentUrl, onSaved }: { currentUrl: string; onSaved: (url: string) => void }) {
+  const [value, setValue] = useState(currentUrl);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api("/organizations/me/webhook", {
+        method: "PATCH",
+        body: JSON.stringify({ lead_webhook_url: value.trim() }),
+      });
+      onSaved(value.trim());
+      toast.success(value.trim() ? "Webhook сохранён" : "Webhook отключён");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const dirty = value.trim() !== (currentUrl ?? "").trim();
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <Input
+        type="url"
+        placeholder="https://your-domain.bitrix24.ru/rest/1/xxx..."
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="sm:flex-1"
+      />
+      <Button onClick={save} disabled={saving || !dirty}>
+        {saving ? "Сохранение…" : "Сохранить"}
+      </Button>
+    </div>
   );
 }
