@@ -30,6 +30,9 @@ class LeadOut(BaseModel):
     contacts_json: dict
     score: int
     notes: str
+    tags: list[str] = Field(default_factory=list)
+    last_contacted_at: datetime | None = None
+    reminder_at: datetime | None = None
     status: LeadStatus
     source_url: str
     enriched: bool
@@ -61,6 +64,12 @@ class CollectionJobOut(BaseModel):
 class LeadUpdate(BaseModel):
     status: str | None = None  # "new", "contacted", "qualified", "rejected"
     notes: str | None = Field(default=None, max_length=10000)
+    # Workflow fields
+    tags: list[str] | None = Field(default=None, max_length=20)
+    last_contacted_at: datetime | None = None
+    reminder_at: datetime | None = None
+    # Mark contact: when sales clicks "позвонил/написал" — sets last_contacted_at=now()
+    mark_contacted: bool = False
 
 
 class PaginatedLeadsOut(BaseModel):

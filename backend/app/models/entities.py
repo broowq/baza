@@ -122,6 +122,10 @@ class Lead(Base):
     contacts_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    # Workflow fields — sales user adds these after first contact
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, index=True)
+    reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, index=True)
     status: Mapped[LeadStatus] = mapped_column(Enum(LeadStatus), default=LeadStatus.new, nullable=False, index=True)
     source_url: Mapped[str] = mapped_column(String(400), default="", nullable=False)
     enriched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -93,22 +93,28 @@ function ScoreIndicator({ score }: { score: number }) {
 
 function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: string, patch: Partial<Lead>) => void }) {
   const [notes, setNotes] = useState(lead.notes ?? "");
+  const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const tags = lead.tags ?? [];
 
-  const saveNotes = async () => {
-    if (notes === (lead.notes ?? "")) return;
+  const patchLead = async (patch: Partial<Lead> & { mark_contacted?: boolean }) => {
     setSaving(true);
     try {
-      await api(`/leads/${lead.id}`, {
+      const updated = await api<Lead>(`/leads/${lead.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ notes }),
+        body: JSON.stringify(patch),
       });
-      onLeadUpdate?.(lead.id, { notes });
+      onLeadUpdate?.(lead.id, updated);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось сохранить заметку");
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
     } finally {
       setSaving(false);
     }
+  };
+
+  const saveNotes = async () => {
+    if (notes === (lead.notes ?? "")) return;
+    await patchLead({ notes });
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -118,26 +124,99 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
     }
   };
 
+  const addTag = async () => {
+    const t = tagInput.trim();
+    if (!t || tags.includes(t)) { setTagInput(""); return; }
+    const newTags = [...tags, t];
+    setTagInput("");
+    await patchLead({ tags: newTags });
+  };
+
+  const removeTag = async (t: string) => {
+    await patchLead({ tags: tags.filter((x) => x !== t) });
+  };
+
+  const setReminder = async (days: number | null) => {
+    if (days === null) {
+      await patchLead({ reminder_at: null });
+      return;
+    }
+    const d = new Date();
+    d.setDate(d.getDate() + days);
+    d.setHours(10, 0, 0, 0); // 10am that day
+    await patchLead({ reminder_at: d.toISOString() });
+  };
+
+  const reminderDateStr = lead.reminder_at ? new Date(lead.reminder_at).toLocaleDateString("ru-RU") : null;
+  const lastContactStr = lead.last_contacted_at ? new Date(lead.last_contacted_at).toLocaleDateString("ru-RU") : null;
+  const reminderOverdue = lead.reminder_at && new Date(lead.reminder_at) < new Date();
+
   return (
     <TableRow className="bg-muted/30 hover:bg-muted/30">
       <TableCell colSpan={11} className="px-4 py-3 sm:px-8">
-        <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-muted-foreground">Заметки</span>
-          <div className="flex items-center gap-2">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {/* Notes */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Заметка</span>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               onBlur={() => void saveNotes()}
               onKeyDown={handleKeyDown}
-              placeholder="Добавить заметку..."
-              className="h-8 max-w-md text-sm"
+              placeholder="Контекст переговоров, кто принимает решение..."
+              className="h-8 text-sm"
               disabled={saving}
             />
-            {saving && <span className="text-xs text-muted-foreground">Сохранение...</span>}
           </div>
-          {lead.notes && notes === lead.notes && (
-            <p className="text-sm text-muted-foreground">{lead.notes}</p>
-          )}
+          {/* Tags */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Теги</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {tags.map((t) => (
+                <Badge key={t} variant="secondary" className="cursor-pointer text-xs" onClick={() => void removeTag(t)}>
+                  {t} ✕
+                </Badge>
+              ))}
+              <Input
+                value={tagInput}
+                onChange={(e) => setTagInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addTag(); } }}
+                placeholder="+ тег"
+                className="h-7 w-24 text-xs"
+                disabled={saving}
+              />
+            </div>
+          </div>
+          {/* Workflow actions */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Действия</span>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => void patchLead({ mark_contacted: true })}>
+                ✓ Связались сейчас
+              </Button>
+              {lastContactStr && (
+                <span className="text-muted-foreground">последний контакт: {lastContactStr}</span>
+              )}
+            </div>
+          </div>
+          {/* Reminder */}
+          <div className="flex flex-col gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">Напоминание</span>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(1)}>+1д</Button>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(3)}>+3д</Button>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(7)}>+7д</Button>
+              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(14)}>+14д</Button>
+              {reminderDateStr && (
+                <>
+                  <span className={reminderOverdue ? "font-semibold text-red-600" : "text-muted-foreground"}>
+                    напомнить {reminderDateStr}{reminderOverdue && " (просрочено)"}
+                  </span>
+                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => void setReminder(null)}>×</Button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
       </TableCell>
     </TableRow>
