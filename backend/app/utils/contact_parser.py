@@ -3,6 +3,11 @@ import json
 import phonenumbers
 
 EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+# mailto: hrefs are the highest-confidence email source on websites
+MAILTO_REGEX = re.compile(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})', re.IGNORECASE)
+# VK community / Telegram channel URLs — useful for B2B firms without a website
+VK_REGEX = re.compile(r'https?://(?:vk\.com|m\.vk\.com)/([a-zA-Z0-9_.\-]{3,})', re.IGNORECASE)
+TG_REGEX = re.compile(r'https?://(?:t\.me|telegram\.me)/([a-zA-Z0-9_]{3,})', re.IGNORECASE)
 PHONE_REGEX = re.compile(
     r"(?:(?:\+7|8)[\s\-\(]?(?:\d{3}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})"
     r"|(?:\+\d{1,3}[\s\-]?)?(?:\(?\d{2,4}\)?[\s\-]?)?\d{3}[\s\-]?\d{2,4}[\s\-]?\d{2,4})"
@@ -142,15 +147,36 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
 
     combined = f"{text}\n{sanitized_text}"
 
-    # Email
-    emails = sorted(
-        {m.group(0).lower() for m in EMAIL_REGEX.finditer(combined)}
-        - {"example@example.com", "test@test.com", "noreply@noreply.com"}
-    )
-    # Фильтруем явно технические домены
-    emails = [e for e in emails if not any(
-        pat in e for pat in ("example.", "test.", "localhost", "placeholder", "yoursite.", "domain.")
-    )]
+    # Email — extract from BOTH mailto: hrefs (high signal) and inline text.
+    # mailto: emails are the highest-confidence source — sites put them there
+    # specifically for users to click. Promote them to top of list.
+    mailto_emails: list[str] = []
+    for m in MAILTO_REGEX.finditer(raw_html):
+        e = m.group(1).strip().lower()
+        if e and e not in mailto_emails:
+            mailto_emails.append(e)
+
+    text_emails = sorted({m.group(0).lower() for m in EMAIL_REGEX.finditer(combined)})
+
+    # Merge: mailto first (priority), then text-extracted
+    all_emails = mailto_emails + [e for e in text_emails if e not in mailto_emails]
+
+    # Filter junk: technical placeholders, tracking domains, image extensions
+    blocked = {"example@example.com", "test@test.com", "noreply@noreply.com"}
+    emails = [
+        e for e in all_emails
+        if e not in blocked
+        and not any(pat in e for pat in (
+            "example.", "test.", "localhost", "placeholder", "yoursite.", "domain.",
+            "sentry.io", "@sentry", "@noreply", "no-reply",
+            ".png@", ".jpg@", ".gif@", ".svg@", ".webp@",  # filename-as-email
+        ))
+        and len(e) <= 254  # RFC 5321 max
+    ]
+    # Boost B2B contact-style emails to top (info@, sales@, office@, etc.)
+    contact_prefixes = ("info@", "sales@", "contact@", "office@", "hello@", "client@",
+                        "manager@", "zakaz@", "order@", "shop@", "kontakt@", "support@")
+    emails.sort(key=lambda e: (0 if e.startswith(contact_prefixes) else 1, e))
 
     # Телефоны
     phones: list[str] = []
@@ -200,8 +226,34 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
                     seen_addr.add(key)
                     addresses.append(a)
 
+    # Social channels — extract VK / Telegram links (useful for B2B firms
+    # that don't have a website but have an active community).
+    vk_links: list[str] = []
+    for m in VK_REGEX.finditer(raw_html):
+        slug = m.group(1).rstrip(".,/")
+        # Skip generic VK pages (vk.com/feed, /im, /club0)
+        if slug.lower() in ("feed", "im", "settings", "club0", "club", "search", "wall"):
+            continue
+        url = f"https://vk.com/{slug}"
+        if url not in vk_links:
+            vk_links.append(url)
+
+    tg_links: list[str] = []
+    for m in TG_REGEX.finditer(raw_html):
+        slug = m.group(1).rstrip(".,/")
+        if slug.lower() in ("share", "joinchat", "addstickers", "iv"):
+            continue
+        url = f"https://t.me/{slug}"
+        if url not in tg_links:
+            tg_links.append(url)
+
     return {
-        "emails": sorted(emails)[:5],
+        # Don't re-sort emails — preserve mailto-first + contact-prefix priority.
+        "emails": emails[:5],
         "phones": sorted(phones)[:5],
         "addresses": addresses[:3],
+        "social": {
+            "vk": vk_links[:3],
+            "telegram": tg_links[:3],
+        },
     }
