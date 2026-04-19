@@ -333,7 +333,14 @@ def _rule_based_competitor_filter(
         # happen to contain the Russian segment word (e.g. "DDX Fitness"
         # searched via "фитнес-клуб"). Accept address OR phone OR firm_id as
         # proof of real business.
+        # Trusted-source pass-through: maps and legal-entity registry results
+        # came from a targeted query, so even without segment match they're
+        # likely valid. Maps need address/phone/firm_id. Registry needs just name.
         is_maps = c.get("source") in {"2gis", "yandex_maps"}
+        is_registry = c.get("source") in {"rusprofile"}
+        if is_registry and c.get("company"):
+            kept.append(c)
+            continue
         if is_maps and (c.get("address") or c.get("phone") or c.get("firm_id")):
             kept.append(c)
             continue

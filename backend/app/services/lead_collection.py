@@ -154,6 +154,7 @@ _SUSPICIOUS_RU_MARKET_TLDS = frozenset({
 _SOURCE_WEIGHTS = {
     "yandex_maps": 64,
     "2gis": 52,
+    "rusprofile": 45,        # legal-entity registry — high credibility but no contacts
     "maps_searxng": 40,
     "searxng": 26,
     "bing": 20,
@@ -322,16 +323,23 @@ def _candidate_relevance_score(
     domain = (item.get("domain") or extract_domain(item.get("website", ""))).lower()
     source = item.get("source", "searxng")
     is_maps_source = source in {"yandex_maps", "2gis"}
+    is_registry_source = source in {"rusprofile"}
 
     # For web sources (SearXNG, Bing) — domain is required (it's a web result after all)
     # For maps sources (2GIS, Yandex) — allow results WITHOUT domain if they have company + (address OR phone)
-    # Real B2B customers (farms, small clinics) often don't have websites
+    # For registry sources (rusprofile) — allow on company name alone, since
+    # phones/emails are JS-rendered and unreachable. They're real legal entities.
     if not domain:
-        if not is_maps_source:
+        if not is_maps_source and not is_registry_source:
             return -999
-        # Maps result without website — require company name + (address or phone) as minimum viable lead
-        if not item.get("company") or (not item.get("address") and not item.get("phone")):
-            return -999
+        if is_maps_source:
+            # Maps result without website — require company name + (address or phone)
+            if not item.get("company") or (not item.get("address") and not item.get("phone")):
+                return -999
+        if is_registry_source:
+            # Registry: just company name is enough
+            if not item.get("company") or len(item.get("company", "")) < 4:
+                return -999
     elif not is_real_domain(domain) or is_aggregator_domain(domain):
         return -999
     elif not _is_candidate_domain_allowed(domain, geography, source):
@@ -1458,6 +1466,97 @@ def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
     return results
 
 
+# ─── Rusprofile.ru — Russian legal-entity registry ──────────────────────────
+# Returns ООО/ИП names with INN/OGRN. Phones/emails are JS-rendered (not in
+# server HTML), so we use this only for additional company-name discovery.
+# These names can then be searched in 2GIS for contacts.
+
+_RUSPROFILE_ANCHOR_RE = re.compile(
+    r'<a[^>]+href="/id/(\d+)"[^>]*class="[^"]*list-element__title[^"]*"[^>]*>(.*?)</a>',
+    re.DOTALL,
+)
+
+
+def _search_rusprofile(niche: str, geo: str, limit: int) -> list[dict]:
+    """Search rusprofile.ru for legal entities matching the niche+geo.
+
+    Returns up to `limit` candidates with company name + city + INN-like ID.
+    No phones/emails (JS-rendered) — those come from later 2GIS lookup.
+    """
+    cache_k = _cache_key("rusprofile", niche, geo, str(limit))
+    r_redis = _get_redis()
+    if r_redis:
+        try:
+            cached = r_redis.get(cache_k)
+            if cached is not None:
+                logger.info("Rusprofile cache HIT for %r/%r", niche, geo)
+                return _json.loads(cached)
+        except Exception:
+            pass
+
+    query = f"{niche} {geo}".strip() if geo else niche
+    url = f"https://www.rusprofile.ru/search?query={quote_plus(query)}"
+    try:
+        with httpx.Client(timeout=10.0, follow_redirects=True) as client:
+            resp = client.get(url, headers={
+                "User-Agent": _BROWSER_UAS[0],
+                "Accept": "text/html,application/xhtml+xml;q=0.9",
+                "Accept-Language": "ru-RU,ru;q=0.9",
+                "Accept-Encoding": "gzip, deflate",
+            })
+    except Exception as exc:
+        logger.info("Rusprofile fetch failed for %r: %s", query, exc)
+        return []
+    if resp.status_code != 200 or len(resp.text) < 1000:
+        return []
+
+    results: list[dict] = []
+    seen: set[str] = set()
+    for m in _RUSPROFILE_ANCHOR_RE.finditer(resp.text):
+        rusprofile_id = m.group(1)
+        body = m.group(2)
+        # Strip HTML tags from body (it has nested <span> for highlights)
+        clean_name = re.sub(r"<[^>]+>", "", body)
+        clean_name = re.sub(r"\s+", " ", clean_name).strip()
+        # Strip leading "ООО" type prefix to make the name searchable in 2GIS
+        # Keep the legal form for display though
+        if not clean_name or len(clean_name) < 4:
+            continue
+        # Normalize: collapse repeated quotes
+        clean_name = clean_name.replace('""', '"')
+        # Dedup by lowercased name (rusprofile sometimes lists branches with same name)
+        dedup_key = clean_name.lower()
+        if dedup_key in seen:
+            continue
+        seen.add(dedup_key)
+
+        results.append({
+            "company": clean_name[:180],
+            "city": geo.strip(),
+            "website": "",
+            "domain": "",
+            "phone": "",
+            "source_url": url,
+            "snippet": f"Юрлицо из rusprofile (id={rusprofile_id})",
+            "address": "",
+            "demo": False,
+            "source": "rusprofile",
+            "firm_id": "",  # rusprofile_id is not a 2GIS firm_id
+            "rusprofile_id": rusprofile_id,
+        })
+        if len(results) >= limit:
+            break
+
+    if results and r_redis:
+        try:
+            r_redis.set(cache_k, _json.dumps(results, ensure_ascii=False, default=str), ex=_CACHE_TTL_SECONDS)
+        except Exception:
+            pass
+
+    logger.info("Rusprofile: %d results for %r in %s", len(results), niche, geo)
+    return results
+
+
 def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
@@ -1531,6 +1630,18 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
                         logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
             except Exception:
                 logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
+
+        # Rusprofile.ru — supplementary source for legal entities.
+        # Only call if we still don't have enough leads from maps. Adds юрлица
+        # that may not be on 2GIS/Yandex (newer registrations, B2B-only firms).
+        try:
+            if len(collected) < oversample_limit // 2:  # only when really under-collected
+                rp_results = _search_rusprofile(term, effective_geo, max(15, per_term_limit // 2))
+                collect_candidates(rp_results)
+                if rp_results:
+                    logger.info("Rusprofile returned %d results for '%s %s'", len(rp_results), term, effective_geo)
+        except Exception:
+            logger.warning("Rusprofile error for '%s'", term, exc_info=True)
 
         time.sleep(0.2)
 
