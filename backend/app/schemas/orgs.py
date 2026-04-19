@@ -15,6 +15,7 @@ class OrganizationOut(BaseModel):
     projects_limit: int
     users_limit: int
     can_invite_members: bool
+    lead_webhook_url: str = ""
     created_at: datetime
 
     class Config:
@@ -23,6 +24,10 @@ class OrganizationOut(BaseModel):
 
 class PlanUpdateRequest(BaseModel):
     plan: PlanType
+
+
+class WebhookUpdateRequest(BaseModel):
+    lead_webhook_url: str = Field(default="", max_length=500)
 
 
 class InviteCreateRequest(BaseModel):

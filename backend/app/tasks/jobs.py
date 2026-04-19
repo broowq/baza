@@ -446,6 +446,30 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 demo=lead.demo,
             )
             enriched += 1
+
+            # Push to CRM webhook if configured (Bitrix24 / AmoCRM / custom).
+            # Fire-and-forget via Celery — doesn't block enrichment loop.
+            try:
+                org = db.get(Organization, lead.organization_id)
+                if org and org.lead_webhook_url:
+                    from app.tasks.webhook_tasks import push_lead_webhook
+                    payload = {
+                        "id": str(lead.id),
+                        "company": lead.company,
+                        "city": lead.city,
+                        "email": lead.email,
+                        "phone": lead.phone,
+                        "address": lead.address,
+                        "website": lead.website,
+                        "score": lead.score,
+                        "status": lead.status.value,
+                        "tags": lead.tags or [],
+                        "project_id": str(lead.project_id),
+                        "project_name": project.name if project else "",
+                    }
+                    push_lead_webhook.delay(org.lead_webhook_url, payload)
+            except Exception:
+                logger.debug("webhook queue failed for lead=%s", lead.id, exc_info=True)
             if enriched % 5 == 0:
                 job.enriched_count = enriched
                 job.updated_at = datetime.now(timezone.utc)

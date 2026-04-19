@@ -9,6 +9,7 @@ export type Organization = {
   projects_limit: number;
   users_limit: number;
   can_invite_members: boolean;
+  lead_webhook_url?: string;
 };
 
 export type Project = {

@@ -22,6 +22,7 @@ from app.schemas.orgs import (
     MemberOut,
     OrganizationOut,
     PlanUpdateRequest,
+    WebhookUpdateRequest,
 )
 from app.services.audit import log_action
 from app.services.quota import apply_plan_limits
@@ -92,6 +93,27 @@ def update_plan(
             action="organization.plan.updated",
             meta={"plan": payload.plan.value},
         )
+    db.commit()
+    db.refresh(organization)
+    return organization
+
+
+@router.patch("/me/webhook", response_model=OrganizationOut)
+def update_webhook(
+    payload: WebhookUpdateRequest,
+    organization: Organization = Depends(get_current_org),
+    _membership=Depends(require_org_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Set or clear the CRM webhook URL for this org.
+
+    Each new lead is POSTed to the URL as JSON. Bitrix24 incoming webhook URL
+    or AmoCRM webhook endpoint both work. Empty string disables.
+    """
+    url = (payload.lead_webhook_url or "").strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        raise HTTPException(status_code=422, detail="URL должен начинаться с http:// или https://")
+    organization.lead_webhook_url = url
     db.commit()
     db.refresh(organization)
     return organization

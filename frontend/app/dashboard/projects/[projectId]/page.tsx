@@ -166,24 +166,29 @@ export default function ProjectDetailsPage() {
     }
   };
 
-  const [exporting, setExporting] = useState(false);
-  const exportCsv = async () => {
+  const [exporting, setExporting] = useState<"" | "csv" | "xlsx">("");
+  const exportFile = async (format: "csv" | "xlsx") => {
     if (exporting) return;
-    setExporting(true);
+    setExporting(format);
     try {
-      const response = await apiFetch(`/leads/project/${projectId}/export`);
+      const path = format === "xlsx" ? "/export.xlsx" : "/export";
+      const response = await apiFetch(`/leads/project/${projectId}${path}`);
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `project-${projectId}-leads.csv`; a.click();
+      a.href = url;
+      a.download = `project-${projectId}-leads.${format}`;
+      a.click();
       URL.revokeObjectURL(url);
-      toast.success("CSV выгружен");
+      toast.success(`${format.toUpperCase()} выгружен`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Ошибка экспорта");
     } finally {
-      setExporting(false);
+      setExporting("");
     }
   };
+  const exportCsv = () => void exportFile("csv");
+  const exportXlsx = () => void exportFile("xlsx");
 
   const handleBulkEnrich = async (leadIds: string[]) => {
     try {
@@ -249,8 +254,15 @@ export default function ProjectDetailsPage() {
                   <><Sparkles size={12} /> Обогатить</>
                 )}
               </Button>
-              <Button size="sm" variant="ghost" onClick={exportCsv} disabled={exporting}>
-                {exporting ? (
+              <Button size="sm" variant="ghost" onClick={exportXlsx} disabled={!!exporting}>
+                {exporting === "xlsx" ? (
+                  <><Loader2 size={12} className="animate-spin" /> Excel…</>
+                ) : (
+                  <><Download size={12} /> Excel</>
+                )}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={exportCsv} disabled={!!exporting}>
+                {exporting === "csv" ? (
                   <><Loader2 size={12} className="animate-spin" /> CSV…</>
                 ) : (
                   <><Download size={12} /> CSV</>
