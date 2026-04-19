@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, Loader2, Play, RefreshCw, Sparkles, Hash, Mail, TrendingUp, Users } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, Loader2, Play, RefreshCw, Sparkles, Hash, Mail, TrendingUp, Users } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -259,6 +259,11 @@ export default function ProjectDetailsPage() {
             </div>
           </div>
         </div>
+
+        {/* Auto-collection schedule bar */}
+        {project && canManage && (
+          <AutoCollectionBar project={project} onUpdate={(updated) => setProject(updated)} />
+        )}
       </div>
 
       {/* Stats cards */}
@@ -426,5 +431,85 @@ export default function ProjectDetailsPage() {
         </TabsContent>
       </Tabs>
     </motion.main>
+  );
+}
+
+
+const SCHEDULE_PRESETS: { label: string; value: string }[] = [
+  { label: "Каждый день 9:00", value: "0 9 * * *" },
+  { label: "Каждый пн 9:00", value: "0 9 * * 1" },
+  { label: "1-е и 15-е число 9:00", value: "0 9 1,15 * *" },
+  { label: "Первое число месяца", value: "0 9 1 * *" },
+];
+
+function AutoCollectionBar({
+  project,
+  onUpdate,
+}: {
+  project: Project;
+  onUpdate: (updated: Project) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [schedule, setSchedule] = useState(project.cron_schedule || SCHEDULE_PRESETS[1].value);
+
+  const save = async (patch: { auto_collection_enabled?: boolean; cron_schedule?: string }) => {
+    setSaving(true);
+    try {
+      const updated = await api<Project>(`/projects/${project.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      onUpdate(updated);
+      toast.success(patch.auto_collection_enabled ? "Автосбор включён" : "Сохранено");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onScheduleChange = (value: string) => {
+    setSchedule(value);
+    if (project.auto_collection_enabled) void save({ cron_schedule: value });
+  };
+
+  const currentPreset = SCHEDULE_PRESETS.find((p) => p.value === schedule);
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+      <div className="flex items-center gap-2">
+        <CalendarClock size={15} className="text-muted-foreground" />
+        <span className="font-medium">Автосбор</span>
+      </div>
+
+      <label className="flex cursor-pointer items-center gap-2">
+        <input
+          type="checkbox"
+          checked={project.auto_collection_enabled}
+          disabled={saving}
+          onChange={(e) => void save({ auto_collection_enabled: e.target.checked, cron_schedule: schedule })}
+          className="h-4 w-4 cursor-pointer rounded"
+        />
+        <span>{project.auto_collection_enabled ? "Включён" : "Выключен"}</span>
+      </label>
+
+      <Select value={schedule} onValueChange={onScheduleChange} disabled={saving}>
+        <SelectTrigger className="h-8 w-auto min-w-[200px] text-xs">
+          <SelectValue placeholder="Расписание" />
+        </SelectTrigger>
+        <SelectContent>
+          {SCHEDULE_PRESETS.map((preset) => (
+            <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {project.auto_collection_enabled && currentPreset && (
+        <span className="text-xs text-muted-foreground">
+          Следующий запуск: {currentPreset.label.toLowerCase()}. Получите email когда готово.
+        </span>
+      )}
+      {saving && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
+    </div>
   );
 }
