@@ -480,7 +480,8 @@ function AutoCollectionBar({
     }
   };
 
-  const onScheduleChange = (value: string) => {
+  const onScheduleChange = (value: string | null) => {
+    if (!value) return;
     setSchedule(value);
     if (project.auto_collection_enabled) void save({ cron_schedule: value });
   };
