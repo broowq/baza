@@ -115,11 +115,13 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://localhost:3000/ >/dev/null 2>&1 || exit 1"]
-      interval: 15s
-      timeout: 5s
+      # --spider only does HEAD (no body download); landing page is 69KB SSR-rendered
+      # and was timing out under load, causing autoheal restart loops.
+      test: ["CMD-SHELL", "wget -q --spider --timeout=8 http://localhost:3000/ || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   worker:
     build:
