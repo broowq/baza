@@ -392,10 +392,21 @@ def _candidate_relevance_score(
         seg_hits = sum(1 for term in seg_terms if term in combined)
         score += min(20, seg_hits * 6)
 
-    # Competitor detection — penalty for seller signals
-    competitor_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in combined)
-    if competitor_hits >= 2:
-        score -= 30
+    # Competitor detection — tiered penalty for seller signals.
+    # Company-name hits weigh 3× (a seller announces itself in its name — "ТД",
+    # "Магазин", "Опт") while snippet/category hits weigh 1×.
+    competitor_name_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in company)
+    competitor_other_hits = sum(
+        1 for word in _COMPETITOR_SIGNALS
+        if word in combined and word not in company
+    )
+    competitor_score = competitor_name_hits * 3 + competitor_other_hits
+    if competitor_score >= 5:
+        score -= 55  # strong seller — ТД, магазин + опт + каталог
+    elif competitor_score >= 3:
+        score -= 30  # likely seller — 2+ snippet markers or name marker + 1 other
+    elif competitor_score >= 1:
+        score -= 12  # possible seller — 1 marker, leave room for false positives
 
     geo_terms = _build_match_terms(geography)
     city_text = _normalize_match_text(item.get("city", ""))
@@ -589,9 +600,13 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
                     f'"{seg}" "{geo}" ООО {neg}',
                 ])
 
-    # Also search by niche — but ONLY if no prompt (direct niche search)
-    # When prompt exists, niche queries would find competitors, not customers
-    if not has_prompt or not segments:
+    # Also search by niche — but ONLY if no prompt (direct niche search).
+    # When prompt exists we NEVER search by niche — even if segments came back
+    # empty from the enhancer. Previously we fell back to niche here, which
+    # flooded results with sellers of the niche (the user's competitors), not
+    # buyers/customers. Empty segments → no SearXNG niche pass; collection will
+    # still run 2GIS/Yandex maps passes if they have fallback terms.
+    if not has_prompt:
         queries.extend([
             f"{niche} {geo} контакты телефон {neg}",
             f"{niche} {geo} о компании {neg}",

@@ -168,6 +168,7 @@ def score_lead(
     has_address: bool,
     demo: bool,
     relevance_score: int = 0,
+    segments: list[str] | None = None,
 ) -> int:
     settings = get_settings()
     niche_key = niche.strip().lower()
@@ -210,6 +211,26 @@ def score_lead(
     lowered_company = company.lower()
     if keywords and any(word in lowered_domain or word in lowered_company for word in keywords):
         score += w("keyword_bonus", 12)
+
+    # Бонус за совпадение с целевым сегментом покупателя.
+    # Когда prompt-enhancer вытащил segments (типы клиентов — «фермы», «птицефабрики»
+    # для продавца кормовых добавок) — матч по этим словам в имени/домене даёт
+    # +8, вплоть до +16. Это закрывает разрыв: раньше NICHE_KEYWORDS был только
+    # product-side, и настоящий покупатель без «нишевых» слов в названии
+    # недобирал очки.
+    if segments:
+        seg_terms: set[str] = set()
+        for seg in segments:
+            for part in seg.lower().split():
+                if len(part) >= 4:
+                    seg_terms.add(part)
+        if seg_terms:
+            seg_hits = sum(
+                1 for term in seg_terms
+                if term in lowered_domain or term in lowered_company
+            )
+            if seg_hits:
+                score += w("segment_bonus", min(16, seg_hits * 8))
 
     # Бонус за качество домена: .ru/.рф для российских ниш — признак местного бизнеса
     ru_niches = {"деревообработка", "строительство", "медицина", "юридические услуги", "бухгалтерия"}
