@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     scoring_weights_json: str = (
         '{"base":35,"domain":10,"email":20,"phone":10,"address":8,'
-        '"no_contacts_penalty":-12,"demo_penalty":-20,"aggregator_penalty":-25,"keyword_bonus":5}'
+        '"no_contacts_penalty":-12,"demo_penalty":-20,"aggregator_penalty":-25,"keyword_bonus":12}'
     )
     scoring_niche_weights_json: str = "{}"
     smtp_host: str = ""

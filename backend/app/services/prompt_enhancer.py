@@ -646,6 +646,37 @@ def _augment_with_2gis_categories(
     return merged
 
 
+def _strip_product_echoes(segments: list[str], product_words: list[str]) -> list[str]:
+    """Drop segments whose words substantially overlap the user's own products.
+
+    A segment "echoes the product" if at least one of its >=4-char word stems
+    appears in product_words. We keep segments that describe distinct customer
+    types even if they share a word (e.g. prompt "мебельный магазин" →
+    segment "ресторан": no echo, keep).
+    """
+    if not product_words:
+        return segments
+    product_set = {pw for pw in product_words if len(pw) >= 4}
+    kept: list[str] = []
+    for seg in segments:
+        seg_lower = seg.lower()
+        # If ANY word in segment is a product-word, consider it an echo
+        seg_words = re.findall(r"[а-яa-z]{4,}", seg_lower)
+        if not seg_words:
+            kept.append(seg)
+            continue
+        # An echo is: every (or most) segment words match a product word.
+        # Segments with mostly non-product words are real customer types.
+        echo_hits = sum(
+            1 for sw in seg_words
+            if any(sw.startswith(pw) or pw.startswith(sw) for pw in product_set)
+        )
+        if echo_hits >= len(seg_words):  # every word echoes → drop
+            continue
+        kept.append(seg)
+    return kept
+
+
 def _extract_prompt_product_words(prompt: str) -> list[str]:
     """Extract product/service lemmas from a business description.
 
@@ -772,6 +803,15 @@ search_queries_niche — это то, что будет искаться на к
         # llm_filter is robust to genitive/accusative forms the LLM may return.
         if isinstance(result.get("segments"), list):
             result["segments"] = _normalize_segments(result["segments"])
+            # Post-LLM guard: strip segments that echo the user's PRODUCT words.
+            # LLMs occasionally return `"segments": ["кормовая добавка"]` when the
+            # prompt is "Продаю кормовые добавки" — that makes us search for
+            # SELLERS of feed additives (competitors). Filter them out.
+            product_words = _extract_prompt_product_words(raw_prompt)
+            if product_words:
+                result["segments"] = _strip_product_echoes(
+                    result["segments"], product_words
+                )
 
         result["raw_prompt"] = raw_prompt
         return result

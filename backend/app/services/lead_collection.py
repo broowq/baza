@@ -95,6 +95,11 @@ _ARTICLE_OR_DIRECTORY_HINTS = [
     "список компаний", "каталог компаний", "каталог фирм",
     "справочник", "адреса и телефоны",
     "что такое", "как работает", "значение слова", "история развития",
+    # How-to/advice patterns that over-matched earlier (e.g. "Электрификация
+    # магазина" for niche "электрика"): these are articles, not leads.
+    "как выбрать", "как сделать", "как провести", "советы по",
+    "руководство по", "пошаговое", "своими руками",
+    "основы", "с чего начать", "инструкция",
 ]
 
 _PATH_DIRECTORY_HINTS = [
@@ -160,16 +165,46 @@ _SOURCE_WEIGHTS = {
     "bing": 20,
 }
 
-_NEGATIVE_KEYWORDS = (
+# Split into CORE (always safe) and SELLER_EXTRA (only when prompt exists AND
+# segments don't explicitly include online stores / distributors). Previously
+# a single monolithic list dinged projects whose target customer is literally
+# "интернет-магазины одежды" — the seller negatives killed the target audience.
+_NEGATIVE_CORE = (
     "-wikipedia -википедия -погода -форум -блог -рецепт -словарь "
     "-реферат -скачать -рейтинг -лучшие -лучших -топ -обзор -отзывы -сравнение -список "
     "-вакансия -вакансии -работа -резюме -hh.ru -superjob "
     "-ликвидирован -ликвидация -банкрот -inn -огрн "
     "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com "
-    "-продажа -купить -заказать -интернет-магазин "
-    "-поставщик -дистрибьютор -оптовик "
-    "-прайс-лист -каталог-товаров"
+    "-yell.ru -zoon.ru -flamp.ru -2gis.ru "
+    "-avito.ru -ozon.ru -wildberries.ru -market.yandex.ru"
 )
+
+_NEGATIVE_SELLER_EXTRA = (
+    "-продажа -продаем -продаём -купить -заказать -интернет-магазин -магазин "
+    "-поставщик -дистрибьютор -оптовик -опт -оптом "
+    "-прайс-лист -каталог-товаров -каталог "
+    "-скидка -акция -распродажа -ассортимент -в-наличии"
+)
+
+# Kept for backward compat with callers that haven't migrated yet.
+_NEGATIVE_KEYWORDS = f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
+
+
+def _pick_negatives(*, has_prompt: bool, segments: list[str] | None) -> str:
+    """Choose CORE only (safe) or CORE+SELLER_EXTRA (when we're hunting buyers).
+
+    If segments mention online-store / marketplace / distributor keywords,
+    we stay with CORE only — the seller-negatives would kill the target.
+    """
+    if not has_prompt:
+        return _NEGATIVE_CORE  # Direct niche search: don't over-filter
+    if not segments:
+        return _NEGATIVE_CORE  # Unknown segments: play safe
+    seg_blob = " ".join(segments).lower()
+    for word in ("магазин", "интернет", "маркетплейс", "дистрибьютор", "поставщик", "оптов"):
+        if word in seg_blob:
+            return _NEGATIVE_CORE  # Target audience IS a seller category
+    return f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
 
 # Signals that a candidate is a SELLER/competitor, not a buyer/customer
 _COMPETITOR_SIGNALS = [
@@ -181,6 +216,9 @@ _COMPETITOR_SIGNALS = [
     "прайс", "каталог товаров", "ассортимент", "в наличии",
     "доставка по", "бесплатная доставка", "самовывоз",
     "скидк", "акци", "распродаж",
+    # Russian "Trading House" abbreviations — near-synonyms of "магазин".
+    # "тд " has trailing space to avoid matching "тдушка"/random letter blends.
+    "тд ", "торговый дом", "т/д", "т.д.",
 ]
 
 
@@ -207,12 +245,22 @@ def _build_match_terms(*parts: str) -> list[str]:
                 if lemma not in seen:
                     seen.add(lemma)
                     terms.append(lemma)
-                # Also add the stem (first 4 chars of lemma) for partial matching
+                # Also add the stem (first 4 chars of lemma) for partial
+                # matching. Keeping [:4] preserves "корм" for "кормовой/
+                # кормовые" family. For lemmas ≥ 8 chars we also emit a 5-char
+                # stem so long niche words ("электрика") don't over-match
+                # unrelated short ones ("элит") via loose prefix overlap —
+                # the 5-char stem "элект" is specific enough to discriminate.
                 if len(lemma) >= 5:
-                    stem = lemma[:4]
-                    if stem not in seen:
-                        seen.add(stem)
-                        terms.append(stem)
+                    stem4 = lemma[:4]
+                    if stem4 not in seen:
+                        seen.add(stem4)
+                        terms.append(stem4)
+                if len(lemma) >= 8:
+                    stem5 = lemma[:5]
+                    if stem5 not in seen:
+                        seen.add(stem5)
+                        terms.append(stem5)
     return terms
 
 
@@ -376,11 +424,37 @@ def _candidate_relevance_score(
     title_hits = _keyword_hits(f"{company} {domain}", niche_terms)
     context_hits = _keyword_hits(f"{snippet} {address} {categories}", niche_terms)
 
+    # Pre-compute competitor score so we can suppress niche-bonuses for sellers.
+    # A seller's name naturally contains the niche words (that's their product),
+    # so the +28 phrase and up-to +30 term bonuses would wrongly reward them.
+    _competitor_name_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in company)
+    _competitor_other_hits = sum(
+        1 for word in _COMPETITOR_SIGNALS
+        if word in combined and word not in company
+    )
+    _competitor_score_pre = _competitor_name_hits * 3 + _competitor_other_hits
+    _is_likely_seller = _competitor_score_pre >= 3
+
     if niche_phrase and niche_phrase in combined:
-        score += 28
-    score += min(30, title_hits * 8 + context_hits * 3)
+        if _is_likely_seller:
+            score += 6   # sharply reduced — seller's own product name
+        else:
+            score += 28
+    niche_term_bonus = min(30, title_hits * 8 + context_hits * 3)
+    if _is_likely_seller:
+        niche_term_bonus = niche_term_bonus // 4   # sellers don't get full credit
+    score += niche_term_bonus
     if niche_terms and title_hits + context_hits == 0:
-        score -= 24
+        # Harder penalty for searxng/bing zero-hit results. Maps results are
+        # not penalized the same way — they were fetched via a targeted
+        # segment query so the item IS the target audience even without
+        # niche words in the snippet. For web-search results, zero niche
+        # match means the result is almost certainly off-topic (e.g. a
+        # consulting firm surfacing for an "электрика" project).
+        if source in {"searxng", "bing"}:
+            score -= 32
+        else:
+            score -= 24
     elif niche_terms and title_hits == 0:
         score -= 8
 
@@ -392,10 +466,15 @@ def _candidate_relevance_score(
         seg_hits = sum(1 for term in seg_terms if term in combined)
         score += min(20, seg_hits * 6)
 
-    # Competitor detection — penalty for seller signals
-    competitor_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in combined)
-    if competitor_hits >= 2:
-        score -= 30
+    # Competitor detection — tiered penalty for seller signals. Reuses the
+    # pre-computed hit counts (above) so name-field weight stays in sync.
+    competitor_score = _competitor_score_pre
+    if competitor_score >= 5:
+        score -= 55  # strong seller — ТД, магазин + опт + каталог
+    elif competitor_score >= 3:
+        score -= 30  # likely seller — 2+ snippet markers or name marker + 1 other
+    elif competitor_score >= 1:
+        score -= 12  # possible seller — 1 marker, leave room for false positives
 
     geo_terms = _build_match_terms(geography)
     city_text = _normalize_match_text(item.get("city", ""))
@@ -574,7 +653,7 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
     """
     niche = niche.strip()
     geo = geo.strip()
-    neg = _NEGATIVE_KEYWORDS
+    neg = _pick_negatives(has_prompt=has_prompt, segments=segments)
 
     queries = []
 
@@ -589,9 +668,13 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
                     f'"{seg}" "{geo}" ООО {neg}',
                 ])
 
-    # Also search by niche — but ONLY if no prompt (direct niche search)
-    # When prompt exists, niche queries would find competitors, not customers
-    if not has_prompt or not segments:
+    # Also search by niche — but ONLY if no prompt (direct niche search).
+    # When prompt exists we NEVER search by niche — even if segments came back
+    # empty from the enhancer. Previously we fell back to niche here, which
+    # flooded results with sellers of the niche (the user's competitors), not
+    # buyers/customers. Empty segments → no SearXNG niche pass; collection will
+    # still run 2GIS/Yandex maps passes if they have fallback terms.
+    if not has_prompt:
         queries.extend([
             f"{niche} {geo} контакты телефон {neg}",
             f"{niche} {geo} о компании {neg}",
@@ -679,17 +762,44 @@ def _format_bbox(bounds: list[list[float]] | None) -> str | None:
     return f"{first[0]},{first[1]}~{second[0]},{second[1]}"
 
 
-def _build_yandex_map_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
-    base_queries = [
-        f"{geo}, {niche}".strip(", "),
-        f"{niche}, {geo}".strip(", "),
-        f"{geo}, {niche} компания".strip(", "),
-        f"{geo}, {niche} официальный сайт".strip(", "),
-    ]
-    for segment in segments[:8]:
-        segment = segment.strip()
-        if segment:
-            base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
+def _build_yandex_map_queries(
+    niche: str,
+    geo: str,
+    segments: list[str],
+    *,
+    has_prompt: bool = False,
+) -> list[str]:
+    """Build Yandex Places search queries.
+
+    When `has_prompt=True`, user described their business — niche is THEIR
+    product ("кормовые добавки"), segments are THEIR customers ("птицефабрика",
+    "молочная ферма"). Including niche in the query brings sellers of the
+    niche (competitors). In this mode we query ONLY by segments.
+
+    When `has_prompt=False`, niche is the thing to search for directly.
+    """
+    base_queries: list[str] = []
+
+    if has_prompt and segments:
+        # Buyer-hunt mode: segment-only queries.
+        for segment in segments[:8]:
+            segment = segment.strip()
+            if not segment:
+                continue
+            base_queries.append(f"{geo}, {segment}".strip(", "))
+            base_queries.append(f"{segment}, {geo}".strip(", "))
+    else:
+        # Direct niche search.
+        base_queries = [
+            f"{geo}, {niche}".strip(", "),
+            f"{niche}, {geo}".strip(", "),
+            f"{geo}, {niche} компания".strip(", "),
+            f"{geo}, {niche} официальный сайт".strip(", "),
+        ]
+        for segment in segments[:8]:
+            segment = segment.strip()
+            if segment:
+                base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
 
     queries: list[str] = []
     for query in base_queries:
@@ -760,7 +870,14 @@ def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
 _YANDEX_DEAD_KEY = False
 
 
-def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -> list[dict]:
+def _search_yandex_maps(
+    niche: str,
+    geo: str,
+    segments: list[str],
+    limit: int,
+    *,
+    has_prompt: bool = False,
+) -> list[dict]:
     global _YANDEX_DEAD_KEY
     if _YANDEX_DEAD_KEY:
         return []
@@ -768,7 +885,7 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
     if not settings.yandex_maps_api_key:
         return []
 
-    queries = _build_yandex_map_queries(niche, geo, segments)
+    queries = _build_yandex_map_queries(niche, geo, segments, has_prompt=has_prompt)
     results: list[dict] = []
     seen_domains: set[str] = set()
 
@@ -1592,7 +1709,8 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
 
     # Build list of specific search terms for maps (2GIS, Yandex)
     # When segments are specific business types (e.g. "птицефабрика", "ветклиника"),
-    # search each one separately — much more effective than a combined query
+    # search each one separately — much more effective than a combined query.
+    has_prompt = bool((prompt or "").strip())
     map_search_terms = []
     if effective_segments:
         for seg in effective_segments[:8]:
@@ -1600,7 +1718,15 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
             if seg and len(seg) > 2:
                 map_search_terms.append(seg)
     if not map_search_terms:
-        map_search_terms = [effective_niche]
+        # If user provided a prompt but the enhancer returned NO segments
+        # (unknown niche, e.g. "Продаю мраморные подоконники"), we must NOT
+        # fall back to the niche as a maps term — that floods results with
+        # sellers. Better to return empty from maps and let SearXNG/registry
+        # passes do what they can with the prompt text itself.
+        if has_prompt:
+            map_search_terms = []
+        else:
+            map_search_terms = [effective_niche]
 
     def collect_candidates(source_items: list[dict]) -> None:
         nonlocal skipped_irrelevant
@@ -1647,7 +1773,10 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
         if use_yandex:
             try:
                 if len(collected) < oversample_limit:
-                    yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
+                    yandex_results = _search_yandex_maps(
+                        term, effective_geo, effective_segments, per_term_limit,
+                        has_prompt=has_prompt,
+                    )
                     collect_candidates(yandex_results)
                     if yandex_results:
                         logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
@@ -1705,9 +1834,25 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
 
     try:
         if len(collected) < oversample_limit:
-            bing_query = f"{effective_niche} компания {effective_geo}".strip()
-            bing_results = _search_bing(bing_query, oversample_limit - len(collected))
-            collect_candidates(bing_results)
+            # Bing backup — segment-aware when we have prompt-driven targets.
+            # Previously we searched `{niche} компания {geo}` unconditionally,
+            # which brings sellers of the niche for prompt-driven projects.
+            neg = _pick_negatives(has_prompt=has_prompt, segments=effective_segments)
+            if has_prompt and effective_segments:
+                # Segment-driven: iterate first 3 segments.
+                bing_queries = [
+                    f"{seg.strip()} {effective_geo} {neg}".strip()
+                    for seg in effective_segments[:3]
+                    if seg and seg.strip()
+                ]
+            else:
+                bing_queries = [f"{effective_niche} компания {effective_geo} {neg}".strip()]
+            per_q_limit = max(5, (oversample_limit - len(collected)) // max(1, len(bing_queries)))
+            for bing_query in bing_queries:
+                if len(collected) >= oversample_limit:
+                    break
+                bing_results = _search_bing(bing_query, per_q_limit)
+                collect_candidates(bing_results)
     except Exception:
         logger.warning("Bing search error", exc_info=True)
 
