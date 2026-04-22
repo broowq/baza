@@ -724,17 +724,44 @@ def _format_bbox(bounds: list[list[float]] | None) -> str | None:
     return f"{first[0]},{first[1]}~{second[0]},{second[1]}"
 
 
-def _build_yandex_map_queries(niche: str, geo: str, segments: list[str]) -> list[str]:
-    base_queries = [
-        f"{geo}, {niche}".strip(", "),
-        f"{niche}, {geo}".strip(", "),
-        f"{geo}, {niche} компания".strip(", "),
-        f"{geo}, {niche} официальный сайт".strip(", "),
-    ]
-    for segment in segments[:8]:
-        segment = segment.strip()
-        if segment:
-            base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
+def _build_yandex_map_queries(
+    niche: str,
+    geo: str,
+    segments: list[str],
+    *,
+    has_prompt: bool = False,
+) -> list[str]:
+    """Build Yandex Places search queries.
+
+    When `has_prompt=True`, user described their business — niche is THEIR
+    product ("кормовые добавки"), segments are THEIR customers ("птицефабрика",
+    "молочная ферма"). Including niche in the query brings sellers of the
+    niche (competitors). In this mode we query ONLY by segments.
+
+    When `has_prompt=False`, niche is the thing to search for directly.
+    """
+    base_queries: list[str] = []
+
+    if has_prompt and segments:
+        # Buyer-hunt mode: segment-only queries.
+        for segment in segments[:8]:
+            segment = segment.strip()
+            if not segment:
+                continue
+            base_queries.append(f"{geo}, {segment}".strip(", "))
+            base_queries.append(f"{segment}, {geo}".strip(", "))
+    else:
+        # Direct niche search.
+        base_queries = [
+            f"{geo}, {niche}".strip(", "),
+            f"{niche}, {geo}".strip(", "),
+            f"{geo}, {niche} компания".strip(", "),
+            f"{geo}, {niche} официальный сайт".strip(", "),
+        ]
+        for segment in segments[:8]:
+            segment = segment.strip()
+            if segment:
+                base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
 
     queries: list[str] = []
     for query in base_queries:
@@ -805,7 +832,14 @@ def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
 _YANDEX_DEAD_KEY = False
 
 
-def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -> list[dict]:
+def _search_yandex_maps(
+    niche: str,
+    geo: str,
+    segments: list[str],
+    limit: int,
+    *,
+    has_prompt: bool = False,
+) -> list[dict]:
     global _YANDEX_DEAD_KEY
     if _YANDEX_DEAD_KEY:
         return []
@@ -813,7 +847,7 @@ def _search_yandex_maps(niche: str, geo: str, segments: list[str], limit: int) -
     if not settings.yandex_maps_api_key:
         return []
 
-    queries = _build_yandex_map_queries(niche, geo, segments)
+    queries = _build_yandex_map_queries(niche, geo, segments, has_prompt=has_prompt)
     results: list[dict] = []
     seen_domains: set[str] = set()
 
@@ -1701,7 +1735,10 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
         if use_yandex:
             try:
                 if len(collected) < oversample_limit:
-                    yandex_results = _search_yandex_maps(term, effective_geo, effective_segments, per_term_limit)
+                    yandex_results = _search_yandex_maps(
+                        term, effective_geo, effective_segments, per_term_limit,
+                        has_prompt=has_prompt,
+                    )
                     collect_candidates(yandex_results)
                     if yandex_results:
                         logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
