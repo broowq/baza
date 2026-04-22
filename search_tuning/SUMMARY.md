@@ -1,8 +1,9 @@
 # Overnight Search-Tuning Loop — Summary
 
 **Branch:** `autonomous-search-tuning` (off `main@14215f8`)
-**Cycles run:** 7 (baseline + 6 improvement cycles; 2 more agents mid-flight at report time)
-**Bank:** 90/90 (100%) on union of 3 test banks; full backend suite 132/132.
+**Cycles run:** 8 (baseline + 7 improvement cycles)
+**Bank:** 123/123 (100%) on union of 3 test banks (34 scoring + 56 relevance + 33 query-builder)
+**Full backend suite:** 166/166 (up from 108 at start).
 
 ## Pass-rate trajectory
 
@@ -15,6 +16,7 @@
 | 4 | 73/73 | ТД/Торговый Дом signals, niche-bonus suppress for sellers |
 | 5 | 73/73 | Bing backup segment-aware with smart negatives |
 | 6 | 90/90 (100%) | adversarial cases closed: article/how-to hints expanded, 5-char stem for long lemmas, bigger zero-niche-hit penalty on searxng/bing |
+| 7 | 123/123 (100%) | query-builder regression tests (+33 cases), llm_filter empty-prompt bypass closed |
 
 ## Production-impact changes (by file)
 
@@ -44,10 +46,14 @@
 ### `backend/app/core/config.py` + `.env*`
 - `keyword_bonus` restored from `5` → `12` (function's documented default)
 
-## New tests (157 → 90 bank + 42 other)
+### `backend/app/services/llm_filter.py`
+- Closed empty-prompt bypass: when LLM fails AND prompt is empty BUT niche/segments are present, synthesize a minimal prompt so the rule-based competitor filter still runs. Previously a transient GigaChat outage meant every candidate passed unfiltered.
+
+## New tests (108 → 166 backend total; 123 in union bank)
 
 - `backend/tests/test_scoring_bank.py` (34 cases, existed) — `score_lead` final scoring
 - `backend/tests/test_relevance_bank.py` (56 cases, new) — `_candidate_relevance_score` pre-filter + 17 adversarial
+- `backend/tests/test_query_builders.py` (33 cases, new) — `_build_discover_queries`, `_build_yandex_map_queries`, `_pick_negatives` output strings
 - `backend/tests/test_prompt_enhancer.py` (7 cases, new) — `_strip_product_echoes`, `_normalize_segments`
 - + 95 existing tests kept passing
 
@@ -57,7 +63,19 @@
 - `search_tuning/baseline/` — analyst + query-strategy + echo-filter baseline reports
 - `search_tuning/cycles/` — one .md + .log per cycle with pass rate, failures, git SHA
 
-## Still in flight at report time
+## Follow-up work (out of scope for this PR)
 
-- Query-string builder regression tests (agent `a2204fdf...`)
-- `llm_filter.py` audit for correctness (agent `a4a2af9b...`)
+From the llm_filter audit report, 2 remaining issues:
+
+- **#2 (CRITICAL):** `filter_candidates_llm` returns only an index list — no structured buyer/seller/noise labels. Downstream cannot distinguish "LLM saw competitor" from "LLM saw noise". Architectural change; separate PR.
+- **#3 (HIGH, cost):** no caching on LLM classifications. Every collection run re-LLMs every candidate. Add LRU/disk cache keyed on (candidate_domain + project_config_hash) with 7-day TTL.
+
+## Agents that contributed
+
+1. `a0975a4d...` — ANALYST: produced `fix_list.md` with 15 ranked fixes
+2. `a472d2b5...` — TEST-HARNESS: built initial 34-case scoring bank + cycle runner
+3. `a1e4bf3b...` — QUERY-STRATEGY: query-template audit + `_NEGATIVE_CORE`/`_SELLER_EXTRA` split proposal
+4. `acb378bb...` — BANK-EXTENSION: +39 cases for `_candidate_relevance_score`
+5. `aebea712...` — ADVERSARIAL: +17 hard cases, found 2 real bugs (stem over-reach, article-hint gaps)
+6. `a2204fdf...` — QUERY-STRING-TEST: +33 regression tests for builder output
+7. `a4a2af9b...` — LLM-FILTER-AUDIT: 12 issues ranked by severity
