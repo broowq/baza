@@ -46,6 +46,8 @@ services:
     build:
       context: ./backend
     restart: unless-stopped
+    labels:
+      - "autoheal=true"  # opt into autoheal restarts on unhealthy
     environment:
       APP_ENV: production
       API_HOST: "0.0.0.0"
@@ -114,14 +116,17 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    # No "autoheal=true" label → autoheal won't touch frontend (see autoheal
+    # service config). Next.js recovers via docker's restart: unless-stopped
+    # on actual crashes; autoheal was slamming it in false-positive loops.
     healthcheck:
-      # --spider only does HEAD (no body download); landing page is 69KB SSR-rendered
-      # and was timing out under load, causing autoheal restart loops.
-      test: ["CMD-SHELL", "wget -q --spider --timeout=8 http://localhost:3000/ || exit 1"]
+      # Explicit 127.0.0.1, full GET to /, bypass `--spider` (busybox wget
+      # implementation is inconsistent across alpine versions).
+      test: ["CMD-SHELL", "wget -q -O /dev/null --timeout=8 http://127.0.0.1:3000/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 90s
 
   worker:
     build:
@@ -189,7 +194,9 @@ services:
     image: willfarrell/autoheal:latest
     restart: unless-stopped
     environment:
-      AUTOHEAL_CONTAINER_LABEL: all  # restart any unhealthy container
+      # Opt-in via label: only restart containers with `autoheal=true`.
+      # Backend opts in (see below); frontend doesn't — Next.js false-positives.
+      AUTOHEAL_CONTAINER_LABEL: autoheal
       AUTOHEAL_INTERVAL: 30
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
