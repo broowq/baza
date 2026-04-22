@@ -95,6 +95,11 @@ _ARTICLE_OR_DIRECTORY_HINTS = [
     "список компаний", "каталог компаний", "каталог фирм",
     "справочник", "адреса и телефоны",
     "что такое", "как работает", "значение слова", "история развития",
+    # How-to/advice patterns that over-matched earlier (e.g. "Электрификация
+    # магазина" for niche "электрика"): these are articles, not leads.
+    "как выбрать", "как сделать", "как провести", "советы по",
+    "руководство по", "пошаговое", "своими руками",
+    "основы", "с чего начать", "инструкция",
 ]
 
 _PATH_DIRECTORY_HINTS = [
@@ -240,12 +245,22 @@ def _build_match_terms(*parts: str) -> list[str]:
                 if lemma not in seen:
                     seen.add(lemma)
                     terms.append(lemma)
-                # Also add the stem (first 4 chars of lemma) for partial matching
+                # Also add the stem (first 4 chars of lemma) for partial
+                # matching. Keeping [:4] preserves "корм" for "кормовой/
+                # кормовые" family. For lemmas ≥ 8 chars we also emit a 5-char
+                # stem so long niche words ("электрика") don't over-match
+                # unrelated short ones ("элит") via loose prefix overlap —
+                # the 5-char stem "элект" is specific enough to discriminate.
                 if len(lemma) >= 5:
-                    stem = lemma[:4]
-                    if stem not in seen:
-                        seen.add(stem)
-                        terms.append(stem)
+                    stem4 = lemma[:4]
+                    if stem4 not in seen:
+                        seen.add(stem4)
+                        terms.append(stem4)
+                if len(lemma) >= 8:
+                    stem5 = lemma[:5]
+                    if stem5 not in seen:
+                        seen.add(stem5)
+                        terms.append(stem5)
     return terms
 
 
@@ -430,7 +445,16 @@ def _candidate_relevance_score(
         niche_term_bonus = niche_term_bonus // 4   # sellers don't get full credit
     score += niche_term_bonus
     if niche_terms and title_hits + context_hits == 0:
-        score -= 24
+        # Harder penalty for searxng/bing zero-hit results. Maps results are
+        # not penalized the same way — they were fetched via a targeted
+        # segment query so the item IS the target audience even without
+        # niche words in the snippet. For web-search results, zero niche
+        # match means the result is almost certainly off-topic (e.g. a
+        # consulting firm surfacing for an "электрика" project).
+        if source in {"searxng", "bing"}:
+            score -= 32
+        else:
+            score -= 24
     elif niche_terms and title_hits == 0:
         score -= 8
 
