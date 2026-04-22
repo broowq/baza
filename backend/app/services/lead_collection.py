@@ -160,16 +160,46 @@ _SOURCE_WEIGHTS = {
     "bing": 20,
 }
 
-_NEGATIVE_KEYWORDS = (
+# Split into CORE (always safe) and SELLER_EXTRA (only when prompt exists AND
+# segments don't explicitly include online stores / distributors). Previously
+# a single monolithic list dinged projects whose target customer is literally
+# "интернет-магазины одежды" — the seller negatives killed the target audience.
+_NEGATIVE_CORE = (
     "-wikipedia -википедия -погода -форум -блог -рецепт -словарь "
     "-реферат -скачать -рейтинг -лучшие -лучших -топ -обзор -отзывы -сравнение -список "
     "-вакансия -вакансии -работа -резюме -hh.ru -superjob "
     "-ликвидирован -ликвидация -банкрот -inn -огрн "
     "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com "
-    "-продажа -купить -заказать -интернет-магазин "
-    "-поставщик -дистрибьютор -оптовик "
-    "-прайс-лист -каталог-товаров"
+    "-yell.ru -zoon.ru -flamp.ru -2gis.ru "
+    "-avito.ru -ozon.ru -wildberries.ru -market.yandex.ru"
 )
+
+_NEGATIVE_SELLER_EXTRA = (
+    "-продажа -продаем -продаём -купить -заказать -интернет-магазин -магазин "
+    "-поставщик -дистрибьютор -оптовик -опт -оптом "
+    "-прайс-лист -каталог-товаров -каталог "
+    "-скидка -акция -распродажа -ассортимент -в-наличии"
+)
+
+# Kept for backward compat with callers that haven't migrated yet.
+_NEGATIVE_KEYWORDS = f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
+
+
+def _pick_negatives(*, has_prompt: bool, segments: list[str] | None) -> str:
+    """Choose CORE only (safe) or CORE+SELLER_EXTRA (when we're hunting buyers).
+
+    If segments mention online-store / marketplace / distributor keywords,
+    we stay with CORE only — the seller-negatives would kill the target.
+    """
+    if not has_prompt:
+        return _NEGATIVE_CORE  # Direct niche search: don't over-filter
+    if not segments:
+        return _NEGATIVE_CORE  # Unknown segments: play safe
+    seg_blob = " ".join(segments).lower()
+    for word in ("магазин", "интернет", "маркетплейс", "дистрибьютор", "поставщик", "оптов"):
+        if word in seg_blob:
+            return _NEGATIVE_CORE  # Target audience IS a seller category
+    return f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
 
 # Signals that a candidate is a SELLER/competitor, not a buyer/customer
 _COMPETITOR_SIGNALS = [
@@ -585,7 +615,7 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
     """
     niche = niche.strip()
     geo = geo.strip()
-    neg = _NEGATIVE_KEYWORDS
+    neg = _pick_negatives(has_prompt=has_prompt, segments=segments)
 
     queries = []
 
@@ -1607,7 +1637,8 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
 
     # Build list of specific search terms for maps (2GIS, Yandex)
     # When segments are specific business types (e.g. "птицефабрика", "ветклиника"),
-    # search each one separately — much more effective than a combined query
+    # search each one separately — much more effective than a combined query.
+    has_prompt = bool((prompt or "").strip())
     map_search_terms = []
     if effective_segments:
         for seg in effective_segments[:8]:
@@ -1615,7 +1646,15 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
             if seg and len(seg) > 2:
                 map_search_terms.append(seg)
     if not map_search_terms:
-        map_search_terms = [effective_niche]
+        # If user provided a prompt but the enhancer returned NO segments
+        # (unknown niche, e.g. "Продаю мраморные подоконники"), we must NOT
+        # fall back to the niche as a maps term — that floods results with
+        # sellers. Better to return empty from maps and let SearXNG/registry
+        # passes do what they can with the prompt text itself.
+        if has_prompt:
+            map_search_terms = []
+        else:
+            map_search_terms = [effective_niche]
 
     def collect_candidates(source_items: list[dict]) -> None:
         nonlocal skipped_irrelevant
