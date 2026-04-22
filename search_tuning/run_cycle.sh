@@ -49,11 +49,14 @@ PYTEST_BIN="${BACKEND_DIR}/.venv/bin/pytest"
 [[ -x "${PYTEST_BIN}" ]] || PYTEST_BIN="pytest"
 
 # Cycle 1 added test_relevance_bank.py (pre-filter / _candidate_relevance_score).
-# Run both files; each emits its own *_BANK_SUMMARY line and (the relevance
+# Cycle 2 added test_query_builders.py (query-string regression for the
+# prompt-aware discover / yandex-map / _pick_negatives builders).
+# Run all files; each emits its own *_BANK_SUMMARY line and (the relevance
 # bank) a legacy-compatible SCORING_BANK_SUMMARY alias. We parse the UNION
-# below so the pass rate covers both enrichment scoring AND pre-filtering.
+# below so the pass rate covers pre-filtering, enrichment scoring, AND
+# query-string construction.
 BANK_FILES=()
-for f in tests/test_scoring_bank.py tests/test_relevance_bank.py; do
+for f in tests/test_scoring_bank.py tests/test_relevance_bank.py tests/test_query_builders.py; do
     [[ -f "${BACKEND_DIR}/${f}" ]] && BANK_FILES+=("${f}")
 done
 "${PYTEST_BIN}" "${BANK_FILES[@]}" -v --tb=short -s >"${LOG_FILE}" 2>&1

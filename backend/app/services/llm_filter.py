@@ -32,15 +32,44 @@ def filter_candidates_llm(
         except Exception as e:
             logger.warning(f"AI filter failed, falling back to rules: {e}")
 
-    # Rule-based fallback: filter competitors when prompt context is available
-    if prompt:
-        result = _rule_based_competitor_filter(candidates, prompt, niche, segments)
+    # Rule-based fallback — applied whenever we have ANY usable context.
+    # Previously: if prompt was empty AND LLM failed, every candidate passed
+    # through unfiltered. A transient GigaChat outage was a silent
+    # data-quality incident. Now: if there's no prompt but we have niche +
+    # segments, synthesize a minimal prompt so the strict rule-based filter
+    # always has signal to bite on.
+    effective_prompt = prompt
+    if not effective_prompt and (niche or segments):
+        parts = []
+        if niche:
+            parts.append(niche)
+        if segments:
+            parts.append("для " + ", ".join(segments[:3]))
+        effective_prompt = " ".join(parts).strip()
+        if effective_prompt:
+            logger.info(
+                "LLM filter fell back and synthesized prompt=%r from niche/segments "
+                "so the rule-based filter still runs",
+                effective_prompt,
+            )
+
+    if effective_prompt:
+        result = _rule_based_competitor_filter(candidates, effective_prompt, niche, segments)
         logger.info(
             f"Rule-based filter: {len(candidates)} candidates -> {len(result)} kept "
             f"({len(candidates) - len(result)} rejected as competitors/irrelevant)"
         )
         return result
 
+    # No context at all (no prompt, no niche, no segments) — pass through.
+    # This is mainly a test/internal-tooling escape hatch; real projects
+    # always have at least niche.
+    logger.warning(
+        "LLM filter: LLM unavailable AND no niche/segments/prompt context — "
+        "passing %d candidates through UNFILTERED. This should not happen "
+        "in production.",
+        len(candidates),
+    )
     return candidates
 
 
