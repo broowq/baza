@@ -211,6 +211,9 @@ _COMPETITOR_SIGNALS = [
     "прайс", "каталог товаров", "ассортимент", "в наличии",
     "доставка по", "бесплатная доставка", "самовывоз",
     "скидк", "акци", "распродаж",
+    # Russian "Trading House" abbreviations — near-synonyms of "магазин".
+    # "тд " has trailing space to avoid matching "тдушка"/random letter blends.
+    "тд ", "торговый дом", "т/д", "т.д.",
 ]
 
 
@@ -406,9 +409,26 @@ def _candidate_relevance_score(
     title_hits = _keyword_hits(f"{company} {domain}", niche_terms)
     context_hits = _keyword_hits(f"{snippet} {address} {categories}", niche_terms)
 
+    # Pre-compute competitor score so we can suppress niche-bonuses for sellers.
+    # A seller's name naturally contains the niche words (that's their product),
+    # so the +28 phrase and up-to +30 term bonuses would wrongly reward them.
+    _competitor_name_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in company)
+    _competitor_other_hits = sum(
+        1 for word in _COMPETITOR_SIGNALS
+        if word in combined and word not in company
+    )
+    _competitor_score_pre = _competitor_name_hits * 3 + _competitor_other_hits
+    _is_likely_seller = _competitor_score_pre >= 3
+
     if niche_phrase and niche_phrase in combined:
-        score += 28
-    score += min(30, title_hits * 8 + context_hits * 3)
+        if _is_likely_seller:
+            score += 6   # sharply reduced — seller's own product name
+        else:
+            score += 28
+    niche_term_bonus = min(30, title_hits * 8 + context_hits * 3)
+    if _is_likely_seller:
+        niche_term_bonus = niche_term_bonus // 4   # sellers don't get full credit
+    score += niche_term_bonus
     if niche_terms and title_hits + context_hits == 0:
         score -= 24
     elif niche_terms and title_hits == 0:
@@ -422,15 +442,9 @@ def _candidate_relevance_score(
         seg_hits = sum(1 for term in seg_terms if term in combined)
         score += min(20, seg_hits * 6)
 
-    # Competitor detection — tiered penalty for seller signals.
-    # Company-name hits weigh 3× (a seller announces itself in its name — "ТД",
-    # "Магазин", "Опт") while snippet/category hits weigh 1×.
-    competitor_name_hits = sum(1 for word in _COMPETITOR_SIGNALS if word in company)
-    competitor_other_hits = sum(
-        1 for word in _COMPETITOR_SIGNALS
-        if word in combined and word not in company
-    )
-    competitor_score = competitor_name_hits * 3 + competitor_other_hits
+    # Competitor detection — tiered penalty for seller signals. Reuses the
+    # pre-computed hit counts (above) so name-field weight stays in sync.
+    competitor_score = _competitor_score_pre
     if competitor_score >= 5:
         score -= 55  # strong seller — ТД, магазин + опт + каталог
     elif competitor_score >= 3:

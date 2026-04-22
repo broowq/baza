@@ -47,19 +47,31 @@ pushd "${BACKEND_DIR}" >/dev/null || { echo "backend dir missing"; exit 2; }
 # Pick pytest from backend venv if present; fall back to PATH.
 PYTEST_BIN="${BACKEND_DIR}/.venv/bin/pytest"
 [[ -x "${PYTEST_BIN}" ]] || PYTEST_BIN="pytest"
-"${PYTEST_BIN}" tests/test_scoring_bank.py -v --tb=short -s >"${LOG_FILE}" 2>&1
+
+# Cycle 1 added test_relevance_bank.py (pre-filter / _candidate_relevance_score).
+# Run both files; each emits its own *_BANK_SUMMARY line and (the relevance
+# bank) a legacy-compatible SCORING_BANK_SUMMARY alias. We parse the UNION
+# below so the pass rate covers both enrichment scoring AND pre-filtering.
+BANK_FILES=()
+for f in tests/test_scoring_bank.py tests/test_relevance_bank.py; do
+    [[ -f "${BACKEND_DIR}/${f}" ]] && BANK_FILES+=("${f}")
+done
+"${PYTEST_BIN}" "${BANK_FILES[@]}" -v --tb=short -s >"${LOG_FILE}" 2>&1
 PYTEST_RC=$?
 
 popd >/dev/null
 
 # --- parse summary -----------------------------------------------------------
-# Example line: SCORING_BANK_SUMMARY passed=27/34 failures=['case_a', 'case_b']
-SUMMARY_LINE="$(grep -E '^SCORING_BANK_SUMMARY' "${LOG_FILE}" | tail -n 1)"
+# Each bank emits: <NAME>_BANK_SUMMARY passed=X/Y failures=['case_a', ...]
+# We pull every *_BANK_SUMMARY line and take the UNION. The legacy
+# SCORING_BANK_SUMMARY alias emitted by the relevance bank is de-duped so it
+# doesn't double-count.
+# Pull every *_BANK_SUMMARY line (bash-3 compatible, no mapfile)
+SUMMARY_RAW="$(grep -E '^[A-Z_]+_BANK_SUMMARY' "${LOG_FILE}" 2>/dev/null || true)"
 
-if [[ -z "${SUMMARY_LINE}" ]]; then
-    echo "ERROR: could not find SCORING_BANK_SUMMARY in pytest output." >&2
+if [[ -z "${SUMMARY_RAW}" ]]; then
+    echo "ERROR: could not find any *_BANK_SUMMARY lines in pytest output." >&2
     echo "  see: ${LOG_FILE}" >&2
-    # still try to write a cycle file so the loop has a trace
     cat >"${CYCLE_FILE}" <<EOF
 # Cycle ${TIMESTAMP}
 
@@ -68,22 +80,52 @@ if [[ -z "${SUMMARY_LINE}" ]]; then
 - **pytest exit:** ${PYTEST_RC}
 - **log:** ${LOG_FILE}
 
-Could not parse \`SCORING_BANK_SUMMARY\` from pytest output. Inspect the log.
+Could not parse any \`*_BANK_SUMMARY\` line from pytest output. Inspect the log.
 EOF
     exit 2
 fi
 
-# passed=X/Y
-RATIO="$(echo "${SUMMARY_LINE}" | sed -nE 's/.*passed=([0-9]+\/[0-9]+).*/\1/p')"
-PASSED="${RATIO%/*}"
-TOTAL="${RATIO#*/}"
-# failures=[...]
-FAILURES="$(echo "${SUMMARY_LINE}" | sed -nE "s/.*failures=(\[.*\]).*/\1/p")"
+# Aggregate by dedupe-via-sorted-unique keys (no assoc arrays).
+PASSED=0
+TOTAL=0
+ALL_FAILURES=""
+SEEN_KEYS=""
+while IFS= read -r line; do
+    [[ -z "${line}" ]] && continue
+    RATIO="$(echo "${line}" | sed -nE 's/.*passed=([0-9]+\/[0-9]+).*/\1/p')"
+    FAILS="$(echo "${line}" | sed -nE "s/.*failures=(\[.*\]).*/\1/p")"
+    [[ -z "${RATIO}" ]] && continue
+    P="${RATIO%/*}"
+    T="${RATIO#*/}"
+    KEY="${P}|${T}|${FAILS}"
+    # Skip if we've seen an identical summary (alias dedupe).
+    if [[ ",${SEEN_KEYS}," == *",${KEY},"* ]]; then
+        continue
+    fi
+    SEEN_KEYS="${SEEN_KEYS},${KEY}"
+    PASSED=$(( PASSED + P ))
+    TOTAL=$(( TOTAL + T ))
+    if [[ -n "${FAILS}" && "${FAILS}" != "[]" ]]; then
+        INNER="${FAILS#[}"
+        INNER="${INNER%]}"
+        [[ -z "${INNER}" ]] && continue
+        if [[ -z "${ALL_FAILURES}" ]]; then
+            ALL_FAILURES="${INNER}"
+        else
+            ALL_FAILURES="${ALL_FAILURES}, ${INNER}"
+        fi
+    fi
+done <<< "${SUMMARY_RAW}"
 
-if [[ -z "${PASSED}" || -z "${TOTAL}" || "${TOTAL}" -eq 0 ]]; then
-    echo "ERROR: malformed summary line: ${SUMMARY_LINE}" >&2
+if [[ "${TOTAL}" -eq 0 ]]; then
+    echo "ERROR: parsed no cases across summary lines." >&2
     exit 2
 fi
+
+FAILURES="[${ALL_FAILURES}]"
+# Canonical union summary line (stable format — legacy regex
+# `SCORING_BANK_SUMMARY passed=X/Y failures=[...]` still matches).
+SUMMARY_LINE="SCORING_BANK_SUMMARY passed=${PASSED}/${TOTAL} failures=${FAILURES}"
 
 PASS_PCT=$(( PASSED * 100 / TOTAL ))
 
