@@ -682,6 +682,398 @@ CASES: list[RelevanceCase] = [
         min_expected=-200, max_expected=60,
         category="misc",
     ),
+
+    # =======================================================================
+    # ADVERSARIAL BLOCK — cycle-5 bug hunt. Each case targets a subtle
+    # failure mode of the current scorer. Where we expect the code to get
+    # it WRONG today, the case is marked `adversarial_fail` so the overnight
+    # harness surfaces it as a known bug to fix.
+    # =======================================================================
+
+    # 16. False-positive competitor signal: real farm whose snippet mentions
+    # "доставка по области" (a legitimate part of their operation, not a
+    # marketing pitch). Current code sees "доставка по" → tier-1 -12 even
+    # though the lead is clearly a producer, not a seller.
+    RelevanceCase(
+        case_id="adv_real_farm_dostavka_false_positive",
+        description=(
+            "Real farm with 'доставка по области' in snippet — "
+            "should still score high (producer, not seller)"
+        ),
+        item=_item(
+            source="searxng", domain="kfh-rodniki.ru",
+            company="КФХ Родники фермерское хозяйство",
+            website="https://kfh-rodniki.ru",
+            snippet=(
+                "производство молока, крупный рогатый скот, "
+                "доставка по Воронежской области, +7 473 555 11 22"
+            ),
+            address="Воронежская область, с. Родники",
+            city="Воронеж",
+        ),
+        niche="сельское хозяйство", geography="Воронеж",
+        # Our opinion: real farm with one incidental competitor signal
+        # should still be clearly positive (>=40). Current code: -12 tier-1
+        # plus niche/geo/biz bonuses — probably lands ~30-40, borderline.
+        min_expected=40, max_expected=150,
+        category="adversarial_fail",  # expected to fail — fix in cycle 5
+    ),
+
+    # 17. Seller with very short name — just "Магазин" (1 word, exact
+    # competitor marker in company). name_hits=1 → competitor_pre=3 →
+    # _is_likely_seller=True, tier-2 -30. No niche phrase, no niche terms
+    # in name beyond the marker itself. Our opinion: should score clearly
+    # negative or at most near zero (definitely not >=26).
+    RelevanceCase(
+        case_id="adv_one_word_seller_magazin",
+        description="Company literally named 'Магазин' — should not pass threshold",
+        item=_item(
+            source="searxng", domain="magazin.ru",
+            company="Магазин",
+            website="https://magazin.ru",
+            snippet="корма для скота, доставка, прайс",
+            city="Москва",
+        ),
+        niche="кормовые добавки", geography="Москва",
+        # Clear seller, no business substance beyond storefront.
+        # Should NOT clear _MIN_RELEVANCE_SCORE (26).
+        min_expected=-120, max_expected=25,
+        category="competitor",
+    ),
+
+    # 18. SMB with English domain. Real Russian dairy on "milk-farm.ru" —
+    # domain is Latin, company/snippet cyrillic. Niche "молоко" stem
+    # "молок" should match via _build_match_terms lemmatization.
+    RelevanceCase(
+        case_id="adv_latin_domain_russian_dairy",
+        description="Village dairy on Latin domain milk-farm.ru, niche match via stem",
+        item=_item(
+            source="searxng", domain="milk-farm.ru",
+            company="Молочная ферма Ивановых",
+            website="https://milk-farm.ru",
+            snippet="производство молока, животноводство, Воронежская область",
+            address="Воронежская область",
+            city="Воронеж",
+        ),
+        niche="молочное производство", geography="Воронеж",
+        min_expected=35, max_expected=150,
+        category="niche",
+    ),
+
+    # 19. Bing backup source + tight contact match. No website field set
+    # (Bing item with only domain). Should still survive — bing weight=20,
+    # domain present means not -999, contact pattern +4.
+    RelevanceCase(
+        case_id="adv_bing_no_website_tight_contacts",
+        description="Bing item without website flag, but tight contacts + niche",
+        item=_item(
+            source="bing", domain="stroy-msk.ru",
+            company="СтройМСК ООО",
+            # note: website not set → -8 penalty
+            snippet="строительство коммерческих объектов Москва, +7 495 777 88 99, info@stroy-msk.ru",
+            city="Москва",
+        ),
+        niche="строительство", geography="Москва",
+        # bing=20 -8(no site) +10(biz) +phone/email bonuses + niche ~ low-positive
+        min_expected=15, max_expected=110,
+        category="source_weight",
+    ),
+
+    # 20. Duplicate/near-miss geo names. Niche "строительство", geography
+    # "Новая Москва", company in Новосибирск. No overlap — geo penalty -30
+    # should fire on searxng. Tests that partial stem match doesn't falsely
+    # rescue: "новосибирск" vs "новая"/"москва" share... actually "нов" is
+    # too short (3 chars, dropped). Should behave like wrong-city.
+    RelevanceCase(
+        case_id="adv_geo_near_miss_novosibirsk_vs_nova_moscow",
+        description="Новосибирск vs 'Новая Москва' — geo mismatch, no partial rescue",
+        item=_item(
+            source="searxng", domain="stroy-nsk.ru",
+            company="СтройНовосибирск ООО",
+            website="https://stroy-nsk.ru",
+            snippet="строительные работы в Новосибирске, Сибирский округ",
+            address="Новосибирск, ул. Ленина 1",
+            city="Новосибирск",
+        ),
+        niche="строительство", geography="Новая Москва",
+        # Expect wrong-city -30 to fire. Niche matches strongly so still
+        # somewhat positive, but noticeably under the perfect-geo version.
+        min_expected=-30, max_expected=70,
+        category="geo",
+    ),
+
+    # 21. Stemming over-reach: niche "электрика" → stem "элек" (4-char).
+    # Article "Электрификация магазина товаров" — contains "электр*" word
+    # but is an article. The _ARTICLE_OR_DIRECTORY_HINTS don't include
+    # "электрификация", so -120 won't fire. "каталог" however is in
+    # competitor signals and "магазин" is too — so 2 markers → tier-1 or 2.
+    # Our claim: scorer may still let this through because no hard negative
+    # fires. Adversarial — we expect the score to be UNDESIRABLY positive.
+    RelevanceCase(
+        case_id="adv_stem_overreach_elektrifikatsia_article",
+        description=(
+            "Niche 'электрика', title 'Электрификация магазина' — stem 'элек' "
+            "matches but this is an article/catalog, not a lead"
+        ),
+        item=_item(
+            source="searxng", domain="info-elektro.ru",
+            company="Электрификация магазина товаров — советы",
+            website="https://info-elektro.ru",
+            snippet="как провести электричество в магазин, каталог решений, советы по электрике",
+            city="Москва",
+        ),
+        niche="электрика", geography="Москва",
+        # We WANT this rejected (<0). Current code probably lets it score
+        # near zero because "магазин"+"каталог" competitor penalty fires
+        # but stem hits give niche credit too. Expected-to-fail.
+        min_expected=-200, max_expected=-1,
+        category="adversarial_fail",  # expected to fail — fix in cycle 5
+    ),
+
+    # 22. Very hard article: "лучшие поставщики металла в Москве 2024 —
+    # рейтинг". Title contains 'рейтинг' AND 'лучшие' — both in
+    # _REJECT_TITLE_WORDS (-35 once, not stacked) AND in
+    # _ARTICLE_OR_DIRECTORY_HINTS (-120). Stacked ~= -155.
+    RelevanceCase(
+        case_id="adv_article_top_suppliers_metal",
+        description="'лучшие поставщики металла ... рейтинг' — hard reject",
+        item=_item(
+            source="searxng", domain="metal-blog.ru",
+            company="Лучшие поставщики металла в Москве 2024 — рейтинг",
+            website="https://metal-blog.ru",
+            snippet="сравнение ТОП 10 компаний, обзор рынка",
+            source_url="https://metal-blog.ru/rating/top-10-metal-suppliers",
+            city="Москва",
+        ),
+        niche="металлопрокат", geography="Москва",
+        # Article hit -120, title -35, plus seller signals ("поставщик").
+        min_expected=-999, max_expected=-80,
+        category="negative",
+    ),
+
+    # 23. rusprofile with just name — must clear _MIN_RELEVANCE_SCORE (26).
+    # Current scoring for rusprofile: source=45, no website -8 → 37, minus
+    # credibility penalty? rusprofile is NOT in {"searxng","bing"} so that
+    # floor doesn't fire. Minus niche penalties (-24 if zero term hits on
+    # a very short name). This is close to the line.
+    RelevanceCase(
+        case_id="adv_rusprofile_bare_name_crosses_threshold",
+        description="Rusprofile с только названием — должен превысить 26 (_MIN_RELEVANCE_SCORE)",
+        item=_item(
+            source="rusprofile",
+            company="ООО Металлоторг",
+            city="Москва",
+        ),
+        niche="металлопрокат", geography="Москва",
+        # We want this to pass the threshold (>=26) so registry results
+        # reach enrichment. Expected-to-fail if current scoring dips below.
+        min_expected=26, max_expected=120,
+        category="adversarial_fail",  # expected to fail — fix in cycle 5
+    ),
+
+    # 24. Empty geography — project with no geo restriction. geo_hits=0
+    # but `if geography and geo_hits == 0` should gate the -30/-3 penalty
+    # OUT. Verify that an otherwise-great lead with empty geo isn't
+    # penalized for geo-miss.
+    RelevanceCase(
+        case_id="adv_empty_geography_no_penalty",
+        description="geography='' — geo-miss penalty must NOT fire",
+        item=_item(
+            source="searxng", domain="metalloobr.ru",
+            company="Металлообработка ООО",
+            website="https://metalloobr.ru",
+            snippet="токарные работы, фрезеровка, +7 495 111 22 33",
+            address="Екатеринбург",
+            city="Екатеринбург",
+        ),
+        niche="металлообработка", geography="",
+        # No geo terms → no -30, should score like a well-matched result.
+        min_expected=45, max_expected=180,
+        category="geo",
+    ),
+
+    # 25. Known chain ambiguity: "Ресторан быстрого питания Макдоналдс".
+    # Segment "ресторан" matches. But McDonald's is obviously NOT a B2B
+    # customer worth pursuing (enterprise deal, not SMB lead). Scorer has
+    # no chain-name blacklist. We mark this as expected-to-pass (scorer
+    # can't tell) — this is a case that documents the limit, we accept
+    # that it passes today and will need a chain-filter later.
+    RelevanceCase(
+        case_id="adv_known_chain_mcdonalds",
+        description=(
+            "Сегмент 'ресторан', компания Макдоналдс — scorer не знает про chains, "
+            "set высокий (документируем лимит)"
+        ),
+        item=_item(
+            source="searxng", domain="mcdonalds.ru",
+            company="Ресторан быстрого питания Макдоналдс",
+            website="https://mcdonalds.ru",
+            snippet="сеть ресторанов быстрого питания в Москве",
+            address="Москва",
+            city="Москва",
+        ),
+        niche="пищевые ингредиенты", geography="Москва",
+        segments=["ресторан"],
+        # Current scorer will give this a positive score (no chain filter).
+        # We document the limitation.
+        min_expected=0, max_expected=200,
+        category="segment",
+    ),
+
+    # 26. Short name collision: company "Элит" (3-letter stem of "элит*",
+    # generic brand name). Niche "электрика" — stem "элек" does NOT match
+    # "элит" (different 4th char). Verify no false niche match.
+    RelevanceCase(
+        case_id="adv_short_name_no_false_niche_match",
+        description="'Элит' vs niche 'электрика' — 4-char stems differ, no match",
+        item=_item(
+            source="searxng", domain="elit-group.ru",
+            company="Элит Групп ООО",
+            website="https://elit-group.ru",
+            snippet="бизнес-консалтинг в Москве",
+            address="Москва",
+            city="Москва",
+        ),
+        niche="электрика", geography="Москва",
+        # No niche hits at all → -24 zero-hit penalty plus credibility
+        # floor risk. Should be clearly sub-threshold.
+        min_expected=-80, max_expected=25,
+        category="niche",
+    ),
+
+    # 27. Credibility floor boundary: searxng with exactly 2 markers —
+    # should NOT get the -24 floor. Niche hit + address only, nothing
+    # else. Tests the `< 2` boundary precisely.
+    RelevanceCase(
+        case_id="adv_credibility_exactly_two_markers",
+        description="SearXNG with exactly 2 credibility markers — no -24 floor",
+        item=_item(
+            source="searxng", domain="stroy-co.ru",
+            company="СтройКо",  # short, no biz marker
+            website="https://stroy-co.ru",
+            snippet="строительство",  # niche hit, nothing else
+            address="Москва",         # address marker
+            city="Москва",
+        ),
+        niche="строительство", geography="Москва",
+        # title_hits(строй stem in company/domain) + address+categories +
+        # geo hit (Москва) → 3+ markers usually. Want confirmation the
+        # floor penalty doesn't fire and this lands positive.
+        min_expected=25, max_expected=120,
+        category="credibility",
+    ),
+
+    # 28. Path-directory hint in URL: source_url has "/blog/" — current
+    # code checks source_path for _PATH_DIRECTORY_HINTS and subtracts -120.
+    # A company's own blog post should be rejected even if the domain is
+    # their real domain.
+    RelevanceCase(
+        case_id="adv_path_blog_in_source_url",
+        description="source_url contains /blog/ — -120 article penalty",
+        item=_item(
+            source="searxng", domain="stroy-co.ru",
+            company="СтройКо",
+            website="https://stroy-co.ru",
+            source_url="https://stroy-co.ru/blog/how-to-choose-contractor",
+            snippet="статья о выборе подрядчика",
+            city="Москва",
+        ),
+        niche="строительство", geography="Москва",
+        # -120 article penalty should dominate.
+        min_expected=-999, max_expected=-30,
+        category="negative",
+    ),
+
+    # 29. Synthetic detector edge case — a real listing with lots of Latin
+    # SKU codes but also cyrillic + phone. Should NOT be marked synthetic.
+    RelevanceCase(
+        case_id="adv_latin_skus_but_real_company",
+        description="Many Latin SKU codes + cyrillic + phone — not synthetic",
+        item=_item(
+            source="searxng", domain="metalloobr.ru",
+            company="Металлообработка МСК",
+            website="https://metalloobr.ru",
+            snippet=(
+                "серия ACME-1200 CNC-Router VX-450 PRO-Mill QUADRO-9000 "
+                "POWER-Pack GRAND-Turbo, токарные работы Москва, +7 495 111 22 33"
+            ),
+            address="Москва",
+            city="Москва",
+        ),
+        niche="металлообработка", geography="Москва",
+        # Should NOT trigger synthetic -160 (has cyrillic + phone).
+        min_expected=40, max_expected=200,
+        category="synthetic",
+    ),
+
+    # 30. Seller with strong niche match AND strong competitor markers.
+    # "ТД Металлопрокат" — niche phrase in name, "ТД " marker in name
+    # (3x weight), plus "оптом" in snippet. Tests that seller suppression
+    # of niche bonus actually fires (niche bonus should be /4).
+    RelevanceCase(
+        case_id="adv_seller_niche_bonus_suppressed",
+        description=(
+            "ТД Металлопрокат — seller suppression must prevent niche phrase "
+            "from lifting score above buyers"
+        ),
+        item=_item(
+            source="searxng", domain="td-metal.ru",
+            company="ТД Металлопрокат",
+            website="https://td-metal.ru",
+            snippet="металлопрокат оптом, доставка, прайс, каталог товаров",
+            address="Москва",
+            city="Москва",
+        ),
+        niche="металлопрокат", geography="Москва",
+        # Seller → niche +28 replaced with +6, term bonus /=4. Plus
+        # tier-3 -55. Should land near zero or slightly negative despite
+        # strong name match.
+        min_expected=-80, max_expected=35,
+        category="competitor",
+    ),
+
+    # 31. Aggregator-like words but not on blocklist: "каталог компаний"
+    # in snippet — matches _REJECT_TITLE_WORDS and
+    # _ARTICLE_OR_DIRECTORY_HINTS. Stacked rejection.
+    RelevanceCase(
+        case_id="adv_katalog_kompanii_snippet_reject",
+        description="'каталог компаний' в snippet — article hit + reject title",
+        item=_item(
+            source="searxng", domain="catalog-ru.ru",
+            company="ООО Бизнес Каталог",
+            website="https://catalog-ru.ru",
+            snippet="каталог компаний России: адреса и телефоны, справочник фирм",
+            city="Москва",
+        ),
+        niche="it", geography="Москва",
+        min_expected=-999, max_expected=-80,
+        category="negative",
+    ),
+
+    # 32. Mixed signal: small farm site, niche matches, BUT site happens
+    # to be `ferma-news.ru` — "news" is in _REJECT_DOMAIN_PARTS → -25.
+    # Question: is -25 too harsh for a legit farm whose founder happened
+    # to stick "news" in the URL? Adversarial documentation.
+    RelevanceCase(
+        case_id="adv_ferma_news_domain_overreach",
+        description=(
+            "Real farm on ferma-news.ru — 'news' in domain triggers -25. "
+            "Arguably overreach for legit SMB."
+        ),
+        item=_item(
+            source="searxng", domain="ferma-news.ru",
+            company="КФХ Родники",
+            website="https://ferma-news.ru",
+            snippet="фермерское хозяйство, Воронежская область, +7 473 555 11 22",
+            address="Воронежская область",
+            city="Воронеж",
+        ),
+        niche="сельское хозяйство", geography="Воронеж",
+        # We argue real farm should still clear threshold despite -25.
+        # Current code likely dips too low → expected to fail.
+        min_expected=26, max_expected=120,
+        category="adversarial_fail",  # expected to fail — fix in cycle 5
+    ),
 ]
 
 
