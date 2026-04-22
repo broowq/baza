@@ -1810,9 +1810,25 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
 
     try:
         if len(collected) < oversample_limit:
-            bing_query = f"{effective_niche} компания {effective_geo}".strip()
-            bing_results = _search_bing(bing_query, oversample_limit - len(collected))
-            collect_candidates(bing_results)
+            # Bing backup — segment-aware when we have prompt-driven targets.
+            # Previously we searched `{niche} компания {geo}` unconditionally,
+            # which brings sellers of the niche for prompt-driven projects.
+            neg = _pick_negatives(has_prompt=has_prompt, segments=effective_segments)
+            if has_prompt and effective_segments:
+                # Segment-driven: iterate first 3 segments.
+                bing_queries = [
+                    f"{seg.strip()} {effective_geo} {neg}".strip()
+                    for seg in effective_segments[:3]
+                    if seg and seg.strip()
+                ]
+            else:
+                bing_queries = [f"{effective_niche} компания {effective_geo} {neg}".strip()]
+            per_q_limit = max(5, (oversample_limit - len(collected)) // max(1, len(bing_queries)))
+            for bing_query in bing_queries:
+                if len(collected) >= oversample_limit:
+                    break
+                bing_results = _search_bing(bing_query, per_q_limit)
+                collect_candidates(bing_results)
     except Exception:
         logger.warning("Bing search error", exc_info=True)
 
