@@ -1742,17 +1742,42 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     # Search maps with each segment separately for better results
     per_term_limit = max(oversample_limit // max(len(map_search_terms), 1), 20)
 
+    # Does the org have a working 2GIS API key? We check once per search_leads
+    # call so we don't rediscover missing-key state on every term.
+    _twogis_api_settings = get_settings()
+    _twogis_api_available = bool(_twogis_api_settings.twogis_api_key)
+
     for term in map_search_terms:
-        # 2GIS scrape first — primary source, 40-60 results per term.
+        # 2GIS: API first (licensed, stable, legally clean), public-scrape
+        # only as a last-resort fallback if the API key is missing or returns
+        # nothing. Previously scrape was primary — faster but violates 2GIS
+        # ToS and risks captcha/IP bans and a civil claim under ст.1334 ГК РФ
+        # (database rights).
         try:
             if len(collected) < oversample_limit:
-                twogis_results = _search_2gis_scrape(term, effective_geo, per_term_limit)
-                if not twogis_results:
-                    # Scrape failed (captcha, unknown city, etc.) — fall back to API
+                twogis_results: list[dict] = []
+                used_source = ""
+                if _twogis_api_available:
                     twogis_results = _search_2gis(term, effective_geo, per_term_limit)
+                    used_source = "2gis_api"
+                if not twogis_results:
+                    # No API key, or API returned empty (e.g. unknown city) —
+                    # fall back to public-page scrape. This is the legacy path
+                    # kept as a safety net; we log a warning so ops notices if
+                    # the API key needs top-up.
+                    if _twogis_api_available:
+                        logger.warning(
+                            "2GIS API returned 0 results for '%s %s' — falling back to scrape",
+                            term, effective_geo,
+                        )
+                    twogis_results = _search_2gis_scrape(term, effective_geo, per_term_limit)
+                    used_source = "2gis_scrape"
                 collect_candidates(twogis_results)
                 if twogis_results:
-                    logger.info("2GIS returned %d results for '%s %s'", len(twogis_results), term, effective_geo)
+                    logger.info(
+                        "2GIS returned %d results for '%s %s' via %s",
+                        len(twogis_results), term, effective_geo, used_source,
+                    )
         except Exception:
             logger.warning("2GIS search error for '%s'", term, exc_info=True)
 
