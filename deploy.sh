@@ -69,6 +69,31 @@ echo "=== Running database migrations ==="
 docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head 2>/dev/null || echo "Migrations skipped (alembic not configured or already up to date)"
 
 echo ""
+echo "=== Reloading nginx (refresh upstream IPs) ==="
+# When backend/frontend containers are recreated, they get fresh IPs in the
+# Docker bridge network. nginx caches the OLD IP in its upstream resolver
+# until reloaded — this is the #1 source of post-deploy 502s. Always reload
+# at the end of a deploy. Use `nginx -s reload` (graceful) over `restart`
+# (downtime). Falls back to a hard restart if reload fails for any reason.
+if docker exec baza-nginx-1 nginx -t >/dev/null 2>&1; then
+    if docker exec baza-nginx-1 nginx -s reload 2>&1; then
+        echo "  nginx reloaded gracefully"
+    else
+        echo "  nginx reload FAILED — falling back to hard restart"
+        docker restart baza-nginx-1
+    fi
+else
+    echo "  nginx config check failed — skipping reload (investigate before next deploy)"
+fi
+
+echo ""
+echo "=== Smoke test ==="
+sleep 3
+curl -sI "https://${SERVER_IP}/" 2>/dev/null | head -1 || curl -sI "http://${SERVER_IP}/" | head -1
+curl -s "https://${SERVER_IP}/api/health" 2>/dev/null || curl -s "http://${SERVER_IP}/api/health"
+echo ""
+
+echo ""
 echo "==========================="
 echo "БАЗА is now running!"
 echo "Open: http://${SERVER_IP}"
