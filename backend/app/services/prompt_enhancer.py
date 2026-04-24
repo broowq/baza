@@ -502,6 +502,10 @@ def enhance_prompt(raw_prompt: str) -> dict:
                 result.get("geography", ""),
                 raw_prompt,
             )
+            # If LLM missed OKVED (older prompt variant, or model skipped the
+            # field), derive from segments using the rule-based map.
+            if not result.get("okved_codes"):
+                result["okved_codes"] = _okved_from_segments(result.get("segments") or [])
             return result
 
     # Fallback to smart rule-based enhancement
@@ -515,6 +519,7 @@ def enhance_prompt(raw_prompt: str) -> dict:
         result["segments"] = _augment_with_2gis_categories(
             result["segments"], result.get("geography", ""), raw_prompt,
         )
+    result["okved_codes"] = _okved_from_segments(result.get("segments") or [])
     return result
 
 
@@ -741,6 +746,156 @@ _CITY_STRIP = (
 )
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# ОКВЭД normalization + rule-based fallback
+# ──────────────────────────────────────────────────────────────────────────
+
+_OKVED_CODE_RE = re.compile(r"^\d{2}(\.\d{1,2})?$")
+
+# Segment keyword → OKVED code (fallback when LLM omits okved_codes).
+# Order matters: longer / more specific keywords should appear first.
+_SEGMENT_OKVED_MAP: list[tuple[tuple[str, ...], list[dict]]] = [
+    # Animal farming
+    (("птицефабрик", "птицевод"), [
+        {"code": "01.47", "label": "Разведение сельскохозяйственной птицы", "confidence": 0.9},
+    ]),
+    (("свиноферм", "свиноком", "свиновод"), [
+        {"code": "01.46", "label": "Разведение свиней", "confidence": 0.9},
+    ]),
+    (("молочн", "молокозавод", "молочная ферма", "крс", "молочно"), [
+        {"code": "01.41", "label": "Разведение молочного крупного рогатого скота", "confidence": 0.85},
+    ]),
+    (("ферма", "ферм", "фермер", "кфх", "агрохолдинг", "животновод"), [
+        {"code": "01.41", "label": "Разведение молочного КРС", "confidence": 0.7},
+        {"code": "01.47", "label": "Разведение сельскохозяйственной птицы", "confidence": 0.7},
+        {"code": "01.46", "label": "Разведение свиней", "confidence": 0.6},
+    ]),
+    (("зоомагазин", "зоотовар", "ветклиник", "ветеринар"), [
+        {"code": "47.76", "label": "Розничная торговля цветами, зоотоварами", "confidence": 0.85},
+        {"code": "75.00", "label": "Деятельность ветеринарная", "confidence": 0.8},
+    ]),
+    # Construction
+    (("застройщик", "строительная компания", "девелопер"), [
+        {"code": "41.20", "label": "Строительство жилых и нежилых зданий", "confidence": 0.9},
+    ]),
+    (("подрядчик", "ремонт квартир", "отделочн"), [
+        {"code": "43.99", "label": "Прочие специализированные строительные работы", "confidence": 0.8},
+    ]),
+    # Hospitality / HoReCa
+    (("ресторан", "кафе", "столов", "общепит"), [
+        {"code": "56.10", "label": "Деятельность ресторанов и услуги по доставке еды", "confidence": 0.9},
+    ]),
+    (("отел", "гостиниц", "хостел"), [
+        {"code": "55.10", "label": "Деятельность гостиниц", "confidence": 0.9},
+    ]),
+    (("бизнес-центр", "торговый центр", "тц", "бц"), [
+        {"code": "68.20", "label": "Аренда и управление недвижимостью", "confidence": 0.85},
+    ]),
+    # Retail / E-comm
+    (("интернет-магазин", "маркетплейс", "e-commerce", "ecommerce"), [
+        {"code": "47.91", "label": "Розничная торговля через интернет", "confidence": 0.9},
+    ]),
+    (("магазин", "торговая точка"), [
+        {"code": "47.19", "label": "Прочая розничная торговля в неспециализированных магазинах", "confidence": 0.7},
+    ]),
+    # IT / digital
+    (("it-компания", "ит-компания", "разработчик по", "softwar"), [
+        {"code": "62.01", "label": "Разработка компьютерного ПО", "confidence": 0.9},
+    ]),
+    (("дата-центр", "датацентр", "хостинг"), [
+        {"code": "63.11", "label": "Деятельность по обработке данных", "confidence": 0.9},
+    ]),
+    # Manufacturing
+    (("завод", "фабрика", "производственная компания", "пищевое производство"), [
+        {"code": "10.00", "label": "Производство пищевых продуктов", "confidence": 0.7},
+        {"code": "25.00", "label": "Производство металлических изделий", "confidence": 0.6},
+    ]),
+    # Healthcare
+    (("клиник", "стоматолог", "медицинск", "больниц"), [
+        {"code": "86.10", "label": "Деятельность больничных организаций", "confidence": 0.8},
+        {"code": "86.22", "label": "Специальная врачебная практика", "confidence": 0.8},
+    ]),
+    (("аптек", "фармацевт"), [
+        {"code": "47.73", "label": "Торговля лекарственными средствами в аптеках", "confidence": 0.9},
+    ]),
+    # Logistics
+    (("грузоперевозк", "транспортн компания", "логистическ"), [
+        {"code": "49.41", "label": "Деятельность автомобильного грузового транспорта", "confidence": 0.9},
+    ]),
+    # Auto
+    (("автосервис", "сто", "автомастерск"), [
+        {"code": "45.20", "label": "Техобслуживание и ремонт автомобилей", "confidence": 0.9},
+    ]),
+    (("автодилер", "автосалон"), [
+        {"code": "45.11", "label": "Торговля легковыми автомобилями", "confidence": 0.9},
+    ]),
+    # Services
+    (("салон красот", "парикмахер", "косметолог"), [
+        {"code": "96.02", "label": "Парикмахерские и косметические услуги", "confidence": 0.9},
+    ]),
+    (("фитнес", "спортзал", "тренажерн"), [
+        {"code": "93.13", "label": "Деятельность фитнес-центров", "confidence": 0.9},
+    ]),
+    # Finance / professional
+    (("банк", "финансовая компания"), [
+        {"code": "64.19", "label": "Денежное посредничество прочее", "confidence": 0.9},
+    ]),
+    (("страхов",), [
+        {"code": "65.11", "label": "Страхование жизни", "confidence": 0.8},
+        {"code": "65.12", "label": "Прочие виды страхования", "confidence": 0.8},
+    ]),
+    (("юрист", "адвокат", "юридическ"), [
+        {"code": "69.10", "label": "Деятельность в области права", "confidence": 0.9},
+    ]),
+    (("бухгалтер", "аудит", "налогов консалтинг"), [
+        {"code": "69.20", "label": "Деятельность по аудиту и бухучёту", "confidence": 0.9},
+    ]),
+]
+
+
+def _normalize_okved(raw: list) -> list[dict]:
+    """Validate LLM-returned OKVED entries: enforce schema + clamp confidence."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        code = str(entry.get("code") or "").strip()
+        if not _OKVED_CODE_RE.match(code):
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        label = str(entry.get("label") or "").strip()[:140]
+        try:
+            conf = float(entry.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            conf = 0.5
+        conf = max(0.0, min(1.0, conf))
+        out.append({"code": code, "label": label, "confidence": round(conf, 2)})
+    # Highest confidence first, then lexicographic — deterministic order for UI.
+    out.sort(key=lambda x: (-x["confidence"], x["code"]))
+    return out[:6]
+
+
+def _okved_from_segments(segments: list[str]) -> list[dict]:
+    """Rule-based fallback when LLM didn't emit okved_codes. Looks up each
+    segment in _SEGMENT_OKVED_MAP, aggregates confidences."""
+    if not segments:
+        return []
+    blob = " ".join(segments).lower().replace("ё", "е")
+    buckets: dict[str, dict] = {}
+    for keywords, codes in _SEGMENT_OKVED_MAP:
+        if any(kw in blob for kw in keywords):
+            for entry in codes:
+                current = buckets.get(entry["code"])
+                if current is None or entry["confidence"] > current["confidence"]:
+                    buckets[entry["code"]] = dict(entry)
+    out = list(buckets.values())
+    out.sort(key=lambda x: (-x["confidence"], x["code"]))
+    return out[:6]
+
+
 def _try_llm_enhance(raw_prompt: str) -> dict | None:
     """Try to enhance using LLM. Returns None on failure."""
     system_prompt = """Ты — AI-ассистент B2B платформы лидогенерации БАЗА. Твоя задача — проанализировать описание бизнеса пользователя и создать стратегию поиска ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ.
@@ -761,11 +916,23 @@ def _try_llm_enhance(raw_prompt: str) -> dict | None:
   "segments": ["сегмент1", "сегмент2", "сегмент3"],
   "target_customer_types": ["тип клиента 1", "тип клиента 2", "тип клиента 3"],
   "search_queries_niche": "Ключевые слова для поиска КЛИЕНТОВ на картах (Яндекс/2ГИС)",
+  "okved_codes": [
+    {"code": "01.47", "label": "Разведение сельскохозяйственной птицы", "confidence": 0.9},
+    {"code": "01.46", "label": "Разведение свиней", "confidence": 0.85}
+  ],
   "explanation": "Краткое объяснение стратегии поиска (1-2 предложения)"
 }
 
 Поля segments и target_customer_types — это типы компаний, которые могут быть ПОКУПАТЕЛЯМИ.
-search_queries_niche — это то, что будет искаться на картах и в поисковиках (ниша клиента, не продавца)."""
+search_queries_niche — это то, что будет искаться на картах и в поисковиках (ниша клиента, не продавца).
+
+ВАЖНО для okved_codes: верни ОКВЭД-коды ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ (не продавца!) — российский классификатор видов деятельности.
+- code: строка "XX" (раздел), "XX.X" или "XX.XX" (подкласс).
+- label: краткое русское название вида деятельности.
+- confidence: от 0.0 до 1.0.
+Верни от 2 до 6 кодов, отсортированных по убыванию confidence. Только коды покупателей!
+Неправильно: если пользователь продаёт корма, НЕ возвращай 46.21 (оптовая торговля зерном) — это продавец.
+Правильно: 01.47 (птицеводство), 01.46 (свиноводство) — это покупатели кормов."""
 
     try:
         answer = llm_client.chat(
@@ -812,6 +979,13 @@ search_queries_niche — это то, что будет искаться на к
                 result["segments"] = _strip_product_echoes(
                     result["segments"], product_words
                 )
+
+        # Normalize ОКВЭД codes: validate shape, clamp confidence to [0,1].
+        if isinstance(result.get("okved_codes"), list):
+            result["okved_codes"] = _normalize_okved(result["okved_codes"])
+        else:
+            # LLM didn't include okved_codes — use rule-based fallback from segments.
+            result["okved_codes"] = _okved_from_segments(result.get("segments") or [])
 
         result["raw_prompt"] = raw_prompt
         return result

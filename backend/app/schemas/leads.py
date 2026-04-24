@@ -36,6 +36,8 @@ class LeadOut(BaseModel):
     reminder_at: datetime | None = None
     status: LeadStatus
     source_url: str
+    source: str = ""
+    external_id: str = ""
     enriched: bool
     demo: bool
     created_at: datetime

@@ -574,9 +574,9 @@ export default function SettingsPage() {
                                             <SelectValue />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            <SelectItem value="member">member</SelectItem>
-                                            <SelectItem value="admin">admin</SelectItem>
-                                            <SelectItem value="owner">owner</SelectItem>
+                                            <SelectItem value="member">Участник</SelectItem>
+                                            <SelectItem value="admin">Админ</SelectItem>
+                                            <SelectItem value="owner">Владелец</SelectItem>
                                           </SelectContent>
                                         </Select>
                                       ) : (
@@ -584,7 +584,7 @@ export default function SettingsPage() {
                                           className={roleBadgeClasses[member.role] ?? roleBadgeClasses.member}
                                         >
                                           {member.role === "owner" && <ShieldCheckIcon className="size-3" />}
-                                          {member.role}
+                                          {member.role === "owner" ? "Владелец" : member.role === "admin" ? "Админ" : "Участник"}
                                         </Badge>
                                       )}
                                     </TableCell>

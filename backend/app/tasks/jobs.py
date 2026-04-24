@@ -245,6 +245,13 @@ def collect_leads_task(job_id: str) -> None:
                 demo=bool(c.get("demo", False)),
                 relevance_score=int(c.get("relevance_score", 0)),
             )
+            # Extract a stable external id we can link back to (2GIS firm_id,
+            # rusprofile entity id, etc.). Preference order: explicit firm_id
+            # → rusprofile_id → (empty). Keep short.
+            ext_id = (
+                str(c.get("firm_id") or "").strip()
+                or str(c.get("rusprofile_id") or "").strip()
+            )[:80]
             lead = Lead(
                 organization_id=job.organization_id,
                 project_id=project.id,
@@ -256,6 +263,8 @@ def collect_leads_task(job_id: str) -> None:
                 phone=_clip(phone_val, 80),
                 address=_clip(address_val, 300),
                 source_url=_clip(c.get("source_url", ""), 400),
+                source=_clip(str(c.get("source") or ""), 24),
+                external_id=ext_id,
                 score=base_score,
                 notes=("demo=true; " if c.get("demo") else "") + c.get("snippet", ""),
                 demo=bool(c.get("demo", False)),

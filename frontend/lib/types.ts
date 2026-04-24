@@ -53,6 +53,8 @@ export type Lead = {
   reminder_at?: string | null;
   status: "new" | "contacted" | "qualified" | "rejected";
   source_url: string;
+  source?: "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng" | "";
+  external_id?: string;
   enriched: boolean;
   demo?: boolean;
 };

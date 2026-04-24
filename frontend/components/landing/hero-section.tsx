@@ -122,7 +122,7 @@ export function HeroSection() {
                 <div className="h-3 w-3 rounded-full bg-[#28c840]" />
               </div>
               <div className="ml-4 flex-1 rounded-lg bg-[#F7F7F8] px-4 py-1.5 font-mono text-xs text-gray-400 dark:bg-[#111214] dark:text-gray-500">
-                app.baza.io/dashboard
+                usebaza.ru/dashboard
               </div>
             </div>
 

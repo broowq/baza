@@ -97,6 +97,11 @@ class Project(Base):
     niche: Mapped[str] = mapped_column(String(120), nullable=False)
     geography: Mapped[str] = mapped_column(String(120), nullable=False)
     segments: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    # OKVED codes of TARGET CUSTOMERS (not the seller). Extracted by LLM at
+    # project creation / prompt-enhance time. List of {code, label, confidence}.
+    # Phase 1: used only for UI display + future ФНС ЕГРЮЛ lookups.
+    # Phase 2 (later): drives direct ФНС dump queries.
+    okved_codes: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
     cron_schedule: Mapped[str] = mapped_column(String(120), default="0 9 * * 1", nullable=False)
     auto_collection_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
@@ -135,6 +140,13 @@ class Lead(Base):
     reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, index=True)
     status: Mapped[LeadStatus] = mapped_column(Enum(LeadStatus), default=LeadStatus.new, nullable=False, index=True)
     source_url: Mapped[str] = mapped_column(String(400), default="", nullable=False)
+    # Data source that originally surfaced this lead:
+    # "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng"
+    # Empty for legacy leads imported before this field existed.
+    source: Mapped[str] = mapped_column(String(24), default="", nullable=False, index=True)
+    # External identifier from the source: 2GIS firm_id, rusprofile.ru entity id,
+    # ЕГРЮЛ ОГРН (future), etc. Users can click through to the source's card.
+    external_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     enriched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

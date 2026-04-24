@@ -52,6 +52,41 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "rejected", label: "Отклонён" },
 ];
 
+const SOURCE_META: Record<string, { label: string; emoji: string; color: string }> = {
+  yandex_maps: { label: "Яндекс Карты", emoji: "🅉", color: "text-red-500" },
+  "2gis": { label: "2ГИС", emoji: "②", color: "text-emerald-500" },
+  rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-blue-500" },
+  maps_searxng: { label: "Яндекс Карты (web)", emoji: "🅉", color: "text-rose-400" },
+  searxng: { label: "Web-поиск", emoji: "🌐", color: "text-slate-500" },
+  bing: { label: "Bing", emoji: "🅱", color: "text-slate-500" },
+};
+
+function SourceBadge({ source, externalId }: { source?: string; externalId?: string }) {
+  if (!source) return null;
+  const meta = SOURCE_META[source];
+  if (!meta) return null;
+  const titleExt = externalId ? `${meta.label} · id ${externalId}` : meta.label;
+  const href =
+    source === "rusprofile" && externalId
+      ? `https://www.rusprofile.ru/id/${externalId}`
+      : null;
+  const content = (
+    <span
+      title={titleExt}
+      className={`inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded px-1 text-[9px] font-semibold ${meta.color}`}
+    >
+      {meta.emoji}
+    </span>
+  );
+  return href ? (
+    <a href={href} target="_blank" rel="noreferrer" className="hover:opacity-80">
+      {content}
+    </a>
+  ) : (
+    content
+  );
+}
+
 function EmailStatusBadge({ status }: { status?: string }) {
   if (!status || status === "skipped") return null;
   if (status === "valid") {
@@ -529,7 +564,10 @@ export function LeadsTable({
                     </TableCell>
                     <TableCell className="max-w-[192px]">
                       <div>
-                        <p className="truncate font-medium" title={lead.company}>{lead.company}</p>
+                        <p className="truncate font-medium flex items-center gap-1" title={lead.company}>
+                          <SourceBadge source={lead.source} externalId={lead.external_id} />
+                          <span className="truncate">{lead.company}</span>
+                        </p>
                         {lead.enriched ? (
                           <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
                             <Sparkles size={9} /> обогащён

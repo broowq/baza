@@ -440,9 +440,6 @@ export default function HomePage() {
             <Link href="/register" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
               Регистрация
             </Link>
-            <Link href="#" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
-              Документация
-            </Link>
             <Link href="/privacy" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
               Конфиденциальность
             </Link>
