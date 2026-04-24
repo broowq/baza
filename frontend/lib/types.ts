@@ -12,6 +12,12 @@ export type Organization = {
   lead_webhook_url?: string;
 };
 
+export type OkvedCode = {
+  code: string;
+  label: string;
+  confidence: number;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -19,6 +25,7 @@ export type Project = {
   niche: string;
   geography: string;
   segments: string[];
+  okved_codes?: OkvedCode[];
   cron_schedule: string;
   auto_collection_enabled: boolean;
 };
@@ -29,6 +36,7 @@ export type PromptEnhanceResponse = {
   niche: string;
   geography: string;
   segments: string[];
+  okved_codes?: OkvedCode[];
   target_customer_types: string[];
   search_queries_niche: string;
   explanation: string;

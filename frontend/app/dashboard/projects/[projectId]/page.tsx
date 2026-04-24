@@ -235,6 +235,21 @@ export default function ProjectDetailsPage() {
                 <Badge key={seg} variant="outline" className="rounded-full">{seg}</Badge>
               ))}
             </div>
+            {project?.okved_codes && project.okved_codes.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">ОКВЭД клиентов:</span>
+                {project.okved_codes.map((o) => (
+                  <span
+                    key={o.code}
+                    title={o.label ? `${o.label} (уверенность ${Math.round((o.confidence ?? 0) * 100)}%)` : undefined}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] font-mono text-blue-600 dark:text-blue-300"
+                  >
+                    {o.code}
+                    {o.label && <span className="font-sans text-foreground/70 normal-case">· {o.label.length > 28 ? o.label.slice(0, 28) + "…" : o.label}</span>}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             {/* Collect group */}

@@ -52,6 +52,7 @@ def enhance_prompt(
         niche=result.get("niche", payload.prompt[:120]),
         geography=result.get("geography", "Россия"),
         segments=result.get("segments", []),
+        okved_codes=result.get("okved_codes", []),
         target_customer_types=result.get("target_customer_types", []),
         search_queries_niche=result.get("search_queries_niche", ""),
         explanation=result.get("explanation", ""),
@@ -97,6 +98,7 @@ def create_project(
     final_niche = payload.niche
     final_geo = payload.geography
     final_segments = payload.segments
+    final_okved: list[dict] = []
     if payload.prompt and payload.prompt.strip() == payload.niche.strip():
         try:
             from app.services.prompt_enhancer import enhance_prompt as do_enhance
@@ -109,8 +111,17 @@ def create_project(
                 final_segments = enhanced["segments"]
             if enhanced.get("project_name"):
                 final_name = enhanced["project_name"]
+            if enhanced.get("okved_codes"):
+                final_okved = enhanced["okved_codes"]
         except Exception:
             pass  # Use original values
+    # If no LLM path ran but we have segments, still derive ОКВЭД codes locally.
+    if not final_okved and final_segments:
+        try:
+            from app.services.prompt_enhancer import _okved_from_segments
+            final_okved = _okved_from_segments(final_segments)
+        except Exception:
+            pass
 
     project = Project(
         organization_id=organization.id,
@@ -119,6 +130,7 @@ def create_project(
         niche=final_niche,
         geography=final_geo,
         segments=final_segments,
+        okved_codes=final_okved,
         cron_schedule=payload.cron_schedule,
         auto_collection_enabled=payload.auto_collection_enabled,
     )

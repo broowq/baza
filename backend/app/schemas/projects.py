@@ -36,6 +36,12 @@ class ProjectUpdateRequest(BaseModel):
         return [s[:100] for s in (v or [])[:20]]
 
 
+class OkvedCode(BaseModel):
+    code: str
+    label: str = ""
+    confidence: float = 0.5
+
+
 class ProjectOut(BaseModel):
     id: UUID
     organization_id: UUID
@@ -44,6 +50,7 @@ class ProjectOut(BaseModel):
     niche: str
     geography: str
     segments: list[str]
+    okved_codes: list[OkvedCode] = Field(default_factory=list)
     cron_schedule: str
     auto_collection_enabled: bool
     created_at: datetime
@@ -63,6 +70,7 @@ class PromptEnhanceResponse(BaseModel):
     niche: str
     geography: str
     segments: list[str]
+    okved_codes: list[OkvedCode] = Field(default_factory=list)
     target_customer_types: list[str] = Field(default_factory=list)
     search_queries_niche: str = ""
     explanation: str = ""
