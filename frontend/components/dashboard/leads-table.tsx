@@ -52,6 +52,37 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "rejected", label: "Отклонён" },
 ];
 
+function EmailStatusBadge({ status }: { status?: string }) {
+  if (!status || status === "skipped") return null;
+  if (status === "valid") {
+    return (
+      <span
+        title="Email доставляемый (MX-запись найдена)"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500/15 text-[10px] text-green-600"
+        aria-label="email verified"
+      >
+        ✓
+      </span>
+    );
+  }
+  if (status === "no_mx" || status === "syntax") {
+    return (
+      <span
+        title={
+          status === "no_mx"
+            ? "У домена нет MX-записи — письма не дойдут"
+            : "Email синтаксически некорректен"
+        }
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-[10px] text-red-500"
+        aria-label="email invalid"
+      >
+        !
+      </span>
+    );
+  }
+  return null;
+}
+
 function TruncatedCell({ value, className = "" }: { value: string | null | undefined; className?: string }) {
   if (!value) return <span className="text-muted-foreground">—</span>;
   return (
@@ -535,13 +566,16 @@ export function LeadsTable({
                     </TableCell>
                     <TableCell className="hidden max-w-[176px] md:table-cell">
                       {lead.email ? (
-                        <a
-                          href={`mailto:${lead.email}`}
-                          title={lead.email}
-                          className="block truncate text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-                        >
-                          {lead.email}
-                        </a>
+                        <div className="flex items-center gap-1">
+                          <a
+                            href={`mailto:${lead.email}`}
+                            title={lead.email}
+                            className="block truncate text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
+                          >
+                            {lead.email}
+                          </a>
+                          <EmailStatusBadge status={lead.email_status} />
+                        </div>
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}

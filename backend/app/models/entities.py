@@ -119,6 +119,10 @@ class Lead(Base):
     website: Mapped[str] = mapped_column(String(300), nullable=False)
     domain: Mapped[str] = mapped_column(String(255), default="", nullable=False)
     email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    # Deliverability status after MX-record check at enrichment time.
+    # One of: "valid" (MX present), "no_mx" (syntax-OK but dead domain),
+    # "syntax" (invalid format), "skipped" (DNS temp error), "" (not checked).
+    email_status: Mapped[str] = mapped_column(String(20), default="", nullable=False)
     phone: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     address: Mapped[str] = mapped_column(String(300), default="", nullable=False)
     contacts: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)

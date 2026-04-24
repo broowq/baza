@@ -40,6 +40,7 @@ export type Lead = {
   city: string;
   website: string;
   email: string;
+  email_status?: "" | "valid" | "no_mx" | "syntax" | "skipped";
   phone: string;
   address: string;
   contacts: Record<string, unknown>;

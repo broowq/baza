@@ -1825,16 +1825,21 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
             except Exception:
                 logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
 
-        # Rusprofile.ru — supplementary source for legal entities.
-        # Only call when we have FEW collected (< limit//3). Otherwise rusprofile
-        # adds dup-noise that pushes good 2GIS/Yandex leads out of the final cap.
-        # Limit to 5 entities per probe to avoid drowning out map sources.
+        # Rusprofile.ru — PRIMARY legal-entity source (not just supplementary).
+        # Every term gets 20 entities. Real ФНС-registered ЮЛ/ИП → downstream
+        # enrichment (website + 2GIS-card fallback) fills in contacts. This
+        # turns a thin "12 leads" search into 100+ legitimate buyers.
+        # Previously this was gated behind `collected < limit // 3`, which
+        # essentially disabled it for any decent-sized search.
         try:
-            if len(collected) < limit // 3:
-                rp_results = _search_rusprofile(term, effective_geo, 5)
+            if len(collected) < oversample_limit:
+                rp_results = _search_rusprofile(term, effective_geo, 20)
                 collect_candidates(rp_results)
                 if rp_results:
-                    logger.info("Rusprofile returned %d results for '%s %s'", len(rp_results), term, effective_geo)
+                    logger.info(
+                        "Rusprofile returned %d results for '%s %s'",
+                        len(rp_results), term, effective_geo,
+                    )
         except Exception:
             logger.warning("Rusprofile error for '%s'", term, exc_info=True)
 

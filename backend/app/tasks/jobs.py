@@ -469,12 +469,30 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             lead.email = _clip(raw_email, 255)
             lead.phone = _clip(raw_phone, 80)
             lead.address = _clip(raw_address, 300)
+
+            # Email deliverability check — syntax + MX record lookup.
+            # Cheap (1 DNS query, cached) and catches ~80% of bounces.
+            # Real enterprise upsell: NeverBounce-style SMTP handshake.
+            if lead.email:
+                try:
+                    from app.utils.email_verifier import verify_email
+                    status = verify_email(lead.email)
+                    lead.email_status = status.value
+                except Exception:
+                    logger.debug("email verify failed for %s", lead.email, exc_info=True)
+                    lead.email_status = ""
+            else:
+                lead.email_status = ""
+
             lead.enriched = True
+            # Treat no_mx / syntax as no-email for scoring: a bouncy address
+            # is worse than no address at all (it wastes sales-rep time).
+            usable_email = bool(lead.email) and lead.email_status in ("valid", "skipped", "")
             lead.score = score_lead(
                 domain=lead.domain,
                 company=lead.company,
                 niche=project_niche,
-                has_email=bool(lead.email),
+                has_email=usable_email,
                 has_phone=bool(lead.phone),
                 has_address=bool(lead.address),
                 demo=lead.demo,

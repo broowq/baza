@@ -24,6 +24,7 @@ class LeadOut(BaseModel):
     website: str
     domain: str
     email: str
+    email_status: str = ""   # "" | "valid" | "no_mx" | "syntax" | "skipped"
     phone: str
     address: str
     contacts: dict
