@@ -1918,45 +1918,83 @@ def enrich_website_contacts(base_url: str) -> dict:
         return {"emails": [], "phones": [], "addresses": []}
     root_url = f"{parsed.scheme or 'https'}://{domain}"
     # Russian + EN common contact/about pages. Order matters — most likely first.
+    # Dropped `/footer` and `/header` — these are CSS/JS fragments, not real URLs.
     candidate_paths = [
-        "/", "/contacts", "/contact", "/contact-us", "/contacts/",
-        "/about", "/about-us", "/about/",
-        "/kontakty", "/kontakty/", "/o-kompanii", "/o-kompanii/",
-        "/kontakti", "/o-nas", "/info", "/info/",
-        "/footer", "/header",  # contacts often in header/footer fragments
+        "/",  # home page — often has footer with emails/phones/address
+        "/contacts", "/contacts/", "/contact", "/contact/", "/contact-us",
+        "/kontakty", "/kontakty/", "/kontakti", "/kontakti/",
+        "/about", "/about/", "/about-us", "/o-kompanii", "/o-kompanii/",
+        "/o-nas", "/o-nas/",
+        "/info", "/info/",
+        # Phone often on checkout/order pages for e-commerce-ish B2B
+        "/order", "/contacts.html", "/kontakty.html",
     ]
     gathered_text = ""
     gathered_html = ""
+    pages_fetched = 0
+    last_error: str | None = None
     robots = RobotFileParser()
     robots.set_url(f"{root_url.rstrip('/')}/robots.txt")
     try:
         robots.read()
     except Exception:
         robots = None
-    for path in candidate_paths:
-        target = normalize_url(f"{root_url}{path}" if path != "/" else root_url)
-        if not target:
-            continue
-        if not _is_safe_url(target):
-            continue
-        if robots and not robots.can_fetch(DEFAULT_USER_AGENT, target):
-            continue
-        try:
-            with httpx.Client(timeout=6.0, follow_redirects=False) as client:
-                for attempt in range(3):
-                    response = client.get(target, headers={"User-Agent": DEFAULT_USER_AGENT})
-                    if response.status_code in (429, 503):
-                        time.sleep(0.2 * (2**attempt))
-                        continue
-                    if response.status_code < 400:
-                        gathered_html += f"\n{response.text[:50000]}"
-                        plain_text = TAG_RE.sub(" ", unescape(response.text))
-                        gathered_text += f"\n{plain_text[:25000]}"
-                    break
-        except Exception:
-            continue
-        time.sleep(0.15)
-    return extract_contacts(gathered_text, gathered_html)
+
+    # IMPORTANT: follow_redirects=True. Previously False → we dropped pages
+    # after a single 301 (http→https, www/non-www, trailing-slash) and got
+    # empty HTML. That was the #1 reason enrichment was returning nothing.
+    # Bumped timeout 6s → 12s (RU shared-hosting is slow, and this is a
+    # Celery worker — latency cost is acceptable for higher coverage).
+    try:
+        with httpx.Client(
+            timeout=12.0,
+            follow_redirects=True,
+            headers={"User-Agent": DEFAULT_USER_AGENT},
+        ) as client:
+            for path in candidate_paths:
+                target = normalize_url(f"{root_url}{path}" if path != "/" else root_url)
+                if not target:
+                    continue
+                if not _is_safe_url(target):
+                    continue
+                if robots and not robots.can_fetch(DEFAULT_USER_AGENT, target):
+                    continue
+                try:
+                    for attempt in range(3):
+                        response = client.get(target)
+                        if response.status_code in (429, 503):
+                            time.sleep(0.3 * (2**attempt))
+                            continue
+                        if response.status_code < 400:
+                            gathered_html += f"\n{response.text[:50000]}"
+                            plain_text = TAG_RE.sub(" ", unescape(response.text))
+                            gathered_text += f"\n{plain_text[:25000]}"
+                            pages_fetched += 1
+                        break
+                except httpx.TimeoutException:
+                    last_error = f"timeout on {path}"
+                    continue
+                except Exception as exc:
+                    last_error = f"{type(exc).__name__} on {path}"
+                    continue
+                time.sleep(0.15)
+    except Exception as exc:
+        logger.warning(
+            "enrich_website_contacts: client error for %s — %s",
+            base_url, type(exc).__name__,
+        )
+
+    result = extract_contacts(gathered_text, gathered_html)
+    logger.info(
+        "enrich_website_contacts: %s — %d pages, %d emails, %d phones, %d addresses%s",
+        base_url,
+        pages_fetched,
+        len(result.get("emails", [])),
+        len(result.get("phones", [])),
+        len(result.get("addresses", [])),
+        f" (last_err: {last_error})" if pages_fetched == 0 and last_error else "",
+    )
+    return result
 
 
 # ─── 2GIS public-page enrichment ────────────────────────────────────────────

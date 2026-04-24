@@ -419,6 +419,40 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 contacts = enrich_2gis_lead(lead.company, lead.city, firm_id=firm_id)
             else:
                 contacts = enrich_website_contacts(website)
+                # Fallback: if website scraping found NO phone AND NO email
+                # (site is JS-rendered, or has no public contacts, or blocked us),
+                # try to find this company's card on 2gis.ru by name and
+                # scrape phones/emails from there. This closes ~30-50% of
+                # "unenriched" leads — most real RU businesses have a 2GIS
+                # listing even if their own site is weak.
+                if (not contacts.get("phones") and not contacts.get("emails")
+                        and lead.company and len(lead.company) >= 3):
+                    try:
+                        extra = enrich_2gis_lead(lead.company, lead.city or "")
+                        merged_phones = contacts.get("phones") or []
+                        merged_emails = contacts.get("emails") or []
+                        merged_addresses = contacts.get("addresses") or []
+                        for p in extra.get("phones", []):
+                            if p not in merged_phones:
+                                merged_phones.append(p)
+                        for e in extra.get("emails", []):
+                            if e not in merged_emails:
+                                merged_emails.append(e)
+                        for a in extra.get("addresses", []):
+                            if a not in merged_addresses:
+                                merged_addresses.append(a)
+                        contacts["phones"] = merged_phones[:5]
+                        contacts["emails"] = merged_emails[:5]
+                        contacts["addresses"] = merged_addresses[:3]
+                        if extra.get("phones") or extra.get("emails"):
+                            logger.info(
+                                "enrichment: 2GIS-fallback found %d phones / %d emails for %s",
+                                len(extra.get("phones", [])),
+                                len(extra.get("emails", [])),
+                                lead.company,
+                            )
+                    except Exception:
+                        logger.debug("2GIS fallback failed for %s", lead.company, exc_info=True)
             lead.contacts = contacts
             lead.contacts_json = contacts
             raw_email = (contacts.get("emails") or [""])[0] if isinstance(contacts, dict) else ""

@@ -5,12 +5,28 @@ import phonenumbers
 EMAIL_REGEX = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 # mailto: hrefs are the highest-confidence email source on websites
 MAILTO_REGEX = re.compile(r'mailto:([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})', re.IGNORECASE)
+# tel: hrefs are the highest-confidence phone source (click-to-call links)
+TEL_LINK_REGEX = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
 # VK community / Telegram channel URLs — useful for B2B firms without a website
 VK_REGEX = re.compile(r'https?://(?:vk\.com|m\.vk\.com)/([a-zA-Z0-9_.\-]{3,})', re.IGNORECASE)
 TG_REGEX = re.compile(r'https?://(?:t\.me|telegram\.me)/([a-zA-Z0-9_]{3,})', re.IGNORECASE)
+# Phone regex — handles 3-digit AND 4-digit Russian area codes:
+#   (495) 123-45-67   (Moscow, 3-digit)
+#   (3822) 20-11-36   (Tomsk, 4-digit)
+#   +7 495 123 45 67
+#   8 (800) 555-35-35
+# Also catches generic international formats as a fallback.
 PHONE_REGEX = re.compile(
-    r"(?:(?:\+7|8)[\s\-\(]?(?:\d{3}[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2})"
-    r"|(?:\+\d{1,3}[\s\-]?)?(?:\(?\d{2,4}\)?[\s\-]?)?\d{3}[\s\-]?\d{2,4}[\s\-]?\d{2,4})"
+    # Russian-specific: +7 or 8 prefix
+    r"(?:(?:\+7|8)"
+    r"[\s\-\(]*"
+    # Area code: 3 or 4 digits
+    r"(?:\d{3,4})"
+    r"[\s\-\)]*"
+    # Local: total 6-7 digits in flexible groupings
+    r"(?:\d{2,3}[\s\-]?\d{2,3}[\s\-]?\d{2,3}|\d{3}[\s\-]?\d{2}[\s\-]?\d{2})"
+    # Generic international fallback: +XX followed by 7-15 digits in any grouping
+    r"|(?:\+\d{1,3}[\s\-]?)(?:\(?\d{2,4}\)?[\s\-]?)?\d{3}[\s\-]?\d{2,4}[\s\-]?\d{2,4})"
 )
 JSON_LD_REGEX = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(?P<body>.*?)</script>',
@@ -178,9 +194,19 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
                         "manager@", "zakaz@", "order@", "shop@", "kontakt@", "support@")
     emails.sort(key=lambda e: (0 if e.startswith(contact_prefixes) else 1, e))
 
-    # Телефоны
+    # Телефоны — extract from tel: links (highest signal) + free text.
     phones: list[str] = []
     seen_phones: set[str] = set()
+    # 1. tel: hrefs — already well-formed by webmaster
+    for m in TEL_LINK_REGEX.finditer(raw_html):
+        digits = m.group(1)
+        # Try normalizing via phonenumbers for E.164 consistency
+        candidate = f"+{digits}" if not digits.startswith("+") else digits
+        normalized = _normalize_phone(candidate)
+        if normalized and normalized not in seen_phones:
+            seen_phones.add(normalized)
+            phones.append(normalized)
+    # 2. Free text — fuzzier, covers phones not in tel: hrefs
     for m in PHONE_REGEX.finditer(combined):
         normalized = _normalize_phone(m.group(0))
         if normalized and normalized not in seen_phones:
