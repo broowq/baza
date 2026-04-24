@@ -79,13 +79,24 @@ _REJECT_DOMAIN_PARTS = [
 ]
 
 _EDITORIAL_OR_DIRECTORY_DOMAINS = {
-    "kp.ru",
-    "markakachestva.ru",
-    "oknatrade.ru",
-    "pravda.ru",
-    "dzen.ru",
-    "vc.ru",
-    "pikabu.ru",
+    # Editorial / news (NEVER a real lead)
+    "kp.ru", "pravda.ru", "dzen.ru", "vc.ru", "pikabu.ru",
+    "forbes.ru", "rbc.ru", "ria.ru", "tass.ru", "kommersant.ru",
+    "vedomosti.ru", "lenta.ru", "gazeta.ru", "interfax.ru",
+    "habr.com", "3dnews.ru", "tadviser.ru", "tadviser.com",
+    # Industry publications / marketing blogs
+    "markakachestva.ru", "oknatrade.ru", "retail.ru", "retailer.ru",
+    "agroinvestor.ru", "dairynews.ru", "mcx.ru",  # last one is gov portal
+    # Wiki / directory / catalog aggregators
+    "wikipedia.org", "ru.wikipedia.org", "wiki-prom.ru",
+    "wikimapia.org", "esosedi.org", "images.esosedi.org",
+    "tradus.com", "europages.ru", "flagma.ru",
+    # Map / directory (their own listings, not individual businesses)
+    "yell.ru", "zoon.ru", "flamp.ru", "2gis.ru", "yandex.ru",
+    # Marketplaces
+    "wildberries.ru", "ozon.ru", "avito.ru", "market.yandex.ru",
+    # Registries (handled separately in rusprofile flow, but filter web surfacings)
+    "rusprofile.ru", "list-org.com", "e-ecolog.ru", "sravni.ru",
 }
 
 _ARTICLE_OR_DIRECTORY_HINTS = [
@@ -350,7 +361,13 @@ def _looks_like_article_or_directory(item: dict) -> bool:
     source_domain = extract_domain(source_url)
     source_path = urlparse(source_url).path.lower()
 
+    # Check BOTH the source URL's domain AND the candidate's own website domain.
+    # Previously we only checked source_domain, so a company whose "website"
+    # was literally a media domain (tadviser.ru, forbes.ru) slipped through.
+    candidate_domain = extract_domain(item.get("website", "") or item.get("domain", ""))
     if source_domain in _EDITORIAL_OR_DIRECTORY_DOMAINS:
+        return True
+    if candidate_domain and candidate_domain in _EDITORIAL_OR_DIRECTORY_DOMAINS:
         return True
     if any(hint in text for hint in _ARTICLE_OR_DIRECTORY_HINTS):
         return True
