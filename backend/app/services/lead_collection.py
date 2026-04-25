@@ -1805,7 +1805,82 @@ def _geo_tiers(geo: str) -> list[str]:
     return tiers
 
 
-def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
+def search_leads(
+    query: str,
+    limit: int,
+    *,
+    niche: str = "",
+    geography: str = "",
+    segments: list[str] | None = None,
+    prompt: str = "",
+    use_yandex: bool = True,
+) -> list[dict]:
+    """Public entry point. Runs the single-tier search, and if the result
+    set is materially below target, also probes the broader geographic
+    tiers (city → region → Россия) to fill the gap.
+
+    A thin tier-cascade rather than a 'big-bang' one-pass: avoids needless
+    cost when the city already has plenty, but rescues thin-niche searches
+    (e.g. 'птицефабрика в Урюпинске' → fallback to oblast → to country).
+    """
+    initial = _search_leads_one_tier(
+        query, limit,
+        niche=niche, geography=geography, segments=segments,
+        prompt=prompt, use_yandex=use_yandex,
+    )
+    # If we already have a healthy chunk OR geography is 'Россия' (no broader
+    # tier to expand to), return as-is.
+    target_floor = max(limit // 2, 30)
+    if len(initial) >= target_floor or (geography or "").strip().lower() in ("россия", "", "ru"):
+        return initial[:limit]
+
+    tiers = _geo_tiers(geography)
+    if len(tiers) <= 1:
+        return initial[:limit]
+
+    seen_domains: set[str] = {r.get("domain", "") for r in initial if r.get("domain")}
+    seen_companies: set[str] = {
+        _normalize_match_text(r.get("company", "")) for r in initial if r.get("company")
+    }
+    merged: list[dict] = list(initial)
+
+    # Probe the next tier (region). If still thin, escalate to country.
+    for tier_geo in tiers[1:]:
+        if len(merged) >= limit:
+            break
+        remaining = limit - len(merged)
+        extra = _search_leads_one_tier(
+            query, remaining,
+            niche=niche, geography=tier_geo, segments=segments,
+            prompt=prompt, use_yandex=use_yandex,
+        )
+        if not extra:
+            continue
+        for r in extra:
+            d = r.get("domain", "")
+            c = _normalize_match_text(r.get("company", ""))
+            if d and d in seen_domains:
+                continue
+            if c and c in seen_companies:
+                continue
+            if d:
+                seen_domains.add(d)
+            if c:
+                seen_companies.add(c)
+            merged.append(r)
+            if len(merged) >= limit:
+                break
+        logger.info(
+            "Geo-tier fallback: tier=%r added %d new (running total %d/%d)",
+            tier_geo, len(merged) - (len(merged) - len(extra)), len(merged), limit,
+        )
+        if len(merged) >= target_floor:
+            break  # good enough; don't escalate further
+
+    return merged[:limit]
+
+
+def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
