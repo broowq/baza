@@ -341,26 +341,26 @@ DISCOVER_CASES: list[QueryCase] = [
         category="prompt_b2b",
     ),
     QueryCase(
-        case_id="discover_prompt_cap_at_8_segments",
+        case_id="discover_prompt_cap_at_24_segments",
         description=(
-            "More than 8 segments: only first 8 used (3 queries each → 24 max)."
+            "More than 24 segments: only first 24 used (3 queries each → 72 max)."
+            " Cap was 8 in earlier waves; bumped to 24 in wave-4 to widen the net."
         ),
         builder=_build_discover_queries,
         inputs=dict(
             niche="X",
             geo="Казань",
-            segments=[f"сегмент_{i}" for i in range(12)],
+            segments=[f"сегмент_{i}" for i in range(28)],
             has_prompt=True,
         ),
         asserts=[
-            # segments 0..7 present
+            # segments 0..23 present
             contains_substr("сегмент_0"),
-            contains_substr("сегмент_7"),
-            # segments 8..11 absent
-            no_query_contains("сегмент_8"),
-            no_query_contains("сегмент_11"),
+            contains_substr("сегмент_23"),
+            # segments 24..27 absent (cap)
+            no_query_contains("сегмент_24"),
+            no_query_contains("сегмент_27"),
             # has_prompt → niche "X" never appears as standalone niche-query line
-            # (it may still appear as substring if 'X' is in a segment — here it isn't)
             no_query_contains(" X "),
         ],
         category="prompt_b2b",
@@ -563,20 +563,20 @@ YMAP_CASES: list[QueryCase] = [
         category="structure",
     ),
     QueryCase(
-        case_id="ymap_prompt_cap_at_8_segments",
-        description="has_prompt=True → only first 8 segments drive queries.",
+        case_id="ymap_prompt_cap_at_24_segments",
+        description="has_prompt=True → only first 24 segments drive queries (was 8).",
         builder=_build_yandex_map_queries,
         inputs=dict(
             niche="X",
             geo="Москва",
-            segments=[f"сегмент_{i}" for i in range(10)],
+            segments=[f"сегмент_{i}" for i in range(28)],
             has_prompt=True,
         ),
         asserts=[
             contains_substr("сегмент_0"),
-            contains_substr("сегмент_7"),
-            no_query_contains("сегмент_8"),
-            no_query_contains("сегмент_9"),
+            contains_substr("сегмент_23"),
+            no_query_contains("сегмент_24"),
+            no_query_contains("сегмент_27"),
         ],
         category="structure",
     ),

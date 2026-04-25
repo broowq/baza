@@ -674,9 +674,12 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
 
     queries = []
 
-    # Search each segment as a standalone customer-type query
+    # Search each segment as a standalone customer-type query.
+    # Up to 24 segments — the LLM now generates 20-40 specific buyer types
+    # (was 6-8 broad categories), and each becomes its own targeted SearXNG
+    # query. More segments → wider net → 100+ candidate companies vs 12.
     if segments:
-        for seg in segments[:8]:
+        for seg in segments[:24]:
             seg = seg.strip()
             if seg and len(seg) > 2:
                 queries.extend([
@@ -799,7 +802,7 @@ def _build_yandex_map_queries(
 
     if has_prompt and segments:
         # Buyer-hunt mode: segment-only queries.
-        for segment in segments[:8]:
+        for segment in segments[:24]:
             segment = segment.strip()
             if not segment:
                 continue
@@ -813,7 +816,7 @@ def _build_yandex_map_queries(
             f"{geo}, {niche} компания".strip(", "),
             f"{geo}, {niche} официальный сайт".strip(", "),
         ]
-        for segment in segments[:8]:
+        for segment in segments[:24]:
             segment = segment.strip()
             if segment:
                 base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
@@ -1070,8 +1073,10 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
     # 2GIS API limits: page_size MUST be 1..10 (undocumented limit — API returns
     # empty items+error if page_size > 10)
     page_size = min(max(limit, 1), 10)
-    # To fetch `limit` results, paginate up to enough pages (max 10 per page)
-    max_pages = max(1, min(5, (limit + page_size - 1) // page_size))
+    # To fetch `limit` results, paginate up to enough pages (10 per page).
+    # Was capped at 5 pages (50 per term) — bumped to 10 (100 per term).
+    # Combined with 24 segments → up to 2400 raw 2GIS candidates.
+    max_pages = max(1, min(10, (limit + page_size - 1) // page_size))
     params: dict = {
         "q": niche,
         "type": "branch",
@@ -1400,9 +1405,9 @@ def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
 
     base_url = f"https://2gis.ru/{slug}/search/{quote_plus(niche)}"
     # Fetch multiple pages (2gis.ru serves /page/N). Each page gives ~15-20 NEW
-    # companies. Cap at 4 pages (~50-60 items) to bound latency and respect the
-    # remote site.
-    max_pages = min(4, max(1, (limit + 14) // 15))
+    # companies. Cap at 8 pages (~120-160 items) — was 4. We're a paid product
+    # now; coverage matters more than the +30s latency from extra pages.
+    max_pages = min(8, max(1, (limit + 14) // 15))
     merged_names: list[tuple[str, int]] = []
     merged_addrs: list[tuple[str, int]] = []
     merged_org_ids: list[tuple[str, int]] = []
@@ -1714,6 +1719,92 @@ def _search_rusprofile(niche: str, geo: str, limit: int) -> list[dict]:
     return results
 
 
+_CITY_TO_REGION: dict[str, str] = {
+    "москва": "Московская область",
+    "санкт-петербург": "Ленинградская область",
+    "спб": "Ленинградская область",
+    "новосибирск": "Новосибирская область",
+    "екатеринбург": "Свердловская область",
+    "казань": "Республика Татарстан",
+    "нижний новгород": "Нижегородская область",
+    "челябинск": "Челябинская область",
+    "красноярск": "Красноярский край",
+    "самара": "Самарская область",
+    "омск": "Омская область",
+    "уфа": "Республика Башкортостан",
+    "ростов-на-дону": "Ростовская область",
+    "ростов": "Ростовская область",
+    "пермь": "Пермский край",
+    "волгоград": "Волгоградская область",
+    "воронеж": "Воронежская область",
+    "краснодар": "Краснодарский край",
+    "саратов": "Саратовская область",
+    "тюмень": "Тюменская область",
+    "тольятти": "Самарская область",
+    "ижевск": "Удмуртская Республика",
+    "барнаул": "Алтайский край",
+    "ульяновск": "Ульяновская область",
+    "иркутск": "Иркутская область",
+    "хабаровск": "Хабаровский край",
+    "ярославль": "Ярославская область",
+    "владивосток": "Приморский край",
+    "махачкала": "Республика Дагестан",
+    "томск": "Томская область",
+    "оренбург": "Оренбургская область",
+    "кемерово": "Кемеровская область",
+    "новокузнецк": "Кемеровская область",
+    "рязань": "Рязанская область",
+    "астрахань": "Астраханская область",
+    "пенза": "Пензенская область",
+    "липецк": "Липецкая область",
+    "тула": "Тульская область",
+    "киров": "Кировская область",
+    "чебоксары": "Чувашская Республика",
+    "калининград": "Калининградская область",
+    "брянск": "Брянская область",
+    "курск": "Курская область",
+    "иваново": "Ивановская область",
+    "магнитогорск": "Челябинская область",
+    "тверь": "Тверская область",
+    "ставрополь": "Ставропольский край",
+    "симферополь": "Республика Крым",
+    "белгород": "Белгородская область",
+    "архангельск": "Архангельская область",
+    "владимир": "Владимирская область",
+    "сочи": "Краснодарский край",
+    "курган": "Курганская область",
+    "смоленск": "Смоленская область",
+    "калуга": "Калужская область",
+    "чита": "Забайкальский край",
+    "орел": "Орловская область",
+    "вологда": "Вологодская область",
+    "якутск": "Республика Саха",
+    "сургут": "ХМАО",
+    "владикавказ": "Республика Северная Осетия",
+    "грозный": "Чеченская Республика",
+}
+
+
+def _geo_tiers(geo: str) -> list[str]:
+    """Return geographic fallback tiers from narrow to broad.
+    'Томск' → ['Томск', 'Томская область', 'Россия']
+    'Россия' → ['Россия']
+    Empty → ['']
+    """
+    geo_clean = (geo or "").strip()
+    if not geo_clean:
+        return [""]
+    if geo_clean.lower() == "россия":
+        return ["Россия"]
+    tiers = [geo_clean]
+    region = _CITY_TO_REGION.get(geo_clean.lower())
+    if region and region not in tiers:
+        tiers.append(region)
+    if "Россия" not in tiers:
+        tiers.append("Россия")
+    return tiers
+
+
 def search_leads(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
@@ -1730,7 +1821,9 @@ def search_leads(query: str, limit: int, *, niche: str = "", geography: str = ""
     has_prompt = bool((prompt or "").strip())
     map_search_terms = []
     if effective_segments:
-        for seg in effective_segments[:8]:
+        # 24 segments per maps source. With 2GIS+Yandex_scrape+Yandex_API+rusprofile
+        # firing per term, this is the wide net that gets us 100+ candidates.
+        for seg in effective_segments[:24]:
             seg = seg.strip()
             if seg and len(seg) > 2:
                 map_search_terms.append(seg)
