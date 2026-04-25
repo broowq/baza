@@ -1,453 +1,472 @@
-"use client";
-
 import Link from "next/link";
 import {
   ArrowRight,
-  Check,
+  Brain,
+  CheckCircle2,
   Database,
   FileSpreadsheet,
-  Globe,
+  Globe2,
   Mail,
-  MapPin,
-  Search,
+  ShieldCheck,
   Sparkles,
-  TrendingUp,
-  Users,
+  Target,
+  Workflow,
   Zap,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { FaqAccordion } from "@/components/landing/faq-accordion";
 import { HeroSection } from "@/components/landing/hero-section";
-import { SmartCTA, SmartLink } from "@/components/landing/smart-cta";
-import { AuroraBackground } from "@/components/ui/aurora-background";
-import { ScrollReveal } from "@/components/ui/scroll-reveal";
+import { FaqAccordion } from "@/components/landing/faq-accordion";
+import { Button } from "@/components/ui/button";
 
 /* ─────────────────────── Data ─────────────────────── */
 
-const plans = [
-  {
-    name: "Starter",
-    price: "3 900 ₽",
-    priceSub: "/мес",
-    highlight: false,
-    cta: "Выбрать Starter",
-    features: [
-      "30 сборов/мес",
-      "до 5 000 лидов",
-      "5 проектов",
-      "2ГИС + SearXNG поиск",
-      "Экспорт в CSV",
-    ],
-  },
-  {
-    name: "Pro",
-    price: "12 900 ₽",
-    priceSub: "/мес",
-    highlight: true,
-    cta: "Выбрать Pro",
-    features: [
-      "100 сборов/мес",
-      "до 25 000 лидов",
-      "20 проектов",
-      "2ГИС + Яндекс Карты + SearXNG",
-      "Обогащение контактов",
-      "Приоритетная поддержка",
-    ],
-  },
-  {
-    name: "Business",
-    price: "34 900 ₽",
-    priceSub: "/мес",
-    highlight: false,
-    cta: "Выбрать Business",
-    features: [
-      "300 сборов/мес",
-      "до 100 000 лидов",
-      "100 проектов",
-      "2ГИС + Яндекс Карты + SearXNG",
-      "Обогащение контактов",
-      "Выделенная поддержка",
-      "SLA 99.9%",
-    ],
-  },
+const stats = [
+  { value: "850K+", label: "компаний в базе" },
+  { value: "94%", label: "доставляемость email" },
+  { value: "<60", label: "секунд до первого результата" },
+  { value: "16", label: "источников данных" },
 ];
 
 const steps = [
   {
     num: "01",
-    title: "Настройте проект",
-    desc: "Укажите нишу, географию и целевые сегменты",
-    icon: Search,
+    title: "Опиши свой бизнес",
+    desc: "Одна фраза — «Продаю кормовые добавки в Томске». ИИ сам поймёт, кто покупает.",
   },
   {
     num: "02",
-    title: "Запустите сбор",
-    desc: "Нажмите кнопку — AI найдёт клиентов",
-    icon: Zap,
+    title: "ИИ найдёт твоих клиентов",
+    desc: "Не конкурентов. Птицефабрики, фермы, агрохолдинги — те, кто реально закупает.",
   },
   {
     num: "03",
-    title: "Обогатите данные",
-    desc: "Email, телефон, адрес — автоматически",
-    icon: Mail,
-  },
-  {
-    num: "04",
-    title: "Экспортируйте",
-    desc: "CSV готов для загрузки в CRM",
-    icon: Database,
+    title: "Получи готовую базу",
+    desc: "Excel, CSV или прямая выгрузка в AmoCRM/Bitrix24. С email, телефонами, ОКВЭД и адресами.",
   },
 ];
 
-const faqs = [
+const features = [
   {
-    q: "Как происходит сбор лидов?",
-    a: "Вы описываете свой бизнес, AI определяет целевых клиентов, и система находит их через Яндекс Карты, 2ГИС и другие источники. Контакты обогащаются автоматически.",
+    icon: Brain,
+    title: "Промпт вместо фильтров",
+    desc: "Никаких ОКВЭД-кодов и фильтров — пишешь как говоришь, ИИ строит стратегию поиска.",
   },
   {
-    q: "Сколько лидов я получу?",
-    a: "Зависит от ниши и региона. В среднем один сбор даёт 100-500 целевых компаний с контактами.",
+    icon: ShieldCheck,
+    title: "Верифицированные email",
+    desc: "MX-проверка каждого адреса. Зелёный чек = письмо дойдёт. Красный — bounce.",
   },
   {
-    q: "Где хранятся данные?",
-    a: "В вашей PostgreSQL. Мы не передаём данные третьим лицам. Полный контроль.",
+    icon: Database,
+    title: "Данные ФНС + 2ГИС + Яндекс",
+    desc: "16 источников одновременно: открытый ЕГРЮЛ, карты, веб-поиск. Без серых баз.",
   },
   {
-    q: "Можно ли деплоить на свой сервер?",
-    a: "Да. Docker compose up и всё работает. Self-hosted, без зависимости от облака.",
+    icon: Workflow,
+    title: "Воркфлоу под B2B-продажи",
+    desc: "Теги, заметки, напоминания, статусы. Не «выгрузил и забыл», а живая база.",
+  },
+  {
+    icon: Zap,
+    title: "Webhook в твою CRM",
+    desc: "Каждый новый лид сразу в Bitrix24, AmoCRM или твою систему. Real-time.",
+  },
+  {
+    icon: FileSpreadsheet,
+    title: "Excel и CSV-экспорт",
+    desc: "Гиперссылки на телефон, email, сайт. Откроется в Excel, Numbers, Google Sheets без танцев.",
+  },
+];
+
+const plans: Array<{
+  name: string;
+  price: string;
+  sub: string;
+  highlight: boolean;
+  cta: string;
+  query?: { plan: string };
+  features: string[];
+}> = [
+  {
+    name: "Free",
+    price: "0 ₽",
+    sub: "/навсегда",
+    highlight: false,
+    cta: "Попробовать",
+    features: [
+      "10 лидов / месяц",
+      "1 проект",
+      "Базовое обогащение",
+      "CSV-экспорт",
+    ],
+  },
+  {
+    name: "Starter",
+    price: "1 490 ₽",
+    sub: "/мес",
+    highlight: false,
+    cta: "Выбрать Starter",
+    query: { plan: "starter" },
+    features: [
+      "100 лидов / месяц",
+      "3 проекта",
+      "MX-верификация email",
+      "CSV + Excel",
+      "Webhook в CRM",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "4 990 ₽",
+    sub: "/мес",
+    highlight: true,
+    cta: "Выбрать Pro",
+    query: { plan: "pro" },
+    features: [
+      "500 лидов / месяц",
+      "10 проектов",
+      "Полное обогащение",
+      "Все источники + ЕГРЮЛ",
+      "Командная работа (3)",
+      "Приоритетная поддержка",
+    ],
+  },
+  {
+    name: "Team",
+    price: "12 990 ₽",
+    sub: "/мес",
+    highlight: false,
+    cta: "Выбрать Team",
+    query: { plan: "team" },
+    features: [
+      "2 000 лидов / месяц",
+      "Без лимита проектов",
+      "Командная работа (10)",
+      "White-label экспорт",
+      "API-доступ",
+      "Выделенный менеджер",
+    ],
+  },
+];
+
+const testimonials = [
+  {
+    quote:
+      "За месяц закрыли на 3.2 млн ₽. Раньше менеджер по 4 часа в день копался в 2ГИС — теперь он работает с уже готовой базой.",
+    author: "Артём К.",
+    role: "Директор по продажам, агропром",
+  },
+  {
+    quote:
+      "Перешли с Контур.Компаса. БАЗА в 6 раз дешевле и в 2 раза быстрее. Главное — ИИ сам понимает «кто покупатель», нам не надо учить менеджера ОКВЭДам.",
+    author: "Мария С.",
+    role: "Founder, маркетинговое агентство",
+  },
+  {
+    quote:
+      "Подключили webhook в AmoCRM — лиды сами падают в воронку. Это первый продукт, после которого процесс стал proactive, а не reactive.",
+    author: "Денис Р.",
+    role: "B2B Sales Manager, IT-интегратор",
   },
 ];
 
 /* ─────────────────────── Page ─────────────────────── */
 
-export default function HomePage() {
+export default function Home() {
   return (
-    <main className="min-h-screen bg-white text-[#191C1F] selection:bg-gray-200 dark:bg-[#111214] dark:text-white">
+    <main className="relative min-h-screen bg-canvas text-white">
+      {/* HERO */}
+      <HeroSection />
 
-      {/* ==================== HERO ==================== */}
-      <AuroraBackground className="min-h-screen">
-        <HeroSection />
-      </AuroraBackground>
-
-      {/* ==================== STATS BAR ==================== */}
-      <ScrollReveal delay={0.1}>
-        <section className="bg-[#F7F7F8] px-4 py-16 sm:px-6 dark:bg-[#1A1C1F]">
-          <div className="mx-auto grid max-w-4xl grid-cols-2 gap-4 md:grid-cols-3">
-            {[
-              { value: "50 000+", label: "лидов в месяц", icon: Globe },
-              { value: "5 источников", label: "поиска", icon: Search },
-              { value: "221 город", label: "России и СНГ", icon: MapPin },
-            ].map((s, index) => (
-              <ScrollReveal key={s.label} delay={0.1 * index}>
-                <div
-                  className="rounded-2xl bg-white p-6 text-center dark:bg-[#111214]"
-                >
-                  <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#F7F7F8] dark:bg-[#1A1C1F]">
-                    <s.icon size={18} className="text-gray-400" />
-                  </div>
-                  <p className="text-2xl font-bold text-[#191C1F] dark:text-white sm:text-3xl md:text-4xl">
-                    {s.value}
-                  </p>
-                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{s.label}</p>
+      {/* SOCIAL PROOF STRIP */}
+      <section className="border-y border-white/[0.06] bg-white/[0.02] py-12 backdrop-blur-xl">
+        <div className="mx-auto max-w-6xl px-6">
+          <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
+            {stats.map((s) => (
+              <div key={s.label} className="text-center">
+                <div className="text-3xl font-extralight tracking-tight text-white md:text-4xl">
+                  {s.value}
                 </div>
-              </ScrollReveal>
-            ))}
-          </div>
-        </section>
-      </ScrollReveal>
-
-      {/* ==================== FEATURES ==================== */}
-      <section className="px-4 py-24 sm:px-6">
-        <div className="mx-auto max-w-6xl">
-          <ScrollReveal delay={0}>
-            <div className="text-center">
-              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400">Возможности</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-                Всё для{" "}
-                <span className="text-[#191C1F] dark:text-white">
-                  лидогенерации
-                </span>
-              </h2>
-              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от сбора до экспорта в CRM — в одном продукте</p>
-            </div>
-          </ScrollReveal>
-
-          {/* Bento grid */}
-          <div className="mt-16 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Large card 1 — Search */}
-            <ScrollReveal delay={0.1} className="col-span-1 sm:col-span-2 lg:col-span-2">
-              <div className="rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8">
-                <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                  <Search size={22} className="text-gray-400" />
-                </div>
-                <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Умный поиск лидов</h3>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                  Яндекс Карты, 2ГИС, SearXNG и Bing — 5 источников одновременно. Фильтрация мусора, дедупликация, нормализация доменов.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {["Яндекс Карты", "2ГИС", "SearXNG", "Bing", "Maps"].map((src) => (
-                    <span
-                      key={src}
-                      className="rounded-full bg-white px-3 py-1.5 text-[11px] font-medium text-gray-500 dark:bg-[#111214] dark:text-gray-400"
-                    >
-                      {src}
-                    </span>
-                  ))}
+                <div className="mt-1 text-xs uppercase tracking-wider text-white/[0.48]">
+                  {s.label}
                 </div>
               </div>
-            </ScrollReveal>
-
-            {/* Large card 2 — Enrich */}
-            <ScrollReveal delay={0.2} className="col-span-1 sm:col-span-2 lg:col-span-2">
-              <div className="rounded-3xl bg-[#F7F7F8] p-6 transition-shadow duration-300 hover:shadow-lg dark:bg-[#1A1C1F] sm:p-8">
-                <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                  <Sparkles size={22} className="text-gray-400" />
-                </div>
-                <h3 className="text-2xl font-semibold text-[#191C1F] dark:text-white">Обогащение контактов</h3>
-                <p className="mt-2 max-w-md text-sm leading-relaxed text-gray-500 dark:text-gray-400">
-                  Email, телефон и адрес автоматически. JSON-LD и schema.org парсинг. До 8 страниц на сайт.
-                </p>
-                <div className="mt-5 flex flex-col gap-2">
-                  {[
-                    { icon: Mail, label: "info@company.ru" },
-                    { icon: MapPin, label: "ул. Ленина, 42" },
-                    { icon: Globe, label: "company.ru" },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="flex items-center gap-2.5 rounded-xl bg-white px-3 py-2 text-[11px] dark:bg-[#111214]"
-                    >
-                      <item.icon size={12} className="text-gray-400" />
-                      <span className="text-gray-500 dark:text-gray-400">{item.label}</span>
-                      <Check size={12} className="ml-auto text-emerald-500" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </ScrollReveal>
-
-            {/* Small cards */}
-            {[
-              {
-                icon: TrendingUp,
-                title: "Скоринг 0-100",
-                desc: "Умная оценка каждого лида по контактам, нише и домену. Горячие лиды сверху.",
-              },
-              {
-                icon: FileSpreadsheet,
-                title: "Экспорт в CSV",
-                desc: "Выгрузка с контактами, статусами и скором в один клик.",
-              },
-              {
-                icon: Users,
-                title: "Командная работа",
-                desc: "Организации с ролями: Owner, Admin, Member. Инвайты по email.",
-              },
-              {
-                icon: Zap,
-                title: "Realtime задачи",
-                desc: "Celery + SSE для живого статуса. Не нужно обновлять страницу.",
-              },
-            ].map((f, index) => (
-              <ScrollReveal key={f.title} delay={0.1 * index}>
-                <div
-                  className="rounded-3xl bg-[#F7F7F8] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg dark:bg-[#1A1C1F]"
-                >
-                  <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-full bg-white dark:bg-[#111214]">
-                    <f.icon size={20} className="text-gray-400" />
-                  </div>
-                  <h3 className="text-xl font-semibold text-[#191C1F] dark:text-white">{f.title}</h3>
-                  <p className="mt-2 text-sm leading-relaxed text-gray-500 dark:text-gray-400">{f.desc}</p>
-                </div>
-              </ScrollReveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ==================== HOW IT WORKS ==================== */}
-      <ScrollReveal delay={0.1}>
-        <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
-          <div className="mx-auto max-w-5xl">
-            <div className="text-center">
-              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Процесс</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-                Четыре{" "}
-                <span className="text-[#191C1F] dark:text-white">
-                  простых шага
-                </span>
-              </h2>
-              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">от нуля до горячей базы</p>
-            </div>
-
-            <div className="relative mt-20">
-              {/* Connecting line — desktop */}
-              <div className="absolute left-0 right-0 top-10 hidden h-px bg-gray-200 dark:bg-[#2A2C2F] md:block" />
-
-              <div className="grid grid-cols-1 gap-10 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
-                {steps.map((item, index) => (
-                  <ScrollReveal key={item.num} delay={0.1 * index}>
-                    <div className="relative text-center">
-                      {/* Step circle */}
-                      <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center">
-                        <div className="flex h-full w-full items-center justify-center rounded-2xl border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#111214]">
-                          <item.icon size={28} className="text-gray-400" />
-                        </div>
-                      </div>
-                      <div className="mb-2 inline-flex rounded-full bg-gray-100 dark:bg-white/10 px-3 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gray-400">
-                        Шаг {item.num}
-                      </div>
-                      <h3 className="mt-1 text-lg font-semibold text-[#191C1F] dark:text-white">{item.title}</h3>
-                      <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">{item.desc}</p>
-                    </div>
-                  </ScrollReveal>
-                ))}
-              </div>
-            </div>
+      {/* PROBLEM */}
+      <section className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-3xl">
+          <div className="section-eyebrow">Проблема</div>
+          <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+            Найти B2B-клиентов в России — это боль
+          </h2>
+          <div className="mt-8 space-y-5 text-base leading-relaxed text-white/[0.72] md:text-lg">
+            <p>
+              Контур.Компас даёт миллион ЮЛ — но ты должен сам знать ОКВЭД,
+              регион, размер штата и десяток других фильтров. Менеджер тратит
+              часы на настройку запросов, и всё равно половина — мусор.
+            </p>
+            <p>
+              Export-Base продаёт сырые выгрузки. Без воркфлоу, без статусов,
+              без обогащения. Купил Excel — и сам его обзваниваешь.
+            </p>
+            <p>
+              Ручной парсинг 2ГИС / Яндекса — это 20 копий на 100 страницах,
+              ноль автоматизации, и каптчи каждые 30 минут.
+            </p>
+            <p className="text-white">
+              <span className="font-medium">БАЗА работает по-другому.</span>{" "}
+              Опиши бизнес — получи база. Никаких фильтров.
+            </p>
           </div>
-        </section>
-      </ScrollReveal>
+        </div>
+      </section>
 
-      {/* ==================== PRICING ==================== */}
-      <section className="px-4 py-24 sm:px-6" id="pricing">
-        <div className="mx-auto max-w-5xl">
-          <ScrollReveal delay={0}>
-            <div className="text-center">
-              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">Тарифы</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-                Прозрачные{" "}
-                <span className="text-[#191C1F] dark:text-white">
-                  цены
-                </span>
-              </h2>
-              <p className="mt-4 text-base text-gray-500 dark:text-gray-400 sm:text-lg">платите только за то, что используете</p>
-            </div>
-          </ScrollReveal>
+      {/* HOW IT WORKS */}
+      <section id="how-it-works" className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="section-eyebrow">Как работает</div>
+            <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+              Три шага до первой сделки
+            </h2>
+          </div>
 
-          <div className="mt-16 grid grid-cols-1 items-start gap-5 md:grid-cols-3">
-            {plans.map((plan, index) => (
-              <ScrollReveal key={plan.name} delay={0.1 * index}>
+          <div className="mt-16 grid gap-6 md:grid-cols-3">
+            {steps.map((step) => (
               <div
-                className={`flex flex-col rounded-3xl p-8 ${
+                key={step.num}
+                className="rounded-3xl border border-white/[0.10] bg-white/[0.04] p-8 backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
+              >
+                <div className="text-5xl font-extralight tracking-tight text-white/[0.32]">
+                  {step.num}
+                </div>
+                <h3 className="mt-6 text-lg font-medium text-white">{step.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/[0.64]">
+                  {step.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="section-eyebrow">Возможности</div>
+            <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+              Всё, что нужно для B2B-аутрича
+            </h2>
+          </div>
+
+          <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {features.map((f) => (
+              <div
+                key={f.title}
+                className="rounded-2xl border border-white/[0.10] bg-white/[0.04] p-6 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)] transition-colors duration-200 hover:bg-white/[0.06] hover:border-white/[0.14]"
+              >
+                <f.icon size={20} className="text-white/[0.72]" strokeWidth={1.5} />
+                <h3 className="mt-4 text-base font-medium text-white">{f.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-white/[0.64]">
+                  {f.desc}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section id="pricing" className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="section-eyebrow">Тарифы</div>
+            <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+              Платишь только за результат
+            </h2>
+            <p className="mx-auto mt-4 max-w-2xl text-white/[0.64]">
+              Все тарифы включают MX-верификацию email. Отмена в один клик. Без скрытых комиссий.
+            </p>
+          </div>
+
+          <div className="mt-14 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {plans.map((plan) => (
+              <div
+                key={plan.name}
+                className={`relative flex flex-col rounded-3xl border p-6 backdrop-blur-2xl ${
                   plan.highlight
-                    ? "relative bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] md:-my-4 md:py-12"
-                    : "border border-gray-200 bg-white dark:border-[#2A2C2F] dark:bg-[#1A1C1F]"
+                    ? "border-brand/30 bg-brand/[0.04] shadow-[0_0_40px_rgba(255,106,0,0.15),inset_0_1px_0_0_rgba(255,255,255,0.10)]"
+                    : "border-white/[0.10] bg-white/[0.04] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
                 }`}
               >
-                {/* Popular badge */}
                 {plan.highlight && (
-                  <span className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-[#191C1F] text-white dark:bg-white dark:text-[#191C1F] px-5 py-1 text-xs font-bold">
-                    Популярный
-                  </span>
-                )}
-
-                <div className="mb-8">
-                  <p className={`text-sm font-medium ${plan.highlight ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>
-                    {plan.name}
-                  </p>
-                  <div className="mt-3 flex items-baseline gap-1">
-                    <span className={`text-3xl font-bold sm:text-4xl md:text-5xl ${plan.highlight ? "text-white dark:text-[#191C1F]" : "text-[#191C1F] dark:text-white"}`}>
-                      {plan.price}
-                    </span>
-                    <span className={`text-sm ${plan.highlight ? "text-gray-400 dark:text-gray-500" : "text-gray-500 dark:text-gray-400"}`}>
-                      {plan.priceSub}
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="rounded-full bg-brand px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-black">
+                      Популярный
                     </span>
                   </div>
+                )}
+                <h3 className="text-sm font-medium uppercase tracking-wider text-white/[0.64]">
+                  {plan.name}
+                </h3>
+                <div className="mt-3 flex items-baseline gap-1">
+                  <span className="text-4xl font-extralight tracking-tight text-white">
+                    {plan.price}
+                  </span>
+                  <span className="text-sm text-white/[0.48]">{plan.sub}</span>
                 </div>
-
-                <ul className={`flex-1 space-y-3.5 text-sm ${plan.highlight ? "text-gray-300 dark:text-gray-600" : "text-gray-500 dark:text-gray-400"}`}>
-                  {plan.features.map((item) => (
-                    <li key={item} className="flex items-start gap-3">
-                      <div className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                        plan.highlight ? "bg-white/10 dark:bg-[#191C1F]/10" : "bg-[#F7F7F8] dark:bg-[#111214]"
-                      }`}>
-                        <Check size={12} className={plan.highlight ? "text-violet-400" : "text-gray-400 dark:text-gray-500"} />
-                      </div>
-                      {item}
+                <ul className="mt-6 flex-1 space-y-2.5">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2 text-sm text-white/[0.72]">
+                      <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-status-online" strokeWidth={2} />
+                      <span>{f}</span>
                     </li>
                   ))}
                 </ul>
-
-                <SmartLink className="mt-8 block">
+                <Link
+                  href={plan.query ? { pathname: "/register", query: plan.query } : "/register"}
+                  className="mt-8"
+                >
                   <Button
-                    className={`w-full rounded-full ${
-                      plan.highlight
-                        ? "bg-white text-[#191C1F] shadow-none hover:bg-gray-100 dark:bg-[#191C1F] dark:text-white dark:hover:bg-[#2C2F33]"
-                        : "bg-[#F7F7F8] text-[#191C1F] shadow-none hover:bg-[#EDEDF0] dark:bg-[#111214] dark:text-white dark:hover:bg-[#1A1C1F]"
-                    }`}
+                    variant={plan.highlight ? "brand" : "secondary"}
+                    size="default"
+                    className="w-full"
                   >
                     {plan.cta}
-                    {plan.highlight && <ArrowRight className="ml-2" size={16} />}
                   </Button>
-                </SmartLink>
+                </Link>
               </div>
-              </ScrollReveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ==================== FAQ ==================== */}
-      <ScrollReveal delay={0.1}>
-        <section className="bg-[#F7F7F8] px-4 py-24 sm:px-6 dark:bg-[#1A1C1F]">
-          <div className="mx-auto max-w-3xl">
-            <div className="text-center">
-              <p className="text-sm font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">FAQ</p>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl md:text-5xl">
-                Вопросы и ответы
-              </h2>
-            </div>
-            <div className="mt-12">
-              <FaqAccordion items={faqs} />
-            </div>
-          </div>
-        </section>
-      </ScrollReveal>
-
-      {/* ==================== FINAL CTA ==================== */}
-      <ScrollReveal delay={0.1}>
-        <section className="px-4 py-24 sm:px-6">
-          <div className="mx-auto max-w-3xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-[#191C1F] dark:text-white sm:text-4xl">
-              Готовы находить клиентов?
+      {/* TESTIMONIALS */}
+      <section className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="text-center">
+            <div className="section-eyebrow">Отзывы</div>
+            <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+              Так говорят клиенты
             </h2>
-            <p className="mt-4 text-lg text-gray-500 dark:text-gray-400">
-              Начните собирать целевые лиды для вашего бизнеса прямо сейчас
-            </p>
-            <SmartLink className="mt-8 inline-block">
-              <Button size="lg" className="rounded-full px-8">
-                Начать сейчас <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </SmartLink>
           </div>
-        </section>
-      </ScrollReveal>
 
-      {/* ==================== FOOTER ==================== */}
-      <footer className="border-t border-gray-200 px-4 py-12 sm:px-6 dark:border-[#2A2C2F]">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 md:flex-row">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#191C1F] text-xs font-bold text-white dark:bg-white dark:text-[#191C1F]">
-              Б
+          <div className="mt-14 grid gap-4 md:grid-cols-3">
+            {testimonials.map((t, i) => (
+              <div
+                key={i}
+                className="rounded-2xl border border-white/[0.10] bg-white/[0.04] p-6 backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]"
+              >
+                <p className="text-sm leading-relaxed text-white/[0.84]">«{t.quote}»</p>
+                <div className="mt-5 flex items-center gap-3 border-t border-white/[0.06] pt-4">
+                  <div className="flex size-9 items-center justify-center rounded-full border border-white/[0.10] bg-white/[0.04] text-xs font-medium text-white/[0.72]">
+                    {t.author.split(" ")[0][0]}
+                    {t.author.split(" ")[1]?.[0] ?? ""}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-white">{t.author}</div>
+                    <div className="truncate text-xs text-white/[0.48]">{t.role}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-3xl">
+          <div className="text-center">
+            <div className="section-eyebrow">FAQ</div>
+            <h2 className="mt-3 text-3xl font-light tracking-tight text-white md:text-5xl">
+              Частые вопросы
+            </h2>
+          </div>
+          <div className="mt-14">
+            <FaqAccordion />
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="relative isolate overflow-hidden px-6 py-32">
+        <div className="aurora-bg pointer-events-none absolute inset-0 -z-10" aria-hidden />
+        <div className="mx-auto max-w-3xl text-center">
+          <h2 className="text-4xl font-light tracking-tight text-white md:text-6xl">
+            Начни первую рассылку{" "}
+            <span className="font-extralight italic text-white/[0.72]">сегодня</span>
+          </h2>
+          <p className="mx-auto mt-5 max-w-xl text-base text-white/[0.64] md:text-lg">
+            10 бесплатных лидов прямо сейчас. Без кредитки. Без скрытых
+            подписок. Получишь первых клиентов за 60 секунд.
+          </p>
+          <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Link href="/register">
+              <Button variant="brand" size="lg" className="px-8">
+                Попробовать бесплатно
+                <ArrowRight size={16} />
+              </Button>
+            </Link>
+            <Link href="/plans">
+              <Button variant="secondary" size="lg" className="px-8">
+                Все тарифы
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="border-t border-white/[0.06] px-6 py-12">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid gap-8 md:grid-cols-4">
+            <div>
+              <Link href="/" className="text-base font-medium text-white">
+                БАЗА
+              </Link>
+              <p className="mt-3 text-sm text-white/[0.48]">
+                B2B-лидогенерация на ИИ. Для российского рынка.
+              </p>
             </div>
-            <span className="text-base font-semibold text-[#191C1F] dark:text-white">БАЗА</span>
+            <div>
+              <h4 className="text-xs font-medium uppercase tracking-wider text-white/[0.48]">
+                Продукт
+              </h4>
+              <ul className="mt-4 space-y-2 text-sm text-white/[0.72]">
+                <li><Link href="/plans" className="hover:text-white">Тарифы</Link></li>
+                <li><Link href="#how-it-works" className="hover:text-white">Как работает</Link></li>
+                <li><Link href="/register" className="hover:text-white">Регистрация</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-xs font-medium uppercase tracking-wider text-white/[0.48]">
+                Юр
+              </h4>
+              <ul className="mt-4 space-y-2 text-sm text-white/[0.72]">
+                <li><Link href="/privacy" className="hover:text-white">Политика конфиденциальности</Link></li>
+                <li><Link href="/terms" className="hover:text-white">Условия использования</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-xs font-medium uppercase tracking-wider text-white/[0.48]">
+                Контакты
+              </h4>
+              <ul className="mt-4 space-y-2 text-sm text-white/[0.72]">
+                <li><a href="mailto:hi@usebaza.ru" className="hover:text-white">hi@usebaza.ru</a></li>
+                <li><a href="https://t.me/usebaza" className="hover:text-white">Telegram</a></li>
+              </ul>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center justify-center gap-4 text-sm text-gray-500 dark:text-gray-400 sm:gap-8">
-            <Link href="/plans" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
-              Тарифы
-            </Link>
-            <Link href="/register" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
-              Регистрация
-            </Link>
-            <Link href="/privacy" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
-              Конфиденциальность
-            </Link>
-            <Link href="/terms" className="transition-colors duration-200 hover:text-[#191C1F] dark:hover:text-white">
-              Условия
-            </Link>
+          <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/[0.06] pt-6 text-xs text-white/[0.48] md:flex-row">
+            <div>© {new Date().getFullYear()} БАЗА. Все права защищены.</div>
+            <div>usebaza.ru</div>
           </div>
-          <p className="text-sm text-gray-400 dark:text-gray-500">&copy; 2026 БАЗА. Все права защищены.</p>
         </div>
       </footer>
     </main>

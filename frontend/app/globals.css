@@ -117,7 +117,7 @@
   @apply transition-colors duration-200;
 }
 .glass-hover:hover {
-  @apply bg-white/[0.07] border-white/14;
+  @apply bg-white/[0.07] border-white/[0.14];
 }
 
 /* Warning-tinted glass (see screenshot 3 — Capacity Issues panel) */

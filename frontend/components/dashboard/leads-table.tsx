@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
@@ -38,11 +39,21 @@ const STATUS_LABELS: Record<string, string> = {
   rejected: "Отклонён",
 };
 
-const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
-  new: "secondary",
-  contacted: "outline",
-  qualified: "default",
-  rejected: "destructive",
+type StatusVariant = "default" | "online" | "brand" | "offline";
+type StatusDot = "online" | "offline" | "warning" | undefined;
+
+const STATUS_VARIANTS: Record<string, StatusVariant> = {
+  new: "default",
+  contacted: "online",
+  qualified: "brand",
+  rejected: "offline",
+};
+
+const STATUS_DOTS: Record<string, StatusDot> = {
+  new: undefined,
+  contacted: "online",
+  qualified: undefined,
+  rejected: "offline",
 };
 
 const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
@@ -53,12 +64,12 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
 ];
 
 const SOURCE_META: Record<string, { label: string; emoji: string; color: string }> = {
-  yandex_maps: { label: "Яндекс Карты", emoji: "🅉", color: "text-red-500" },
-  "2gis": { label: "2ГИС", emoji: "②", color: "text-emerald-500" },
-  rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-blue-500" },
-  maps_searxng: { label: "Яндекс Карты (web)", emoji: "🅉", color: "text-rose-400" },
-  searxng: { label: "Web-поиск", emoji: "🌐", color: "text-slate-500" },
-  bing: { label: "Bing", emoji: "🅱", color: "text-slate-500" },
+  yandex_maps: { label: "Яндекс Карты", emoji: "🅉", color: "text-status-offline" },
+  "2gis": { label: "2ГИС", emoji: "②", color: "text-status-online" },
+  rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-white/[0.72]" },
+  maps_searxng: { label: "Яндекс Карты (web)", emoji: "🅉", color: "text-status-offline" },
+  searxng: { label: "Web-поиск", emoji: "🌐", color: "text-white/[0.56]" },
+  bing: { label: "Bing", emoji: "🅱", color: "text-white/[0.56]" },
 };
 
 function SourceBadge({ source, externalId }: { source?: string; externalId?: string }) {
@@ -93,7 +104,7 @@ function EmailStatusBadge({ status }: { status?: string }) {
     return (
       <span
         title="Email доставляемый (MX-запись найдена)"
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-green-500/15 text-[10px] text-green-600"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-status-online/15 text-[10px] text-status-online"
         aria-label="email verified"
       >
         ✓
@@ -108,7 +119,7 @@ function EmailStatusBadge({ status }: { status?: string }) {
             ? "У домена нет MX-записи — письма не дойдут"
             : "Email синтаксически некорректен"
         }
-        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-[10px] text-red-500"
+        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-status-offline/15 text-[10px] text-status-offline"
         aria-label="email invalid"
       >
         !
@@ -119,7 +130,7 @@ function EmailStatusBadge({ status }: { status?: string }) {
 }
 
 function TruncatedCell({ value, className = "" }: { value: string | null | undefined; className?: string }) {
-  if (!value) return <span className="text-muted-foreground">—</span>;
+  if (!value) return <span className="text-white/[0.40]">—</span>;
   return (
     <TooltipProvider>
       <Tooltip>
@@ -135,24 +146,16 @@ function TruncatedCell({ value, className = "" }: { value: string | null | undef
 }
 
 function ScoreIndicator({ score }: { score: number }) {
-  const colorClass =
-    score >= SCORE_HIGH
-      ? "text-emerald-600 dark:text-emerald-400"
-      : score >= SCORE_MEDIUM
-        ? "text-amber-600 dark:text-amber-400"
-        : "text-rose-600 dark:text-rose-400";
-
-  const bgClass =
-    score >= SCORE_HIGH
-      ? "bg-emerald-500"
-      : score >= SCORE_MEDIUM
-        ? "bg-amber-500"
-        : "bg-rose-500";
-
+  const clamped = Math.max(0, Math.min(100, score));
   return (
     <div className="flex items-center gap-2">
-      <span className={`inline-block h-2 w-2 rounded-full ${bgClass}`} />
-      <span className={`text-sm font-semibold tabular-nums ${colorClass}`}>{score}</span>
+      <div className="h-1 w-20 overflow-hidden rounded-full bg-white/[0.06]">
+        <div
+          className="h-full rounded-full bg-brand transition-[width] duration-300"
+          style={{ width: `${clamped}%` }}
+        />
+      </div>
+      <span className="font-mono text-xs tabular-nums text-white/[0.72]">{score}</span>
     </div>
   );
 }
@@ -218,28 +221,33 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
   const reminderOverdue = lead.reminder_at && new Date(lead.reminder_at) < new Date();
 
   return (
-    <TableRow className="bg-muted/30 hover:bg-muted/30">
-      <TableCell colSpan={11} className="px-4 py-3 sm:px-8">
-        <div className="grid gap-3 sm:grid-cols-2">
+    <TableRow className="border-b border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.02]">
+      <TableCell colSpan={11} className="px-4 py-4 sm:px-8">
+        <div className="grid gap-4 sm:grid-cols-2">
           {/* Notes */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Заметка</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Заметка</span>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               onBlur={() => void saveNotes()}
               onKeyDown={handleKeyDown}
               placeholder="Контекст переговоров, кто принимает решение..."
-              className="h-8 text-sm"
+              className="h-9 text-sm"
               disabled={saving}
             />
           </div>
           {/* Tags */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Теги</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Теги</span>
             <div className="flex flex-wrap items-center gap-1.5">
               {tags.map((t) => (
-                <Badge key={t} variant="secondary" className="cursor-pointer text-xs" onClick={() => void removeTag(t)}>
+                <Badge
+                  key={t}
+                  variant="default"
+                  className="cursor-pointer text-xs"
+                  render={<button type="button" onClick={() => void removeTag(t)} />}
+                >
                   {t} ✕
                 </Badge>
               ))}
@@ -248,37 +256,37 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
                 onChange={(e) => setTagInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addTag(); } }}
                 placeholder="+ тег"
-                className="h-7 w-24 text-xs"
+                className="h-8 w-28 text-xs"
                 disabled={saving}
               />
             </div>
           </div>
           {/* Workflow actions */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Действия</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Действия</span>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void patchLead({ mark_contacted: true })}>
+              <Button size="sm" variant="brand" disabled={saving} onClick={() => void patchLead({ mark_contacted: true })}>
                 ✓ Связались сейчас
               </Button>
               {lastContactStr && (
-                <span className="text-muted-foreground">последний контакт: {lastContactStr}</span>
+                <span className="text-white/[0.48]">последний контакт: {lastContactStr}</span>
               )}
             </div>
           </div>
           {/* Reminder */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-medium text-muted-foreground">Напоминание</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Напоминание</span>
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(1)}>+1д</Button>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(3)}>+3д</Button>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(7)}>+7д</Button>
-              <Button size="sm" variant="outline" disabled={saving} onClick={() => void setReminder(14)}>+14д</Button>
+              <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(1)}>+1д</Button>
+              <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(3)}>+3д</Button>
+              <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(7)}>+7д</Button>
+              <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(14)}>+14д</Button>
               {reminderDateStr && (
                 <>
-                  <span className={reminderOverdue ? "font-semibold text-red-600" : "text-muted-foreground"}>
+                  <span className={reminderOverdue ? "font-medium text-status-offline" : "text-white/[0.48]"}>
                     напомнить {reminderDateStr}{reminderOverdue && " (просрочено)"}
                   </span>
-                  <Button size="sm" variant="ghost" disabled={saving} onClick={() => void setReminder(null)}>×</Button>
+                  <Button size="icon-xs" variant="ghost" disabled={saving} onClick={() => void setReminder(null)}>×</Button>
                 </>
               )}
             </div>
@@ -383,35 +391,35 @@ export function LeadsTable({
   if (loading) {
     return (
       <div className="space-y-3">
-        <div className="h-10 animate-pulse rounded-xl bg-muted" />
-        <div className="h-56 animate-pulse rounded-xl bg-muted" />
+        <div className="h-11 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.03]" />
+        <div className="h-56 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.03]" />
       </div>
     );
   }
 
   if (leads.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-8 text-center">
-        <h3 className="text-base font-semibold">Лидов пока нет</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Запустите сбор, чтобы заполнить таблицу.</p>
-      </div>
+      <GlassCard variant="default" className="p-8 text-center">
+        <h3 className="text-base font-medium text-white">Лидов пока нет</h3>
+        <p className="mt-1 text-sm text-white/[0.48]">Запустите сбор, чтобы заполнить таблицу.</p>
+      </GlassCard>
     );
   }
 
   return (
     <div className="space-y-3">
       {!hideInternalFilters && (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 backdrop-blur-xl">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Поиск по компании, домену, email..."
-            className="w-full sm:w-56"
+            className="w-full sm:w-64"
           />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as "all" | Lead["status"])}
-            className="h-8 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            className="h-9 rounded-xl border border-white/[0.10] bg-white/[0.05] px-3 text-sm text-white outline-none backdrop-blur-xl transition-colors focus:border-white/[0.24] focus:bg-white/[0.08]"
           >
             <option value="all">Все статусы</option>
             <option value="new">Новый</option>
@@ -420,7 +428,7 @@ export function LeadsTable({
             <option value="rejected">Отклонён</option>
           </select>
           <Button
-            variant="outline"
+            variant="secondary"
             size="sm"
             onClick={() => setScoreSort((p) => (p === "desc" ? "asc" : "desc"))}
           >
@@ -432,7 +440,7 @@ export function LeadsTable({
 
       {selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
-          <Button size="sm" disabled={!canBulkEnrich || runningBulk} onClick={runBulk}>
+          <Button size="sm" variant="brand" disabled={!canBulkEnrich || runningBulk} onClick={runBulk}>
             <Sparkles size={13} className="mr-1" />
             {runningBulk ? "Обогащаем..." : `Обогатить выбранные (${selectedIds.length})`}
           </Button>
@@ -450,18 +458,19 @@ export function LeadsTable({
           so users on phones can see phone/email/address without horizontal scroll. */}
       <div className="space-y-2 md:hidden">
         {filtered.length === 0 && (
-          <p className="rounded-lg border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-            Нет лидов по текущим фильтрам.
-          </p>
+          <GlassCard variant="default" className="px-4 py-6 text-center">
+            <p className="text-sm text-white/[0.48]">Нет лидов по текущим фильтрам.</p>
+          </GlassCard>
         )}
         {filtered.map((lead) => {
           const isSelected = selectedIds.includes(lead.id);
           const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : "");
-          const scoreColor = lead.score >= SCORE_HIGH ? "text-emerald-600" : lead.score >= SCORE_MEDIUM ? "text-amber-600" : "text-red-500";
+          const statusVariant = STATUS_VARIANTS[lead.status] ?? "default";
+          const statusDot = STATUS_DOTS[lead.status];
           return (
-            <div key={lead.id} className="rounded-lg border bg-card p-3 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-start gap-2 min-w-0 flex-1">
+            <GlassCard key={lead.id} variant="default" className="space-y-3 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-1 items-start gap-2">
                   <input
                     type="checkbox"
                     checked={isSelected}
@@ -471,220 +480,239 @@ export function LeadsTable({
                     className="mt-1 h-4 w-4 cursor-pointer rounded"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-sm break-words">{lead.company}</p>
-                    {lead.city && <p className="text-xs text-muted-foreground mt-0.5">{lead.city}</p>}
+                    <p className="flex items-center gap-1.5 break-words text-sm font-medium text-white">
+                      <SourceBadge source={lead.source} externalId={lead.external_id} />
+                      <span>{lead.company}</span>
+                    </p>
+                    {lead.city && <p className="mt-0.5 text-xs text-white/[0.48]">{lead.city}</p>}
                   </div>
                 </div>
-                <div className={`text-sm font-bold ${scoreColor} shrink-0`}>{lead.score}</div>
+                <div className="shrink-0">
+                  <ScoreIndicator score={lead.score} />
+                </div>
               </div>
               <div className="space-y-1.5 text-xs">
                 {lead.phone && (
-                  <a href={`tel:${lead.phone}`} className="block text-blue-600 underline">
+                  <a href={`tel:${lead.phone}`} className="block text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
                     📞 {lead.phone}
                   </a>
                 )}
                 {lead.email && (
-                  <a href={`mailto:${lead.email}`} className="block text-blue-600 underline break-all">
+                  <a href={`mailto:${lead.email}`} className="block break-all text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
                     ✉️ {lead.email}
                   </a>
                 )}
                 {lead.address && (
-                  <p className="text-muted-foreground">📍 {lead.address}</p>
+                  <p className="text-white/[0.56]">📍 {lead.address}</p>
                 )}
                 {domain && lead.website && /^https?:\/\//i.test(lead.website) && (
-                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block text-blue-600 underline truncate">
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block truncate text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
                     🌐 {domain}
                   </a>
                 )}
               </div>
               <div className="flex items-center justify-between pt-1">
-                <Badge variant={STATUS_VARIANTS[lead.status] ?? "secondary"} className="text-xs">
+                <Badge variant={statusVariant} dot={statusDot} className="text-xs">
                   {STATUS_LABELS[lead.status] ?? lead.status}
                 </Badge>
                 {!lead.enriched && (
-                  <span className="text-[10px] text-amber-600">не обогащён</span>
+                  <Badge variant="warning" dot="warning" className="text-[10px]">
+                    не обогащён
+                  </Badge>
                 )}
               </div>
-            </div>
+            </GlassCard>
           );
         })}
       </div>
 
       {/* Desktop: full table (hidden on mobile) */}
-      <div className="hidden min-w-0 overflow-x-auto rounded-lg border md:block" role="region" aria-label="Таблица лидов">
-        <Table aria-label="Список лидов" className="min-w-[700px]">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-8 sm:w-10">
-                <input
-                  type="checkbox"
-                  checked={allVisibleSelected}
-                  onChange={toggleAll}
-                  className="cursor-pointer rounded"
-                  aria-label={allVisibleSelected ? "Снять выбор со всех" : "Выбрать все"}
-                />
-              </TableHead>
-              <TableHead className="min-w-[140px]">Компания</TableHead>
-              <TableHead className="min-w-[80px]">Город</TableHead>
-              <TableHead className="min-w-[110px]">Сайт</TableHead>
-              <TableHead className="hidden min-w-[140px] md:table-cell">Email</TableHead>
-              <TableHead className="hidden min-w-[110px] sm:table-cell">Телефон</TableHead>
-              <TableHead className="hidden min-w-[130px] md:table-cell">Адрес</TableHead>
-              <TableHead className="min-w-[80px]">Статус</TableHead>
-              <TableHead className="hidden min-w-[60px] md:table-cell">Score</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((lead) => {
-              const isSelected = selectedIds.includes(lead.id);
-              const isExpanded = expandedId === lead.id;
-              const domain = lead.domain || lead.website?.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] || "";
+      <div
+        className="hidden min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] md:block"
+        role="region"
+        aria-label="Таблица лидов"
+      >
+        <div className="overflow-x-auto">
+          <Table aria-label="Список лидов" className="min-w-[700px]">
+            <TableHeader className="border-b border-white/[0.08] bg-white/[0.04] [&_tr]:border-b-0">
+              <TableRow className="border-b-0 hover:bg-transparent">
+                <TableHead className="h-11 w-8 px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] sm:w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAll}
+                    className="cursor-pointer rounded"
+                    aria-label={allVisibleSelected ? "Снять выбор со всех" : "Выбрать все"}
+                  />
+                </TableHead>
+                <TableHead className="h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Компания</TableHead>
+                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Город</TableHead>
+                <TableHead className="h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Сайт</TableHead>
+                <TableHead className="hidden h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Email</TableHead>
+                <TableHead className="hidden h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] sm:table-cell">Телефон</TableHead>
+                <TableHead className="hidden h-11 min-w-[130px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Адрес</TableHead>
+                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Статус</TableHead>
+                <TableHead className="hidden h-11 min-w-[120px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Score</TableHead>
+                <TableHead className="h-11 w-10 px-4" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((lead) => {
+                const isSelected = selectedIds.includes(lead.id);
+                const isExpanded = expandedId === lead.id;
+                const domain = lead.domain || lead.website?.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] || "";
+                const statusVariant = STATUS_VARIANTS[lead.status] ?? "default";
+                const statusDot = STATUS_DOTS[lead.status];
 
-              return (
-                <>
-                  <TableRow
-                    key={lead.id}
-                    data-state={isSelected ? "selected" : undefined}
-                    className="cursor-pointer"
-                    onClick={(e) => handleRowClick(lead.id, e)}
-                  >
-                    <TableCell>
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={(e) =>
-                          setSelectedIds((prev) =>
-                            e.target.checked ? [...new Set([...prev, lead.id])] : prev.filter((id) => id !== lead.id)
-                          )
-                        }
-                        className="cursor-pointer rounded"
-                        aria-label={`Выбрать ${lead.company}`}
-                      />
-                    </TableCell>
-                    <TableCell className="max-w-[192px]">
-                      <div>
-                        <p className="truncate font-medium flex items-center gap-1" title={lead.company}>
-                          <SourceBadge source={lead.source} externalId={lead.external_id} />
-                          <span className="truncate">{lead.company}</span>
-                        </p>
-                        {lead.enriched ? (
-                          <span className="mt-0.5 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                            <Sparkles size={9} /> обогащён
-                          </span>
-                        ) : (
-                          <span
-                            className="mt-0.5 inline-flex items-center gap-1 text-xs text-amber-600"
-                            title="Контакты ещё не собраны — запустите обогащение"
-                          >
-                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400" />
-                            не обогащён
-                          </span>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-[96px]">
-                      <TruncatedCell value={lead.city} className="text-muted-foreground" />
-                    </TableCell>
-                    <TableCell className="max-w-[144px]">
-                      {lead.website && /^https?:\/\//i.test(lead.website.trim()) && !lead.website.trim().toLowerCase().startsWith('data:') ? (
-                        <a
-                          href={lead.website}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={lead.website}
-                          className="inline-flex max-w-full items-center gap-1 truncate text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-                        >
-                          <span className="truncate">{domain}</span>
-                          <ExternalLink size={10} className="shrink-0 text-muted-foreground" />
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden max-w-[176px] md:table-cell">
-                      {lead.email ? (
-                        <div className="flex items-center gap-1">
-                          <a
-                            href={`mailto:${lead.email}`}
-                            title={lead.email}
-                            className="block truncate text-foreground underline decoration-muted-foreground/50 underline-offset-2 hover:decoration-foreground"
-                          >
-                            {lead.email}
-                          </a>
-                          <EmailStatusBadge status={lead.email_status} />
+                return (
+                  <>
+                    <TableRow
+                      key={lead.id}
+                      data-state={isSelected ? "selected" : undefined}
+                      className="cursor-pointer border-b border-white/[0.06] transition-colors duration-150 hover:bg-white/[0.04] data-[state=selected]:bg-white/[0.06]"
+                      onClick={(e) => handleRowClick(lead.id, e)}
+                    >
+                      <TableCell className="px-4 py-3.5">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) =>
+                            setSelectedIds((prev) =>
+                              e.target.checked ? [...new Set([...prev, lead.id])] : prev.filter((id) => id !== lead.id)
+                            )
+                          }
+                          className="cursor-pointer rounded"
+                          aria-label={`Выбрать ${lead.company}`}
+                        />
+                      </TableCell>
+                      <TableCell className="max-w-[192px] px-4 py-3.5">
+                        <div>
+                          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-white" title={lead.company}>
+                            <SourceBadge source={lead.source} externalId={lead.external_id} />
+                            <span className="truncate">{lead.company}</span>
+                          </p>
+                          {lead.enriched ? (
+                            <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-white/[0.48]">
+                              <Sparkles size={9} /> обогащён
+                            </span>
+                          ) : (
+                            <span
+                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-status-warning"
+                              title="Контакты ещё не собраны — запустите обогащение"
+                            >
+                              <span className="status-dot" data-state="warning" aria-hidden />
+                              не обогащён
+                            </span>
+                          )}
                         </div>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden max-w-[128px] sm:table-cell">
-                      <TruncatedCell value={lead.phone} className="font-mono text-muted-foreground" />
-                    </TableCell>
-                    <TableCell className="hidden max-w-[176px] md:table-cell">
-                      <TruncatedCell value={lead.address} className="text-muted-foreground" />
-                    </TableCell>
-                    <TableCell>
-                      {onLeadUpdate ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger
-                            render={
-                              <button type="button" className="cursor-pointer">
-                                <Badge variant={STATUS_VARIANTS[lead.status] ?? "secondary"}>
-                                  {STATUS_LABELS[lead.status] ?? lead.status}
-                                </Badge>
-                              </button>
-                            }
-                          />
-                          <DropdownMenuContent align="start" sideOffset={4}>
-                            {STATUS_OPTIONS.map((opt) => (
-                              <DropdownMenuItem
-                                key={opt.value}
-                                onClick={() => void changeStatus(lead.id, opt.value)}
-                              >
-                                <Badge variant={STATUS_VARIANTS[opt.value]} className="pointer-events-none">
-                                  {opt.label}
-                                </Badge>
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : (
-                        <Badge variant={STATUS_VARIANTS[lead.status] ?? "secondary"}>
-                          {STATUS_LABELS[lead.status] ?? lead.status}
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <ScoreIndicator score={lead.score} />
-                    </TableCell>
-                    <TableCell>
-                      {onLeadDelete && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="text-muted-foreground hover:text-destructive"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void deleteLead(lead.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                  {isExpanded && (
-                    <NotesRow key={`${lead.id}-notes`} lead={lead} onLeadUpdate={onLeadUpdate} />
-                  )}
-                </>
-              );
-            })}
-          </TableBody>
-        </Table>
+                      </TableCell>
+                      <TableCell className="max-w-[96px] px-4 py-3.5">
+                        <TruncatedCell value={lead.city} className="text-white/[0.72]" />
+                      </TableCell>
+                      <TableCell className="max-w-[144px] px-4 py-3.5">
+                        {lead.website && /^https?:\/\//i.test(lead.website.trim()) && !lead.website.trim().toLowerCase().startsWith('data:') ? (
+                          <a
+                            href={lead.website}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={lead.website}
+                            className="inline-flex max-w-full items-center gap-1 truncate text-white underline decoration-white/[0.30] underline-offset-2 hover:decoration-white"
+                          >
+                            <span className="truncate">{domain}</span>
+                            <ExternalLink size={10} className="shrink-0 text-white/[0.48]" />
+                          </a>
+                        ) : (
+                          <span className="text-white/[0.40]">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden max-w-[176px] px-4 py-3.5 md:table-cell">
+                        {lead.email ? (
+                          <div className="flex items-center gap-1.5">
+                            <a
+                              href={`mailto:${lead.email}`}
+                              title={lead.email}
+                              className="block truncate text-white underline decoration-white/[0.30] underline-offset-2 hover:decoration-white"
+                            >
+                              {lead.email}
+                            </a>
+                            <EmailStatusBadge status={lead.email_status} />
+                          </div>
+                        ) : (
+                          <span className="text-white/[0.40]">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden max-w-[128px] px-4 py-3.5 sm:table-cell">
+                        <TruncatedCell value={lead.phone} className="font-mono text-white/[0.72]" />
+                      </TableCell>
+                      <TableCell className="hidden max-w-[176px] px-4 py-3.5 md:table-cell">
+                        <TruncatedCell value={lead.address} className="text-white/[0.56]" />
+                      </TableCell>
+                      <TableCell className="px-4 py-3.5">
+                        {onLeadUpdate ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              render={
+                                <button type="button" className="cursor-pointer">
+                                  <Badge variant={statusVariant} dot={statusDot}>
+                                    {STATUS_LABELS[lead.status] ?? lead.status}
+                                  </Badge>
+                                </button>
+                              }
+                            />
+                            <DropdownMenuContent align="start" sideOffset={4}>
+                              {STATUS_OPTIONS.map((opt) => {
+                                const optVariant = STATUS_VARIANTS[opt.value] ?? "default";
+                                const optDot = STATUS_DOTS[opt.value];
+                                return (
+                                  <DropdownMenuItem
+                                    key={opt.value}
+                                    onClick={() => void changeStatus(lead.id, opt.value)}
+                                  >
+                                    <Badge variant={optVariant} dot={optDot} className="pointer-events-none">
+                                      {opt.label}
+                                    </Badge>
+                                  </DropdownMenuItem>
+                                );
+                              })}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        ) : (
+                          <Badge variant={statusVariant} dot={statusDot}>
+                            {STATUS_LABELS[lead.status] ?? lead.status}
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden px-4 py-3.5 md:table-cell">
+                        <ScoreIndicator score={lead.score} />
+                      </TableCell>
+                      <TableCell className="px-4 py-3.5">
+                        {onLeadDelete && (
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="text-white/[0.48] hover:text-status-offline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void deleteLead(lead.id);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <NotesRow key={`${lead.id}-notes`} lead={lead} onLeadUpdate={onLeadUpdate} />
+                    )}
+                  </>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-[11px] text-white/[0.48]">
         Показано {filtered.length} из {leads.length}
         {selectedIds.length > 0 && ` · Выбрано: ${selectedIds.length}`}
       </p>
