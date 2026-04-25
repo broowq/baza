@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Instrument_Serif } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "sonner";
@@ -12,6 +12,15 @@ import { Navbar } from "@/components/layout/navbar";
 
 // Inter kept as Cyrillic fallback; Geist is the primary display + body face.
 const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
+
+// Instrument Serif italic — used for one decorative emphasis on the hero ("созревают").
+const instrument = Instrument_Serif({
+  weight: "400",
+  style: "italic",
+  subsets: ["latin"],
+  variable: "--font-instrument",
+  display: "swap",
+});
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://baza.io";
 
@@ -39,7 +48,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`dark ${GeistSans.variable} ${GeistMono.variable} ${inter.variable}`}>
+    <html lang="ru" className={`dark ${GeistSans.variable} ${GeistMono.variable} ${inter.variable} ${instrument.variable}`}>
       <body className={`${GeistSans.className} font-sans overflow-x-hidden antialiased`}>
         <div className="page-shell">
           <Navbar />
