@@ -2,147 +2,265 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: 0 0% 100%;
-  --fg: 224 35% 15%;
-  --glow: 220 9% 11%;
-}
+/* ─────────────────────────────────────────────────────────────────
+   БАЗА — Cinematic Glass design system
+   Reference: rondesignlab Public Transit OS (March 2026)
+   See /DESIGN.md for full spec.
+   ───────────────────────────────────────────────────────────────── */
 
+:root,
 .dark {
-  --bg: 228 15% 6%;
-  --fg: 210 40% 96%;
-  --glow: 0 0% 100%;
+  /* Canvas — pure dark layered */
+  --canvas: 240 5% 4%;          /* #0A0A0B */
+  --canvas-raised: 240 5% 6%;   /* #0F0F11 */
+
+  /* Foreground */
+  --fg: 240 7% 96%;             /* #F5F5F7 */
+  --fg-secondary: 240 7% 96%;   /* + 0.72 alpha at point of use */
+  --fg-muted: 240 7% 96%;       /* + 0.48 alpha */
+  --fg-faint: 240 7% 96%;       /* + 0.28 alpha */
+
+  /* Glass tints (used as raw rgba in component code, here as hex for utilities) */
+  --glass-a: 255 255 255;       /* alpha 0.05 */
+  --glass-b: 255 255 255;       /* alpha 0.03 */
+
+  /* Status (calibrated for glow on black) */
+  --status-online: 152 69% 56%; /* #34D399 emerald-400 */
+  --status-offline: 351 89% 60%;/* #F43F5E rose-500 */
+  --status-warning: 43 96% 56%; /* #FBBF24 amber-400 */
+  --brand: 22 100% 50%;         /* #FF6A00 — primary accent for one CTA per view */
+
+  /* Shadcn compatibility — map to canvas tokens so existing components don't crash */
+  --background: var(--canvas);
+  --foreground: var(--fg);
+  --card: 240 5% 6%;
+  --card-foreground: var(--fg);
+  --popover: 240 5% 6%;
+  --popover-foreground: var(--fg);
+  --primary: var(--fg);
+  --primary-foreground: var(--canvas);
+  --secondary: 240 5% 10%;
+  --secondary-foreground: var(--fg);
+  --muted: 240 5% 10%;
+  --muted-foreground: 240 7% 64%;
+  --accent: 240 5% 10%;
+  --accent-foreground: var(--fg);
+  --destructive: var(--status-offline);
+  --destructive-foreground: var(--fg);
+  --border: 0 0% 100%;          /* + 0.08 alpha at point of use */
+  --input: 0 0% 100%;
+  --ring: 0 0% 100%;
+  --radius: 1rem;               /* 16px default; cards use 24px (1.5rem) */
 }
 
+/* ── Page shell ───────────────────────────────────────────────── */
 .page-shell {
-  @apply min-h-screen bg-gradient-to-b from-white via-gray-50/30 to-slate-100 dark:from-[#07070a] dark:via-[#0a0a14] dark:to-[#07070a];
+  @apply min-h-screen relative overflow-hidden;
+  background-color: hsl(var(--canvas));
 }
 
-/* Glass card system */
-.glass {
-  @apply rounded-2xl border border-slate-200/70 bg-white/80 p-6 backdrop-blur-xl;
+/* Aurora background — slow drifting blobs behind hero sections.
+   Wrap your hero in <div class="aurora-bg"> for the cinematic feel. */
+.aurora-bg {
+  position: relative;
+  isolation: isolate;
 }
-.dark .glass {
-  @apply border-white/[0.08] bg-white/[0.04];
+.aurora-bg::before,
+.aurora-bg::after {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(120px);
+  opacity: 0.35;
+}
+.aurora-bg::before {
+  background:
+    radial-gradient(circle at 20% 30%, #6366f1 0%, transparent 35%),
+    radial-gradient(circle at 80% 60%, #ec4899 0%, transparent 35%);
+  animation: aurora-1 18s ease-in-out infinite;
+}
+.aurora-bg::after {
+  background:
+    radial-gradient(circle at 70% 20%, #06b6d4 0%, transparent 30%),
+    radial-gradient(circle at 30% 80%, #f97316 0%, transparent 30%);
+  animation: aurora-2 22s ease-in-out infinite;
+}
+
+@keyframes aurora-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -60px) scale(1.1); }
+  66% { transform: translate(-30px, 30px) scale(0.9); }
+}
+@keyframes aurora-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(-50px, 40px) scale(1.15); }
+  66% { transform: translate(30px, -50px) scale(0.85); }
+}
+
+/* ── Glass primitives ──────────────────────────────────────────
+   The hero pattern: floating translucent surfaces over a backdrop.
+   Use .glass for hero cards, .glass-sm for nested. */
+
+.glass {
+  @apply rounded-3xl border border-white/10 bg-white/[0.05] p-6 backdrop-blur-2xl;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-sm {
+  @apply rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
 .glass-hover {
-  @apply transition-all duration-300;
+  @apply transition-colors duration-200;
 }
 .glass-hover:hover {
-  @apply bg-slate-50;
-}
-.dark .glass-hover:hover {
-  @apply bg-white/[0.07];
+  @apply bg-white/[0.07] border-white/14;
 }
 
-/* Card (updated to glass) */
-.card {
-  @apply rounded-2xl border border-slate-200/70 bg-white/90 p-6 shadow-soft backdrop-blur-xl;
+/* Warning-tinted glass (see screenshot 3 — Capacity Issues panel) */
+.glass-warning {
+  @apply rounded-2xl border p-5 backdrop-blur-xl;
+  background-color: rgba(40, 28, 28, 0.65);
+  border-color: rgba(244, 63, 94, 0.18);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
 }
-.dark .card {
-  @apply border-white/[0.08] bg-white/[0.04] shadow-none;
+
+/* ── KPI display number ───────────────────────────────────────
+   The signature: big thin numerals with tiny eyebrow + caption. */
+
+.kpi-eyebrow {
+  @apply text-[11px] font-medium uppercase tracking-wider text-white/[0.48];
+}
+
+.kpi-number {
+  @apply text-5xl font-extralight tracking-tight text-white md:text-6xl;
+  font-feature-settings: "tnum" 1, "ss01" 1;
+}
+
+.kpi-unit {
+  @apply text-2xl font-light text-white/[0.48];
+}
+
+.kpi-caption {
+  @apply text-[11px] text-white/[0.48];
+}
+
+/* ── Pill nav (top-of-dashboard tabs) ─────────────────────────── */
+
+.pill-nav {
+  @apply inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] p-1 backdrop-blur-xl;
+}
+.pill-nav button,
+.pill-nav a {
+  @apply rounded-full px-4 py-1.5 text-sm font-medium text-white/[0.56] transition-colors duration-200 hover:text-white;
+}
+.pill-nav button[data-active="true"],
+.pill-nav a[data-active="true"] {
+  @apply bg-white/10 text-white;
+}
+
+/* ── Status chip with glowing dot ─────────────────────────────── */
+
+.status-dot {
+  @apply size-1.5 shrink-0 rounded-full;
+}
+.status-dot[data-state="online"] {
+  background-color: #34D399;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.7);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+.status-dot[data-state="offline"] {
+  background-color: #F43F5E;
+  box-shadow: 0 0 8px rgba(244, 63, 94, 0.6);
+}
+.status-dot[data-state="warning"] {
+  background-color: #FBBF24;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.6);
+}
+
+@keyframes pulse-glow {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.85; }
+}
+
+/* ── Section headings ─────────────────────────────────────────── */
+
+.section-eyebrow {
+  @apply text-[11px] font-medium uppercase tracking-wider text-white/[0.48];
 }
 
 .section-title {
-  @apply text-2xl font-bold tracking-tight md:text-3xl;
+  @apply text-3xl font-light tracking-tight text-white md:text-4xl;
 }
 
 .section-subtitle {
-  @apply mt-2 text-sm text-slate-600 dark:text-slate-400;
+  @apply mt-3 text-base text-white/[0.72];
 }
+
+/* ── Empty state ──────────────────────────────────────────────── */
 
 .empty-state {
-  @apply rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-8 text-center;
-}
-.dark .empty-state {
-  @apply border-white/[0.1] bg-white/[0.02];
+  @apply rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-10 text-center backdrop-blur-xl;
 }
 
-/* Gradient border utility */
-.gradient-border {
+/* ── Map backdrop helper ──────────────────────────────────────
+   Wrap a hero section in <div class="map-backdrop">…</div> and
+   set --map-image inline to a Mapbox static URL.
+
+   <section class="map-backdrop" style="--map-image: url(https://api.mapbox.com/.../1200x600.png)"> */
+
+.map-backdrop {
   position: relative;
+  isolation: isolate;
 }
-.gradient-border::before {
+.map-backdrop::before {
   content: "";
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, rgba(25, 28, 31, 0.15), rgba(25, 28, 31, 0.1), rgba(25, 28, 31, 0.05));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
+  z-index: -1;
+  background-image: var(--map-image);
+  background-size: cover;
+  background-position: center;
+  opacity: 0.35;
+  filter: contrast(1.05) saturate(0.8);
+  mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
 }
 
-/* Subtle grid background for hero sections */
-.grid-bg {
-  background-image:
-    linear-gradient(rgba(25, 28, 31, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(25, 28, 31, 0.03) 1px, transparent 1px);
-  background-size: 60px 60px;
-}
-.dark .grid-bg {
-  background-image:
-    linear-gradient(rgba(25, 28, 31, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(25, 28, 31, 0.06) 1px, transparent 1px);
-}
-
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 224 35% 15%;
-    --card: 0 0% 100%;
-    --card-foreground: 224 35% 15%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 224 35% 15%;
-    --primary: 224 35% 15%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 220 14% 96%;
-    --secondary-foreground: 224 35% 15%;
-    --muted: 220 14% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 220 14% 96%;
-    --accent-foreground: 224 35% 15%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
-    --ring: 224 35% 15%;
-    --radius: 0.625rem;
-  }
-  .dark {
-    --background: 228 15% 6%;
-    --foreground: 210 40% 96%;
-    --card: 228 15% 9%;
-    --card-foreground: 210 40% 96%;
-    --popover: 228 15% 9%;
-    --popover-foreground: 210 40% 96%;
-    --primary: 210 40% 96%;
-    --primary-foreground: 228 15% 9%;
-    --secondary: 228 14% 16%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 228 14% 16%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 228 14% 16%;
-    --accent-foreground: 210 40% 96%;
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 96%;
-    --border: 228 14% 16%;
-    --input: 228 14% 20%;
-    --ring: 216 12% 84%;
-    --radius: 0.625rem;
-  }
-}
+/* ── Base ─────────────────────────────────────────────────────── */
 
 * {
-  border-color: hsl(var(--border));
+  border-color: hsl(var(--border) / 0.08);
 }
 
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background-color: hsl(var(--canvas));
+  color: hsl(var(--fg));
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01" 1, "cv11" 1;
+}
+
+/* Selection: white on transparent — clean reading against glass */
+::selection {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* Scrollbar — slim, calm */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
 }
