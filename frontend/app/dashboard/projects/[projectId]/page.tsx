@@ -218,97 +218,118 @@ export default function ProjectDetailsPage() {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6"
+      className="mx-auto max-w-[1280px] space-y-6 px-4 py-8 sm:px-6 lg:px-10"
     >
       {/* Header */}
       <div className="space-y-5">
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-white transition-colors">
-          <ArrowLeft size={13} /> назад в дашборд
-        </Link>
-        <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
-          <div>
+        {/* Breadcrumb */}
+        <div className="mono-cap" style={{ fontSize: "10.5px" }}>
+          <Link href="/dashboard" className="t-40 hover:text-white transition-colors">дашборд</Link>
+          <span className="t-28 mx-1.5">/</span>
+          <span className="t-40">проекты</span>
+          <span className="t-28 mx-1.5">/</span>
+          <span className="t-72">{project?.id?.slice(0, 12) ?? "—"}</span>
+        </div>
+
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 flex-1">
             <div className="eyebrow mb-2">проект</div>
             <h1 className="h1" style={{ fontSize: "clamp(36px,5vw,56px)" }}>
               {project?.name ?? "Проект"}
             </h1>
-            <div className="flex flex-wrap items-center gap-1.5 mt-3 text-[12px] t-72 mono">
-              {project?.niche && <span>{project.niche}</span>}
-              {project?.geography && <><span className="t-28">·</span><span>{project.geography}</span></>}
-              {project && project.segments.length > 0 && (
+            <div className="mono-cap mt-3 flex items-center flex-wrap" style={{ gap: "0 4px" }}>
+              {project?.niche && <span>ниша: {project.niche}</span>}
+              {project?.geography && (
                 <>
-                  <span className="t-28">·</span>
-                  <span className="t-48">{project.segments.length} сегмент{project.segments.length === 1 ? "" : project.segments.length < 5 ? "а" : "ов"}</span>
+                  <span className="sep-dot mx-2" />
+                  <span>гео: {project.geography}</span>
                 </>
               )}
+              {project && project.segments.length > 0 && (
+                <>
+                  <span className="sep-dot mx-2" />
+                  <span>{project.segments.length} сегмент{project.segments.length === 1 ? "" : project.segments.length < 5 ? "а" : "ов"}</span>
+                </>
+              )}
+              <span className="sep-dot mx-2" />
+              <span>id <span className="t-72">{project?.id?.slice(0, 8) ?? "—"}</span></span>
             </div>
-            {project && project.segments.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-3 max-w-3xl">
-                {project.segments.slice(0, 12).map((seg) => (
-                  <span key={seg} className="panel-thin px-2.5 py-0.5 text-[11px] t-72">{seg}</span>
-                ))}
-                {project.segments.length > 12 && (
-                  <span className="text-[11px] t-40">+ ещё {project.segments.length - 12}</span>
-                )}
-              </div>
-            )}
-            {project?.okved_codes && project.okved_codes.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-3">
-                <span className="eyebrow">ОКВЭД клиентов:</span>
-                {project.okved_codes.map((o) => (
-                  <span
-                    key={o.code}
-                    title={o.label ? `${o.label} (${Math.round((o.confidence ?? 0) * 100)}%)` : undefined}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(168,197,192,0.25)] bg-[rgba(168,197,192,0.08)] px-2 py-0.5 text-[11px] mono"
-                    style={{ color: "var(--mint)" }}
-                  >
-                    {o.code}
-                    {o.label && <span className="t-72 normal-case font-sans">· {o.label.length > 24 ? o.label.slice(0, 24) + "…" : o.label}</span>}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="brand rounded-full px-4 py-2 text-[12.5px] flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
-              disabled={running || collectBusy || !canManage}
-              onClick={() => queueJob("collect", 500)}
-            >
-              {collectBusy ? (
-                <><Loader2 size={12} className="animate-spin" /> Собираем…</>
-              ) : (
-                <><Play size={12} /> Собрать лиды</>
-              )}
+          <div className="flex items-start gap-2 pt-2">
+            <button className="btn-icon" aria-label="избранное">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M12 17.3l-5.5 3 1-6.2L3 9.6l6.3-.9L12 3l2.7 5.7 6.3.9-4.5 4.5 1 6.2z" />
+              </svg>
             </button>
-            <button
-              className="ghost rounded-full px-4 py-2 text-[12.5px] flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
-              disabled={running || enrichBusy || !canManage}
-              onClick={() => queueJob("enrich", 200)}
-            >
-              {enrichBusy ? (
-                <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
-              ) : (
-                <><Sparkles size={12} /> Обогатить</>
-              )}
-            </button>
-            <button
-              className="ghost rounded-full px-3 py-2 text-[12.5px] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
-              onClick={exportXlsx}
-              disabled={!!exporting}
-            >
-              {exporting === "xlsx" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              <span>Excel</span>
-            </button>
-            <button
-              className="ghost rounded-full px-3 py-2 text-[12.5px] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
-              onClick={exportCsv}
-              disabled={!!exporting}
-            >
-              {exporting === "csv" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              <span>CSV</span>
+            <button className="btn-icon" aria-label="поделиться">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <circle cx="18" cy="5" r="3" />
+                <circle cx="6" cy="12" r="3" />
+                <circle cx="18" cy="19" r="3" />
+                <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+              </svg>
             </button>
           </div>
+        </div>
+
+        {/* Chips row */}
+        {project && (project.segments.length > 0 || (project.okved_codes?.length ?? 0) > 0) && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {project.segments.slice(0, 8).map((seg) => (
+              <span key={seg} className="chip chip-sans">сегмент: {seg}</span>
+            ))}
+            {project.okved_codes?.map((o) => (
+              <span key={o.code} className="chip chip-okv" title={o.label}>
+                ОКВЭД {o.code}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Action bar (sticky) */}
+        <div className="panel-flat px-5 flex items-center gap-2.5 flex-wrap" style={{ minHeight: 56, paddingTop: 8, paddingBottom: 8 }}>
+          <button
+            className="btn btn-brand"
+            disabled={running || collectBusy || !canManage}
+            onClick={() => queueJob("collect", 500)}
+          >
+            {collectBusy ? (
+              <><Loader2 size={12} className="animate-spin" /> Собираем…</>
+            ) : (
+              <><Play size={11} /> Собрать лиды</>
+            )}
+          </button>
+          <button
+            className="btn btn-ghost"
+            disabled={running || enrichBusy || !canManage}
+            onClick={() => queueJob("enrich", 200)}
+          >
+            {enrichBusy ? (
+              <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
+            ) : (
+              <><Sparkles size={12} /> Обогатить</>
+            )}
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={exportXlsx}
+            disabled={!!exporting}
+          >
+            {exporting === "xlsx" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            Excel
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={exportCsv}
+            disabled={!!exporting}
+          >
+            {exporting === "csv" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+            CSV
+          </button>
+          <span className="mono-cap t-40 ml-auto mr-2">
+            {jobs.length > 0 ? `последняя задача · ${jobs[0].kind} · ${jobs[0].status}` : "сбор ещё не запускали"}
+          </span>
         </div>
 
         {project && canManage && (
@@ -316,7 +337,7 @@ export default function ProjectDetailsPage() {
         )}
       </div>
 
-      {/* Stats strip */}
+      {/* Stats strip (v3) */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {STAT_CARDS.map((s, i) => {
           const value = stats[s.key];
@@ -326,13 +347,11 @@ export default function ProjectDetailsPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.08 }}
-              className="panel-flat p-4"
+              className="panel-flat"
+              style={{ padding: 20 }}
             >
-              <div className="flex items-center gap-2">
-                <s.icon size={12} className="t-48" />
-                <span className="eyebrow">{s.label}</span>
-              </div>
-              <div className="h2 tnum mt-2" style={{ fontSize: 32 }}>{value}</div>
+              <div className="eyebrow mb-3">{s.label}</div>
+              <div className="h2 tnum mono">{value}</div>
             </motion.div>
           );
         })}

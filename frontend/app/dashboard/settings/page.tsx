@@ -321,35 +321,20 @@ export default function SettingsPage() {
   ];
 
   return (
-    <main className="relative mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+    <main className="relative mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:px-10">
       <div className="space-y-8">
-        {/* Header */}
-        <div className="space-y-3">
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-white transition-colors"
-          >
-            <ArrowLeftIcon className="size-3.5" />
-            Назад на дашборд
-          </Link>
-
-          <div className="space-y-1">
-            <div className="eyebrow">настройки</div>
-            <h1 className="h1" style={{ fontSize: 40, lineHeight: 1.05 }}>
-              Управление аккаунтом.
-            </h1>
-            <p className="text-[13px] t-72">
-              Профиль, организация, участники и журнал действий.
-            </p>
-          </div>
-        </div>
-
-        <div className="hairline" />
-
-        {/* Layout: sidebar tabs + content */}
+        {/* Layout: tabrail + content */}
         <div className="flex flex-col md:flex-row gap-6 md:gap-10">
-          {/* Tabs */}
-          <nav className="flex md:flex-col md:w-[220px] shrink-0 gap-1 overflow-x-auto md:overflow-visible">
+          {/* Tabrail */}
+          <nav className="flex md:flex-col md:w-[220px] shrink-0 gap-1.5 overflow-x-auto md:overflow-visible">
+            <Link
+              href="/dashboard"
+              className="hidden md:inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-white transition-colors mb-2"
+            >
+              <ArrowLeftIcon className="size-3.5" />
+              Назад
+            </Link>
+            <div className="eyebrow hidden md:block mb-2">настройки</div>
             {tabItems.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.value;
@@ -358,15 +343,11 @@ export default function SettingsPage() {
                   key={tab.value}
                   type="button"
                   onClick={() => setActiveTab(tab.value)}
-                  className={
-                    "inline-flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] whitespace-nowrap transition-colors " +
-                    (isActive
-                      ? "bg-white/[0.06] text-white border border-[var(--line-2)]"
-                      : "t-72 hover:text-white hover:bg-white/[0.03] border border-transparent")
-                  }
+                  className={`nav-item ${isActive ? "active" : ""}`}
+                  style={{ width: "100%", justifyContent: "flex-start" }}
                 >
-                  <Icon className="size-3.5 opacity-60 shrink-0" />
-                  {tab.label}
+                  <Icon className="ic" />
+                  <span>{tab.label}</span>
                 </button>
               );
             })}
@@ -374,6 +355,16 @@ export default function SettingsPage() {
 
           {/* Content */}
           <div className="flex-1 min-w-0 max-w-3xl space-y-6">
+            {/* Page header */}
+            <div className="space-y-1 mb-2">
+              <div className="eyebrow md:hidden">настройки</div>
+              <h1 className="h1" style={{ fontSize: 40, lineHeight: 1.05 }}>
+                Управление аккаунтом.
+              </h1>
+              <p className="caption">
+                Профиль, организация, участники и журнал действий.
+              </p>
+            </div>
             {/* Profile */}
             {activeTab === "profile" && (
               <>

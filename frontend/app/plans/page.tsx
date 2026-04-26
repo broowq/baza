@@ -102,10 +102,10 @@ export default function PlansPage() {
         <div className="mb-12 sm:mb-20 text-center">
           <div className="eyebrow mb-4">тарифы</div>
           <h1 className="h1 mb-4" style={{ fontSize: 56, lineHeight: 1.05 }}>
-            Выберите тариф под ваш рост.
+            Выберите тариф <span className="serif-i c-mint">под ваш рост.</span>
           </h1>
-          <p className="mx-auto max-w-md text-[14px] t-72">
-            Платите только за то, что используете. Без скрытых комиссий.
+          <p className="mx-auto max-w-[560px] caption">
+            Платите только за то, что используете. Без скрытых комиссий и без обязательств.
           </p>
         </div>
 
@@ -127,8 +127,8 @@ export default function PlansPage() {
           </div>
         )}
 
-        {/* Plan cards */}
-        <div className="grid items-stretch gap-5 md:grid-cols-3">
+        {/* Plan cards (v3) */}
+        <div className="grid items-start gap-5 md:grid-cols-3 mt-12">
           {plans.map((plan) => {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";
@@ -139,75 +139,93 @@ export default function PlansPage() {
             return (
               <div
                 key={plan.id}
-                className={`relative flex flex-col p-7 ${isPro ? "panel md:scale-[1.02]" : "panel-flat panel-flat--lg"}`}
-                style={
-                  isPro
-                    ? {
-                        boxShadow:
-                          "inset 0 1px 0 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(168,197,192,0.28), 0 30px 80px -28px rgba(168,197,192,0.25), 0 24px 60px -28px rgba(0,0,0,0.7)",
-                      }
-                    : undefined
-                }
+                className={isPro ? "pro-card p-7" : "panel-flat p-7 relative"}
               >
-                {isPro && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[11px] mono text-black">
-                      популярный
-                    </span>
-                  </div>
-                )}
+                {isPro && <span className="pro-tag">популярный</span>}
 
-                <div className="eyebrow mb-3">{plan.name}</div>
+                <div className="eyebrow">{plan.name}</div>
 
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className="tnum text-white"
-                    style={{ fontSize: 40, fontWeight: 200, letterSpacing: "-0.02em" }}
-                  >
+                <div className="mt-5">
+                  <div className="h2 tnum" style={{ fontSize: 40, lineHeight: 1 }}>
                     {rublePrice.price}
-                  </span>
-                  <span className="text-[12px] t-48">{rublePrice.sub}</span>
+                    {rublePrice.sub === "/мес" && (
+                      <span
+                        className="t-40 mono"
+                        style={{ fontSize: 14, fontWeight: 300, letterSpacing: 0 }}
+                      >
+                        {" "}{rublePrice.sub}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mono-cap mt-2">
+                    {isStarter ? "навсегда · без карты"
+                      : isPro ? "первые 14 дней — бесплатно"
+                      : "от 5 рабочих мест"}
+                  </div>
                 </div>
 
-                <div className="hairline my-6" />
+                <div
+                  className="hairline my-6"
+                  style={isPro ? { borderColor: "rgba(168,197,192,0.18)" } : undefined}
+                />
 
-                <ul className="flex-1 space-y-3">
-                  <FeatureItem>
-                    {plan.searches_per_month ?? "∞"} сборов/мес
-                  </FeatureItem>
-                  <FeatureItem>
-                    до {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов
-                  </FeatureItem>
-                  <FeatureItem>{plan.projects_limit} проектов</FeatureItem>
-                  <FeatureItem>
-                    {plan.users_limit}{" "}
-                    {plan.users_limit === 1 ? "пользователь" : "пользователей"}
-                  </FeatureItem>
+                <div>
+                  <div className="feat">
+                    <span className="b" />
+                    <span>
+                      {plan.searches_per_month ?? "∞"} сборов в месяц
+                    </span>
+                  </div>
+                  <div className="feat">
+                    <span className="b" />
+                    <span>
+                      До {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов в месяц
+                    </span>
+                  </div>
+                  <div className="feat">
+                    <span className="b" />
+                    <span>
+                      {plan.projects_limit === 999 || plan.projects_limit > 100
+                        ? "Безлимит проектов"
+                        : `${plan.projects_limit} проектов`}
+                    </span>
+                  </div>
+                  <div className="feat">
+                    <span className="b" />
+                    <span>
+                      {plan.users_limit}{" "}
+                      {plan.users_limit === 1 ? "пользователь" : "пользователей"}
+                    </span>
+                  </div>
                   {extras.map((feat) => (
-                    <FeatureItem key={feat}>{feat}</FeatureItem>
+                    <div key={feat} className="feat">
+                      <span className="b" />
+                      <span>{feat}</span>
+                    </div>
                   ))}
-                </ul>
+                </div>
 
                 <button
                   onClick={() => !isStarter && startCheckout(plan.id)}
                   disabled={isStarter || runningPlan === plan.id}
                   className={
                     isPro
-                      ? "brand mt-8 w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
-                      : "ghost mt-8 w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                      ? "btn btn-brand w-full mt-7"
+                      : "btn btn-ghost w-full mt-7"
                   }
+                  style={{ height: 42 }}
                 >
                   {runningPlan === plan.id ? (
-                    <span className="flex items-center gap-2">
+                    <>
                       <span className="h-4 w-4 animate-spin rounded-full border border-current border-t-transparent" />
                       Создаём…
-                    </span>
+                    </>
                   ) : isStarter ? (
                     <>Текущий тариф</>
                   ) : (
                     <>
                       Перейти на {plan.name}
-                      <ArrowRight size={14} />
+                      <ArrowRight size={13} />
                     </>
                   )}
                 </button>
@@ -237,11 +255,3 @@ export default function PlansPage() {
   );
 }
 
-function FeatureItem({ children }: { children: React.ReactNode }) {
-  return (
-    <li className="flex items-center gap-3 text-[13px] t-84">
-      <span className="dot dot-mt" />
-      {children}
-    </li>
-  );
-}

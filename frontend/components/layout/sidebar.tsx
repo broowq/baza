@@ -4,88 +4,65 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import {
-  ChevronLeft,
-  CreditCard,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  Moon,
-  Settings,
-  Shield,
-  Sun,
-  X,
-} from "lucide-react";
 
 import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
+import type { Organization } from "@/lib/types";
 
-const NAV_ITEMS: { href: Route; label: string; icon: typeof LayoutDashboard }[] = [
-  { href: "/dashboard" as Route, label: "Дашборд", icon: LayoutDashboard },
-  { href: "/dashboard/settings" as Route, label: "Настройки", icon: Settings },
-  { href: "/plans" as Route, label: "Тарифы", icon: CreditCard },
-];
-
-const labelVariants = {
-  open: {
-    opacity: 1,
-    width: "auto",
-    marginLeft: 12,
-    transition: { duration: 0.2, ease: "easeOut" },
-  },
-  closed: {
-    opacity: 0,
-    width: 0,
-    marginLeft: 0,
-    transition: { duration: 0.15, ease: "easeIn" },
-  },
+type NavItem = {
+  href: Route;
+  label: string;
+  icon: React.ReactNode;
+  match?: (path: string) => boolean;
+  count?: () => string | undefined;
 };
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [dark, setDark] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userName, setUserName] = useState("");
+  const [org, setOrg] = useState<Organization | null>(null);
+  const [projectCount, setProjectCount] = useState<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    const saved = localStorage.getItem("sidebar-collapsed");
-    if (saved === "true") setCollapsed(true);
-
     setDark(document.documentElement.classList.contains("dark"));
 
     const token = getToken();
-    if (token) {
-      api<{ email: string; is_admin: boolean }>("/auth/me")
-        .then((me) => {
-          setIsAdmin(me.is_admin);
-          setUserEmail(me.email);
-        })
-        .catch(() => {});
-    }
+    if (!token) return;
+
+    api<{ email: string; full_name?: string; is_admin: boolean }>("/auth/me")
+      .then((me) => {
+        setIsAdmin(me.is_admin);
+        setUserEmail(me.email);
+        setUserName(me.full_name ?? "");
+      })
+      .catch(() => {});
+
+    api<Organization>("/organizations/me")
+      .then(setOrg)
+      .catch(() => {});
+
+    api<unknown[]>("/projects")
+      .then((rows) => setProjectCount(Array.isArray(rows) ? rows.length : null))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
 
-  const toggleCollapse = () => {
-    const next = !collapsed;
-    setCollapsed(next);
-    localStorage.setItem("sidebar-collapsed", String(next));
-  };
-
-  const toggleTheme = () => {
+  const setTheme = (next: "dark" | "light") => {
     const html = document.documentElement;
-    html.classList.toggle("dark");
-    const isDark = html.classList.contains("dark");
-    setDark(isDark);
-    localStorage.setItem("theme", isDark ? "dark" : "light");
+    if (next === "dark") html.classList.add("dark");
+    else html.classList.remove("dark");
+    setDark(next === "dark");
+    localStorage.setItem("theme", next);
   };
 
   const handleLogout = async () => {
@@ -96,192 +73,195 @@ export function Sidebar() {
     router.push("/login");
   };
 
-  const isActive = (href: string) => {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname?.startsWith(href);
-  };
+  const navItems: NavItem[] = [
+    {
+      href: "/dashboard" as Route,
+      label: "Дашборд",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+      ),
+      match: (p) => p === "/dashboard",
+    },
+    {
+      href: "/dashboard" as Route,
+      label: "Проекты",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 7l9-4 9 4-9 4-9-4z" />
+          <path d="M3 12l9 4 9-4" />
+          <path d="M3 17l9 4 9-4" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/projects"),
+      count: () =>
+        projectCount === null ? undefined : String(projectCount),
+    },
+    {
+      href: "/plans" as Route,
+      label: "Тарифы",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M5 4h14l-2 16H7L5 4z" />
+          <path d="M9 9h6" />
+          <path d="M9 13h6" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/plans"),
+    },
+    {
+      href: "/dashboard/settings" as Route,
+      label: "Настройки",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.2.6.7 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/settings") || p.startsWith("/settings"),
+    },
+  ];
 
-  const navItems = isAdmin
-    ? [...NAV_ITEMS, { href: "/dashboard/admin" as Route, label: "Админ", icon: Shield }]
-    : NAV_ITEMS;
+  if (isAdmin) {
+    navItems.push({
+      href: "/dashboard/admin" as Route,
+      label: "Админ",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7l8-4z" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/admin"),
+    });
+  }
 
-  const sidebarContent = (
-    <div className="flex h-full flex-col">
-      {/* Logo area */}
-      <div className="flex h-16 shrink-0 items-center justify-between px-4">
-        <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-foreground to-foreground/80 text-sm font-bold text-background shadow-sm">
-            Б
-          </div>
-          <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: "auto" }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="whitespace-nowrap text-lg font-bold tracking-tight text-foreground"
-              >
-                БАЗА
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </Link>
+  const userInitials = (() => {
+    if (!userName) return userEmail ? userEmail.slice(0, 2).toUpperCase() : "··";
+    const parts = userName.trim().split(/\s+/);
+    return (parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "");
+  })().toUpperCase().slice(0, 2);
 
-        {/* Desktop collapse button */}
-        <button
-          onClick={toggleCollapse}
-          className="hidden shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground lg:block"
-          aria-label={collapsed ? "Развернуть" : "Свернуть"}
-        >
-          <ChevronLeft
-            size={16}
-            className={`transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`}
-          />
-        </button>
+  const sidebar = (
+    <aside className="sidebar-v3 h-full">
+      {/* Top: brand + org switcher */}
+      <div className="px-4 pt-5 pb-4">
+        <div className="flex items-center gap-2.5">
+          <Link href={"/dashboard" as Route} className="flex items-center gap-2.5 min-w-0">
+            <span className="avatar w-7 h-7 text-[12px]">Б</span>
+            <span className="text-[15px] truncate" style={{ fontWeight: 500 }}>
+              база
+            </span>
+          </Link>
+        </div>
+        <div className="flex items-center gap-2 mt-3 pl-1">
+          <span className="text-[12px] t-72 truncate flex-1 min-w-0">
+            {org?.name ?? "БАЗА Демо"}
+          </span>
+          {org?.plan && (
+            <span
+              className="chip chip-mint"
+              style={{ padding: "2px 8px", fontSize: "9.5px" }}
+            >
+              {org.plan}
+            </span>
+          )}
+          <svg className="car shrink-0" viewBox="0 0 24 24">
+            <path d="M8 10l4 4 4-4" />
+          </svg>
+        </div>
       </div>
 
-      {/* Divider */}
-      <div className="mx-4 border-t border-border/50" />
+      <div className="hairline mx-4" />
 
-      {/* Navigation */}
-      <nav className="mt-3 flex-1 space-y-1 px-3">
+      {/* Nav */}
+      <nav className="px-3 pt-4 flex flex-col gap-1.5">
         {navItems.map((item) => {
-          const active = isActive(item.href);
+          const active = item.match
+            ? item.match(pathname ?? "")
+            : pathname === item.href;
+          const count = item.count?.();
           return (
             <Link
-              key={item.href}
+              key={`${item.label}-${item.href}`}
               href={item.href}
-              className={`group relative flex items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-                active
-                  ? "bg-accent text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground"
-              }`}
+              className={`nav-item ${active ? "active" : ""}`}
             >
-              {/* Active left border indicator */}
-              <motion.div
-                initial={false}
-                animate={{
-                  opacity: active ? 1 : 0,
-                  scaleY: active ? 1 : 0.5,
-                }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-                className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary"
-              />
-
-              <item.icon
-                size={18}
-                className={`shrink-0 transition-colors duration-200 ${
-                  active
-                    ? "text-primary"
-                    : "text-muted-foreground/70 group-hover:text-accent-foreground"
-                }`}
-              />
-
-              <AnimatePresence initial={false}>
-                {!collapsed && (
-                  <motion.span
-                    variants={labelVariants}
-                    initial="closed"
-                    animate="open"
-                    exit="closed"
-                    className="overflow-hidden whitespace-nowrap"
-                  >
-                    {item.label}
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              {item.icon}
+              <span className="truncate">{item.label}</span>
+              {count !== undefined && <span className="count">{count}</span>}
             </Link>
           );
         })}
       </nav>
 
-      {/* Bottom section */}
-      <div className="shrink-0 border-t border-border/50 p-3 space-y-1">
-        {/* User email */}
-        <AnimatePresence initial={false}>
-          {!collapsed && userEmail && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="truncate px-3 py-1.5 text-xs text-muted-foreground"
+      {/* Mid: beta chip */}
+      <div className="px-4 mt-6">
+        <span className="chip chip-mint" style={{ padding: "3px 10px", gap: 7 }}>
+          <span
+            className="dot dot-mt dot-pulse"
+            style={{ width: 5, height: 5 }}
+          />
+          бета v0.9
+        </span>
+      </div>
+
+      {/* Bottom sticky */}
+      <div className="mt-auto px-4 pb-5">
+        <div className="hairline mb-4" />
+        <div className="flex items-center gap-2.5 mb-3">
+          <span className="avatar steel w-6 h-6 text-[10px]">{userInitials}</span>
+          <div className="min-w-0">
+            <div className="text-[12.5px] truncate">
+              {userName || "Пользователь"}
+            </div>
+            <div
+              className="mono"
+              style={{ fontSize: 10, color: "var(--t-48)" }}
             >
-              {userEmail}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Theme toggle */}
+              <span className="truncate inline-block max-w-[160px] align-bottom">
+                {userEmail || "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="seg-v3 mb-3">
+          <button
+            type="button"
+            className={mounted && !dark ? "on" : ""}
+            onClick={() => setTheme("light")}
+            aria-label="Светлая тема"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+            Светлая
+          </button>
+          <button
+            type="button"
+            className={mounted && dark ? "on" : ""}
+            onClick={() => setTheme("dark")}
+            aria-label="Тёмная тема"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+            </svg>
+            Тёмная
+          </button>
+        </div>
         <button
-          onClick={toggleTheme}
-          className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:bg-accent/50 hover:text-accent-foreground"
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            {mounted && dark ? (
-              <motion.span
-                key="sun"
-                initial={{ rotate: -90, opacity: 0 }}
-                animate={{ rotate: 0, opacity: 1 }}
-                exit={{ rotate: 90, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="shrink-0"
-              >
-                <Sun size={16} />
-              </motion.span>
-            ) : (
-              <motion.span
-                key="moon"
-                initial={{ rotate: 90, opacity: 0 }}
-                animate={{ rotate: 0, opacity: 1 }}
-                exit={{ rotate: -90, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="shrink-0"
-              >
-                <Moon size={16} />
-              </motion.span>
-            )}
-          </AnimatePresence>
-
-          <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span
-                variants={labelVariants}
-                initial="closed"
-                animate="open"
-                exit="closed"
-                className="overflow-hidden whitespace-nowrap"
-              >
-                {mounted && dark ? "Светлая тема" : "Тёмная тема"}
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </button>
-
-        {/* Logout */}
-        <button
+          type="button"
           onClick={handleLogout}
-          className="flex w-full items-center rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
+          className="text-[12px] t-56 hover:c-rose transition-colors"
         >
-          <LogOut size={16} className="shrink-0" />
-
-          <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span
-                variants={labelVariants}
-                initial="closed"
-                animate="open"
-                exit="closed"
-                className="overflow-hidden whitespace-nowrap"
-              >
-                Выйти
-              </motion.span>
-            )}
-          </AnimatePresence>
+          Выйти →
         </button>
       </div>
-    </div>
+    </aside>
   );
 
   return (
@@ -289,52 +269,40 @@ export function Sidebar() {
       {/* Mobile hamburger */}
       <button
         onClick={() => setMobileOpen(true)}
-        className="fixed left-4 top-4 z-50 min-h-[44px] min-w-[44px] rounded-xl border border-border/50 bg-background/80 p-2.5 text-foreground shadow-sm backdrop-blur-xl lg:hidden"
+        className="fixed left-4 top-4 z-50 min-h-[44px] min-w-[44px] rounded-xl border border-[var(--line-2)] bg-[rgba(15,16,20,0.72)] backdrop-blur-xl p-2.5 text-white shadow-lg lg:hidden"
         aria-label="Открыть меню"
       >
-        <Menu size={20} />
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
       </button>
 
       {/* Mobile overlay */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-              onClick={() => setMobileOpen(false)}
-            />
-            <motion.aside
-              initial={{ x: -280 }}
-              animate={{ x: 0 }}
-              exit={{ x: -280 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed left-0 top-0 z-50 flex h-full w-[260px] flex-col backdrop-blur-xl bg-background/95 border-r border-border/50 lg:hidden"
-            >
+      {mobileOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+            onClick={() => setMobileOpen(false)}
+          />
+          <div className="fixed left-0 top-0 z-50 h-full lg:hidden">
+            <div className="relative h-full">
               <button
                 onClick={() => setMobileOpen(false)}
-                className="absolute right-3 top-4 min-h-[44px] min-w-[44px] rounded-lg p-2.5 text-muted-foreground transition-colors hover:text-foreground"
+                className="absolute right-3 top-4 z-10 min-h-[44px] min-w-[44px] rounded-lg p-2.5 t-72 hover:text-white"
                 aria-label="Закрыть меню"
               >
-                <X size={18} />
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
               </button>
-              {sidebarContent}
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
+              {sidebar}
+            </div>
+          </div>
+        </>
+      )}
 
-      {/* Desktop sidebar */}
-      <motion.aside
-        animate={{ width: collapsed ? 72 : 260 }}
-        transition={{ duration: 0.3, ease: "easeInOut" }}
-        className="sticky top-0 hidden h-screen flex-col backdrop-blur-xl bg-background/80 border-r border-border/50 lg:flex"
-      >
-        {sidebarContent}
-      </motion.aside>
+      {/* Desktop sticky sidebar */}
+      <div className="sticky top-0 hidden h-screen lg:block">{sidebar}</div>
     </>
   );
 }

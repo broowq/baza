@@ -62,54 +62,44 @@ function LoginContent() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-      <div className="field" />
-      <div className="grid-lines" />
+      <div className="canvas-bg" />
       <div className="grain" />
 
-      <div className="relative z-10 w-full max-w-[420px]">
-        <Link href="/" className="mb-8 flex items-center justify-center gap-2">
-          <span
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M4 6 L12 3 L20 6 L20 18 L12 21 L4 18 Z" stroke="black" strokeWidth="1.6" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="text-[15px]" style={{ fontWeight: 500 }}>база</span>
+      <div className="relative z-10 w-full max-w-[460px]">
+        <Link href="/" className="mb-10 flex items-center justify-center gap-2.5">
+          <span className="avatar" style={{ width: 32, height: 32, fontSize: 14, borderRadius: 9 }}>Б</span>
+          <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
         </Link>
 
-        <div className="panel p-7">
-          <div className="eyebrow mb-2">вход в аккаунт</div>
-          <h1 className="h2 mb-1" style={{ fontSize: 32 }}>С возвращением.</h1>
-          <p className="text-[13px] t-72 mb-6">
-            Введите свои данные для входа в систему.
-          </p>
+        <div className="panel" style={{ padding: 40 }}>
+          <div className="eyebrow mb-3">вход в аккаунт</div>
+          <h2 className="h2">С возвращением.</h2>
+          <p className="caption mt-2">Введите свои данные для входа в систему.</p>
 
           {inviteToken && (
-            <div className="mb-5 panel-flat p-3 text-[12px] t-72">
+            <div className="mt-5 panel-flat px-3 py-2.5 text-[12px] t-72">
               После входа приглашение в организацию применится автоматически.
             </div>
           )}
 
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="eyebrow">email</label>
+          <form onSubmit={onSubmit} className="mt-7 flex flex-col gap-4">
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>email</div>
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@example.com"
+                placeholder="you@company.ru"
                 required
-                className="w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors"
+                className="input"
               />
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label htmlFor="password" className="eyebrow">пароль</label>
-                <Link href="/forgot-password" className="text-[11px] t-48 hover:text-white">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="eyebrow" style={{ fontSize: 10 }}>пароль</div>
+                <Link href="/forgot-password" className="mono-cap t-56 hover:text-white" style={{ fontSize: "10.5px" }}>
                   забыли пароль?
                 </Link>
               </div>
@@ -118,38 +108,39 @@ function LoginContent() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Введите пароль"
+                placeholder="••••••••••"
                 required
-                className="w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors"
+                className="input"
               />
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="brand w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
+              className="btn btn-brand w-full mt-2"
+              style={{ height: 44 }}
             >
               {loading ? "Входим…" : "Войти"}
               {!loading && (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M5 12h14M13 5l7 7-7 7" />
                 </svg>
               )}
             </button>
           </form>
 
-          <div className="hairline mt-7 pt-5 text-center">
-            <p className="text-[13px] t-72">
-              Нет аккаунта?{" "}
-              <Link href={registerHref} className="text-white underline underline-offset-4">
-                Зарегистрироваться
-              </Link>
-            </p>
+          <div className="hairline my-7" />
+
+          <div className="text-center caption">
+            Нет аккаунта?{" "}
+            <Link href={registerHref} className="text-white underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
+              Зарегистрироваться
+            </Link>
           </div>
         </div>
 
-        <p className="mt-6 text-center text-[11px] t-40">
-          © 2026 База · usebaza.ru
+        <p className="mt-6 text-center mono-cap" style={{ fontSize: 10, letterSpacing: "0.12em", color: "var(--t-40)" }}>
+          © 2026 БАЗА · USEBAZA.RU · ХРАНЕНИЕ ДАННЫХ В РФ
         </p>
       </div>
     </main>
@@ -161,7 +152,7 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-          <div className="field" />
+          <div className="canvas-bg" />
           <div className="panel p-7 w-full max-w-[420px] text-center t-48 text-[13px]">
             Загрузка…
           </div>

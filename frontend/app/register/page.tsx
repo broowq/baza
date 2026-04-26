@@ -17,15 +17,7 @@ type RegisterResponse = {
 };
 
 function GlassInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={
-        "w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors " +
-        (props.className ?? "")
-      }
-    />
-  );
+  return <input {...props} className={"input " + (props.className ?? "")} />;
 }
 
 function RegisterContent() {
@@ -103,28 +95,20 @@ function RegisterContent() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-      <div className="field" />
-      <div className="grid-lines" />
+      <div className="canvas-bg" />
       <div className="grain" />
 
       <div className="relative z-10 w-full max-w-[460px]">
-        <Link href="/" className="mb-8 flex items-center justify-center gap-2">
-          <span
-            className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <path d="M4 6 L12 3 L20 6 L20 18 L12 21 L4 18 Z" stroke="black" strokeWidth="1.6" strokeLinejoin="round" />
-            </svg>
-          </span>
-          <span className="text-[15px]" style={{ fontWeight: 500 }}>база</span>
+        <Link href="/" className="mb-10 flex items-center justify-center gap-2.5">
+          <span className="avatar" style={{ width: 32, height: 32, fontSize: 14, borderRadius: 9 }}>Б</span>
+          <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
         </Link>
 
-        <div className="panel p-7">
-          <div className="eyebrow mb-2">создание аккаунта</div>
-          <h1 className="h2 mb-1" style={{ fontSize: 32 }}>Начнём с первых лидов.</h1>
-          <p className="text-[13px] t-72 mb-6">
-            Бесплатные первые 100 — без карты.
+        <div className="panel" style={{ padding: 40 }}>
+          <div className="eyebrow mb-3">создание аккаунта</div>
+          <h2 className="h2">Начнём с первых лидов.</h2>
+          <p className="caption mt-2">
+            Бесплатные первые 100 — без карты, без обязательств.
           </p>
 
           {inviteToken && (
@@ -133,94 +117,113 @@ function RegisterContent() {
             </div>
           )}
 
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="full_name" className="eyebrow">полное имя</label>
+          <form onSubmit={onSubmit} className="mt-7 flex flex-col gap-3.5">
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>имя</div>
               <GlassInput
                 id="full_name"
-                placeholder="Иван Иванов"
+                placeholder="Михаил Кудрявцев"
                 value={form.full_name}
                 onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
                 required minLength={2} maxLength={120}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="organization_name" className="eyebrow">организация</label>
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>организация</div>
               <GlassInput
                 id="organization_name"
-                placeholder="Название организации"
+                placeholder="ООО «Кедр-Сибирь»"
                 value={form.organization_name}
                 onChange={(e) => setForm((p) => ({ ...p, organization_name: e.target.value }))}
                 required minLength={2} maxLength={120}
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="email" className="eyebrow">email</label>
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>email</div>
               <GlassInput
                 id="email"
                 type="email"
-                placeholder="name@example.com"
+                placeholder="you@company.ru"
                 value={form.email}
                 onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
                 required
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="password" className="eyebrow">пароль</label>
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>пароль</div>
               <GlassInput
                 id="password"
                 type="password"
-                placeholder="Минимум 8 символов"
+                placeholder="минимум 10 символов"
                 minLength={8} maxLength={128}
                 value={form.password}
                 onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                 required
               />
               {form.password.length > 0 && form.password.length < 8 && (
-                <p className="text-[11px] mono" style={{ color: "var(--rose)" }}>
+                <p className="mt-1.5 mono" style={{ fontSize: 11, color: "var(--rose)" }}>
                   Минимум 8 символов ({8 - form.password.length} ещё)
                 </p>
               )}
             </div>
 
-            <div className="space-y-3 panel-flat p-4">
-              <label className="flex items-start gap-2.5 cursor-pointer">
+            {/* Consent block */}
+            <div className="panel-flat p-4 mt-2 flex flex-col gap-3">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <span
+                  className={`cbox mt-[2px] ${acceptedTerms ? "checked" : ""}`}
+                  onClick={() => setAcceptedTerms((v) => !v)}
+                >
+                  {acceptedTerms && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  )}
+                </span>
                 <input
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded accent-white"
-                  style={{ accentColor: "#fff" }}
                   required
+                  className="sr-only"
                 />
-                <span className="text-[12px] leading-[1.5] t-72">
-                  Я принимаю{" "}
-                  <Link href="/terms" target="_blank" className="text-white underline underline-offset-2">
-                    Условия использования
-                  </Link>{" "}
-                  и{" "}
-                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2">
-                    Политику конфиденциальности
+                <span className="text-[12.5px] t-72">
+                  Принимаю{" "}
+                  <Link href="/terms" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                    условия использования
                   </Link>
+                  {" "}и{" "}
+                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                    оферту
+                  </Link>.
                 </span>
               </label>
-              <label className="flex items-start gap-2.5 cursor-pointer">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <span
+                  className={`cbox mt-[2px] ${acceptedPrivacy ? "checked" : ""}`}
+                  onClick={() => setAcceptedPrivacy((v) => !v)}
+                >
+                  {acceptedPrivacy && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  )}
+                </span>
                 <input
                   type="checkbox"
                   checked={acceptedPrivacy}
                   onChange={(e) => setAcceptedPrivacy(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded accent-white"
-                  style={{ accentColor: "#fff" }}
                   required
+                  className="sr-only"
                 />
-                <span className="text-[12px] leading-[1.5] t-72">
-                  Даю согласие на обработку персональных данных в соответствии с{" "}
-                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2">
+                <span className="text-[12.5px] t-72">
+                  Согласен на обработку персональных данных по{" "}
+                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     152-ФЗ
-                  </Link>
+                  </Link>.
                 </span>
               </label>
             </div>
@@ -228,29 +231,30 @@ function RegisterContent() {
             <button
               type="submit"
               disabled={loading || !acceptedTerms || !acceptedPrivacy}
-              className="brand w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+              className="btn btn-brand w-full mt-1"
+              style={{ height: 44 }}
             >
               {loading ? "Создаём…" : "Зарегистрироваться"}
               {!loading && (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                  <path d="M5 12h14M13 5l7 7-7 7" />
                 </svg>
               )}
             </button>
           </form>
 
-          <div className="hairline mt-7 pt-5 text-center">
-            <p className="text-[13px] t-72">
-              Уже есть аккаунт?{" "}
-              <Link href={loginHref} className="text-white underline underline-offset-4">
-                Войти
-              </Link>
-            </p>
+          <div className="hairline my-7" />
+
+          <div className="text-center caption">
+            Уже есть аккаунт?{" "}
+            <Link href={loginHref} className="text-white underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
+              Войти
+            </Link>
           </div>
         </div>
 
-        <p className="mt-6 text-center text-[11px] t-40">
-          © 2026 База · usebaza.ru
+        <p className="mt-6 text-center mono-cap" style={{ fontSize: 10, letterSpacing: "0.12em", color: "var(--t-40)" }}>
+          © 2026 БАЗА · USEBAZA.RU · ХРАНЕНИЕ ДАННЫХ В РФ
         </p>
       </div>
     </main>
@@ -262,7 +266,7 @@ export default function RegisterPage() {
     <Suspense
       fallback={
         <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-          <div className="field" />
+          <div className="canvas-bg" />
           <div className="panel p-7 w-full max-w-[460px] text-center t-48 text-[13px]">
             Загрузка…
           </div>
