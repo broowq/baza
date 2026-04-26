@@ -63,19 +63,6 @@ export function Sidebar() {
   const navItems: NavItem[] = [
     {
       href: "/dashboard" as Route,
-      label: "Дашборд",
-      icon: (
-        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <rect x="3" y="3" width="7" height="7" rx="1.5" />
-          <rect x="14" y="3" width="7" height="7" rx="1.5" />
-          <rect x="3" y="14" width="7" height="7" rx="1.5" />
-          <rect x="14" y="14" width="7" height="7" rx="1.5" />
-        </svg>
-      ),
-      match: (p) => p === "/dashboard",
-    },
-    {
-      href: "/dashboard/projects" as Route,
       label: "Проекты",
       icon: (
         <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -84,7 +71,7 @@ export function Sidebar() {
           <path d="M3 17l9 4 9-4" />
         </svg>
       ),
-      match: (p) => p.startsWith("/dashboard/projects"),
+      match: (p) => p === "/dashboard" || p.startsWith("/dashboard/projects"),
       count: () =>
         projectCount === null ? undefined : String(projectCount),
     },
