@@ -1,16 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
-import { motion } from "framer-motion";
 
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 
 type PlanRow = {
   id: string;
@@ -27,14 +23,21 @@ type PlanRow = {
 
 const EXTRA_FEATURES: Record<string, string[]> = {
   starter: ["2ГИС + SearXNG поиск", "Экспорт в CSV", "Скоринг лидов"],
-  pro: ["2ГИС + Яндекс Карты + SearXNG", "Экспорт в CSV", "Скоринг лидов", "Обогащение контактов", "Приоритетная поддержка"],
-  team: ["2ГИС + Яндекс Карты + SearXNG", "Экспорт в CSV", "Скоринг лидов", "Обогащение контактов", "Выделенная поддержка", "SLA 99.9%"],
-};
-
-const CHECK_COLORS: Record<string, string> = {
-  starter: "bg-foreground/10 text-foreground/60",
-  pro: "bg-foreground/10 text-foreground/60",
-  team: "bg-foreground/10 text-foreground/60",
+  pro: [
+    "2ГИС + Яндекс Карты + SearXNG",
+    "Экспорт в CSV",
+    "Скоринг лидов",
+    "Обогащение контактов",
+    "Приоритетная поддержка",
+  ],
+  team: [
+    "2ГИС + Яндекс Карты + SearXNG",
+    "Экспорт в CSV",
+    "Скоринг лидов",
+    "Обогащение контактов",
+    "Выделенная поддержка",
+    "SLA 99.9%",
+  ],
 };
 
 function getRublePrice(plan: PlanRow): { price: string; sub: string } {
@@ -42,28 +45,6 @@ function getRublePrice(plan: PlanRow): { price: string; sub: string } {
   if (rub === 0) return { price: "Бесплатно", sub: "навсегда" };
   return { price: `${rub.toLocaleString("ru-RU")} ₽`, sub: "/мес" };
 }
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 40 },
-  visible: (i: number) => ({
-    opacity: 1,
-    y: 0,
-    transition: {
-      delay: i * 0.15,
-      duration: 0.5,
-      ease: [0.25, 0.4, 0.25, 1],
-    },
-  }),
-};
-
-const headerVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: 0.6, ease: [0.25, 0.4, 0.25, 1] },
-  },
-};
 
 export default function PlansPage() {
   const [plans, setPlans] = useState<PlanRow[]>([]);
@@ -103,198 +84,164 @@ export default function PlansPage() {
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-white px-4 py-16 dark:bg-[#09090b] sm:px-6">
-      {/* Background ambient glow */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute left-1/2 top-0 h-[600px] w-[900px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500/[0.07] blur-[120px]" />
-        <div className="absolute bottom-0 left-0 h-[400px] w-[400px] -translate-x-1/2 translate-y-1/2 rounded-full bg-sky-500/[0.05] blur-[100px]" />
-        <div className="absolute bottom-0 right-0 h-[400px] w-[400px] translate-x-1/2 translate-y-1/2 rounded-full bg-emerald-500/[0.05] blur-[100px]" />
-      </div>
+    <main className="relative min-h-screen overflow-hidden px-4 py-16 sm:px-6">
+      <div className="field" />
+      <div className="grid-lines" />
+      <div className="grain" />
 
-      <div className="relative mx-auto max-w-5xl">
+      <div className="relative z-10 mx-auto max-w-5xl">
         {isLoggedIn && (
-          <div className="mb-4">
-            <Link
-              href="/dashboard"
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              &larr; Дашборд
+          <div className="mb-8">
+            <Link href="/dashboard" className="text-[12px] t-48 hover:text-white transition-colors">
+              ← Дашборд
             </Link>
           </div>
         )}
 
         {/* Header */}
-        <motion.div
-          className="mb-10 sm:mb-20 text-center"
-          initial="hidden"
-          animate="visible"
-          variants={headerVariants}
-        >
-          <Badge variant="secondary" className="mb-6 gap-1.5 px-3 py-1 text-xs">
-            <Sparkles className="size-3" />
-            Тарифы
-          </Badge>
-          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl md:text-5xl lg:text-6xl">
-            <span className="bg-gradient-to-r from-foreground via-foreground/80 to-foreground/60 bg-clip-text text-transparent">
-              Выберите тариф под ваш рост
-            </span>
+        <div className="mb-12 sm:mb-20 text-center">
+          <div className="eyebrow mb-4">тарифы</div>
+          <h1 className="h1 mb-4" style={{ fontSize: 56, lineHeight: 1.05 }}>
+            Выберите тариф под ваш рост.
           </h1>
-          <p className="mx-auto mt-4 max-w-md text-base text-muted-foreground md:text-lg">
+          <p className="mx-auto max-w-md text-[14px] t-72">
             Платите только за то, что используете. Без скрытых комиссий.
           </p>
-        </motion.div>
+        </div>
 
-        {/* Loading spinner */}
         {loading && (
           <div className="flex justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-muted-foreground/20 border-t-foreground" />
+            <div className="h-8 w-8 animate-spin rounded-full border border-white/10 border-t-white/60" />
           </div>
         )}
 
-        {/* Empty state */}
         {!loading && plans.length === 0 && (
-          <div className="py-12 text-center">
-            <p className="text-muted-foreground">Не удалось загрузить тарифы.</p>
-            <Button onClick={fetchPlans} variant="outline" className="mt-4">
+          <div className="panel p-10 text-center">
+            <p className="t-72 text-[13px] mb-4">Не удалось загрузить тарифы.</p>
+            <button
+              onClick={fetchPlans}
+              className="ghost rounded-full px-5 py-2 text-[13px]"
+            >
               Попробовать снова
-            </Button>
+            </button>
           </div>
         )}
 
         {/* Plan cards */}
-        <div className="grid items-center gap-6 md:grid-cols-3">
-          {plans.map((plan, index) => {
+        <div className="grid items-stretch gap-5 md:grid-cols-3">
+          {plans.map((plan) => {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";
-            const rublePrice = getRublePrice(plan);
             const isStarter = key === "starter";
+            const rublePrice = getRublePrice(plan);
             const extras = EXTRA_FEATURES[key] ?? [];
-            const checkColor = CHECK_COLORS[key] ?? CHECK_COLORS.starter;
 
             return (
-              <motion.div
+              <div
                 key={plan.id}
-                custom={index}
-                initial="hidden"
-                animate="visible"
-                variants={cardVariants}
-                className={`relative flex flex-col rounded-2xl border p-5 sm:p-8 transition-shadow duration-300 ${
+                className={`relative flex flex-col p-7 ${isPro ? "panel md:scale-[1.02]" : "panel-flat panel-flat--lg"}`}
+                style={
                   isPro
-                    ? "z-10 md:scale-105 border-foreground/20 bg-foreground/[0.03] shadow-2xl backdrop-blur-md dark:border-white/15 dark:bg-white/[0.08]"
-                    : "border-white/10 bg-white/5 backdrop-blur-md hover:border-white/20 dark:bg-white/[0.04]"
-                }`}
+                    ? {
+                        boxShadow:
+                          "inset 0 1px 0 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(168,197,192,0.28), 0 30px 80px -28px rgba(168,197,192,0.25), 0 24px 60px -28px rgba(0,0,0,0.7)",
+                      }
+                    : undefined
+                }
               >
-                {/* Popular badge for Pro */}
                 {isPro && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-foreground px-4 py-1 text-xs backdrop-blur-sm">
-                      <span className="text-background font-semibold">
-                        Популярный
-                      </span>
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1 text-[11px] mono text-black">
+                      популярный
                     </span>
                   </div>
                 )}
 
-                {/* Plan name */}
-                <p className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-                  {plan.name}
-                </p>
+                <div className="eyebrow mb-3">{plan.name}</div>
 
-                {/* Price */}
-                <div className="mt-4 flex items-baseline gap-1.5">
-                  <span className="text-3xl sm:text-4xl font-bold tracking-tight tabular-nums text-foreground md:text-5xl">
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className="tnum text-white"
+                    style={{ fontSize: 40, fontWeight: 200, letterSpacing: "-0.02em" }}
+                  >
                     {rublePrice.price}
                   </span>
-                  <span className="text-sm text-muted-foreground">{rublePrice.sub}</span>
+                  <span className="text-[12px] t-48">{rublePrice.sub}</span>
                 </div>
 
-                <Separator className="my-6 bg-white/10" />
+                <div className="hairline my-6" />
 
-                {/* Features list */}
-                <ul className="flex-1 space-y-3.5">
-                  <li className="flex items-center gap-3 text-sm text-foreground/80">
-                    <FeatureCheck colorClass={checkColor} />
+                <ul className="flex-1 space-y-3">
+                  <FeatureItem>
                     {plan.searches_per_month ?? "∞"} сборов/мес
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-foreground/80">
-                    <FeatureCheck colorClass={checkColor} />
+                  </FeatureItem>
+                  <FeatureItem>
                     до {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-foreground/80">
-                    <FeatureCheck colorClass={checkColor} />
-                    {plan.projects_limit} проектов
-                  </li>
-                  <li className="flex items-center gap-3 text-sm text-foreground/80">
-                    <FeatureCheck colorClass={checkColor} />
-                    {plan.users_limit} {plan.users_limit === 1 ? "пользователь" : "пользователей"}
-                  </li>
+                  </FeatureItem>
+                  <FeatureItem>{plan.projects_limit} проектов</FeatureItem>
+                  <FeatureItem>
+                    {plan.users_limit}{" "}
+                    {plan.users_limit === 1 ? "пользователь" : "пользователей"}
+                  </FeatureItem>
                   {extras.map((feat) => (
-                    <li key={feat} className="flex items-center gap-3 text-sm text-foreground/80">
-                      <FeatureCheck colorClass={checkColor} />
-                      {feat}
-                    </li>
+                    <FeatureItem key={feat}>{feat}</FeatureItem>
                   ))}
                 </ul>
 
-                {/* CTA Button */}
                 <button
-                  className={`mt-8 flex w-full items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all duration-200 ${
-                    isStarter
-                      ? "bg-foreground/10 text-muted-foreground cursor-not-allowed"
-                      : isPro
-                        ? "bg-foreground text-background shadow-lg hover:bg-foreground/90"
-                        : "bg-foreground/10 text-foreground hover:bg-foreground/15"
-                  }`}
                   onClick={() => !isStarter && startCheckout(plan.id)}
                   disabled={isStarter || runningPlan === plan.id}
+                  className={
+                    isPro
+                      ? "brand mt-8 w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                      : "ghost mt-8 w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+                  }
                 >
                   {runningPlan === plan.id ? (
                     <span className="flex items-center gap-2">
-                      <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                      Создаём...
+                      <span className="h-4 w-4 animate-spin rounded-full border border-current border-t-transparent" />
+                      Создаём…
                     </span>
                   ) : isStarter ? (
                     <>Текущий тариф</>
                   ) : (
                     <>
                       Перейти на {plan.name}
-                      <ArrowRight size={16} />
+                      <ArrowRight size={14} />
                     </>
                   )}
                 </button>
-              </motion.div>
+              </div>
             );
           })}
         </div>
 
         {/* Bottom CTA */}
-        <motion.div
-          className="mt-20 text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.8, duration: 0.5 }}
-        >
-          <p className="text-sm text-muted-foreground">
+        <div className="mt-16 text-center">
+          <p className="text-[13px] t-72">
             Нужен индивидуальный тариф?{" "}
             <Link
-              href="mailto:hello@baza.io"
-              className="font-medium text-foreground underline underline-offset-4 transition-colors hover:text-foreground/80"
+              href="mailto:hello@usebaza.ru"
+              className="text-white underline underline-offset-4 hover:t-72 transition-colors"
             >
               Напишите нам
             </Link>
           </p>
-        </motion.div>
+        </div>
+
+        <p className="mt-12 text-center text-[11px] t-40">
+          © 2026 База · usebaza.ru
+        </p>
       </div>
     </main>
   );
 }
 
-function FeatureCheck({ colorClass }: { colorClass: string }) {
+function FeatureItem({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${colorClass}`}
-    >
-      <Check size={12} strokeWidth={3} />
-    </div>
+    <li className="flex items-center gap-3 text-[13px] t-84">
+      <span className="dot dot-mt" />
+      {children}
+    </li>
   );
 }

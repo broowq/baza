@@ -221,79 +221,102 @@ export default function ProjectDetailsPage() {
       className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6"
     >
       {/* Header */}
-      <div className="space-y-4">
-        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-          <ArrowLeft size={14} /> Назад
+      <div className="space-y-5">
+        <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-white transition-colors">
+          <ArrowLeft size={13} /> назад в дашборд
         </Link>
-        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight">{project?.name ?? "Проект"}</h1>
-            <div className="flex flex-wrap items-center gap-2">
-              {project?.niche && <Badge variant="secondary" className="rounded-full">{project.niche}</Badge>}
-              {project?.geography && <Badge variant="secondary" className="rounded-full">{project.geography}</Badge>}
-              {project?.segments.map((seg) => (
-                <Badge key={seg} variant="outline" className="rounded-full">{seg}</Badge>
-              ))}
+        <div className="flex flex-col gap-5 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between">
+          <div>
+            <div className="eyebrow mb-2">проект</div>
+            <h1 className="h1" style={{ fontSize: "clamp(36px,5vw,56px)" }}>
+              {project?.name ?? "Проект"}
+            </h1>
+            <div className="flex flex-wrap items-center gap-1.5 mt-3 text-[12px] t-72 mono">
+              {project?.niche && <span>{project.niche}</span>}
+              {project?.geography && <><span className="t-28">·</span><span>{project.geography}</span></>}
+              {project && project.segments.length > 0 && (
+                <>
+                  <span className="t-28">·</span>
+                  <span className="t-48">{project.segments.length} сегмент{project.segments.length === 1 ? "" : project.segments.length < 5 ? "а" : "ов"}</span>
+                </>
+              )}
             </div>
+            {project && project.segments.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-3 max-w-3xl">
+                {project.segments.slice(0, 12).map((seg) => (
+                  <span key={seg} className="panel-thin px-2.5 py-0.5 text-[11px] t-72">{seg}</span>
+                ))}
+                {project.segments.length > 12 && (
+                  <span className="text-[11px] t-40">+ ещё {project.segments.length - 12}</span>
+                )}
+              </div>
+            )}
             {project?.okved_codes && project.okved_codes.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">ОКВЭД клиентов:</span>
+              <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                <span className="eyebrow">ОКВЭД клиентов:</span>
                 {project.okved_codes.map((o) => (
                   <span
                     key={o.code}
-                    title={o.label ? `${o.label} (уверенность ${Math.round((o.confidence ?? 0) * 100)}%)` : undefined}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[11px] font-mono text-blue-600 dark:text-blue-300"
+                    title={o.label ? `${o.label} (${Math.round((o.confidence ?? 0) * 100)}%)` : undefined}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(168,197,192,0.25)] bg-[rgba(168,197,192,0.08)] px-2 py-0.5 text-[11px] mono"
+                    style={{ color: "var(--mint)" }}
                   >
                     {o.code}
-                    {o.label && <span className="font-sans text-foreground/70 normal-case">· {o.label.length > 28 ? o.label.slice(0, 28) + "…" : o.label}</span>}
+                    {o.label && <span className="t-72 normal-case font-sans">· {o.label.length > 24 ? o.label.slice(0, 24) + "…" : o.label}</span>}
                   </span>
                 ))}
               </div>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-            {/* Collect group */}
-            <Button size="sm" disabled={running || collectBusy || !canManage} onClick={() => queueJob("collect", 500)}>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="brand rounded-full px-4 py-2 text-[12.5px] flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+              disabled={running || collectBusy || !canManage}
+              onClick={() => queueJob("collect", 500)}
+            >
               {collectBusy ? (
-                <><Loader2 size={12} className="mr-1.5 animate-spin" /> Собираем…</>
+                <><Loader2 size={12} className="animate-spin" /> Собираем…</>
               ) : (
-                <><Play size={12} className="mr-1.5" /> Собрать лиды</>
+                <><Play size={12} /> Собрать лиды</>
               )}
-            </Button>
-            {/* Actions */}
-            <div className="flex items-center gap-1.5">
-              <Button size="sm" variant="outline" disabled={running || enrichBusy || !canManage} onClick={() => queueJob("enrich", 200)}>
-                {enrichBusy ? (
-                  <><Loader2 size={12} className="mr-1 animate-spin" /> Обогащаем…</>
-                ) : (
-                  <><Sparkles size={12} /> Обогатить</>
-                )}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={exportXlsx} disabled={!!exporting}>
-                {exporting === "xlsx" ? (
-                  <><Loader2 size={12} className="animate-spin" /> Excel…</>
-                ) : (
-                  <><Download size={12} /> Excel</>
-                )}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={exportCsv} disabled={!!exporting}>
-                {exporting === "csv" ? (
-                  <><Loader2 size={12} className="animate-spin" /> CSV…</>
-                ) : (
-                  <><Download size={12} /> CSV</>
-                )}
-              </Button>
-            </div>
+            </button>
+            <button
+              className="ghost rounded-full px-4 py-2 text-[12.5px] flex items-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
+              disabled={running || enrichBusy || !canManage}
+              onClick={() => queueJob("enrich", 200)}
+            >
+              {enrichBusy ? (
+                <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
+              ) : (
+                <><Sparkles size={12} /> Обогатить</>
+              )}
+            </button>
+            <button
+              className="ghost rounded-full px-3 py-2 text-[12.5px] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+              onClick={exportXlsx}
+              disabled={!!exporting}
+            >
+              {exporting === "xlsx" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              <span>Excel</span>
+            </button>
+            <button
+              className="ghost rounded-full px-3 py-2 text-[12.5px] flex items-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
+              onClick={exportCsv}
+              disabled={!!exporting}
+            >
+              {exporting === "csv" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+              <span>CSV</span>
+            </button>
           </div>
         </div>
 
-        {/* Auto-collection schedule bar */}
         {project && canManage && (
           <AutoCollectionBar project={project} onUpdate={(updated) => setProject(updated)} />
         )}
       </div>
 
-      {/* Stats cards */}
+      {/* Stats strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {STAT_CARDS.map((s, i) => {
           const value = stats[s.key];
@@ -303,16 +326,13 @@ export default function ProjectDetailsPage() {
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: i * 0.08 }}
+              className="panel-flat p-4"
             >
-              <Card size="sm" className="bg-gradient-to-b from-card to-card/80">
-                <CardContent className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <s.icon size={14} />
-                    <span className="text-xs">{s.label}</span>
-                  </div>
-                  <p className="text-3xl font-bold tracking-tight">{value}</p>
-                </CardContent>
-              </Card>
+              <div className="flex items-center gap-2">
+                <s.icon size={12} className="t-48" />
+                <span className="eyebrow">{s.label}</span>
+              </div>
+              <div className="h2 tnum mt-2" style={{ fontSize: 32 }}>{value}</div>
             </motion.div>
           );
         })}

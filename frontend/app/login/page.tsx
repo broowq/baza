@@ -5,18 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { setOrgId, setToken } from "@/lib/auth";
 import type { Organization } from "@/lib/types";
@@ -36,9 +24,7 @@ function LoginContent() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (invitedEmail) {
-      setEmail((current) => current || invitedEmail);
-    }
+    if (invitedEmail) setEmail((current) => current || invitedEmail);
   }, [invitedEmail]);
 
   const onSubmit = async (e: FormEvent) => {
@@ -76,82 +62,96 @@ function LoginContent() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-      {/* Animated gradient mesh */}
-      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
-        <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
-        <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
-      </div>
-      <Card className="w-full max-w-md p-4 sm:p-6 shadow-2xl shadow-black/20">
-        <CardHeader className="text-center">
-          <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
-          <CardTitle className="text-lg sm:text-xl">Вход в аккаунт</CardTitle>
-          <CardDescription>
-            Введите свои данные для входа в систему
-          </CardDescription>
-        </CardHeader>
+      <div className="field" />
+      <div className="grid-lines" />
+      <div className="grain" />
 
-        {inviteToken && (
-          <CardContent>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+      <div className="relative z-10 w-full max-w-[420px]">
+        <Link href="/" className="mb-8 flex items-center justify-center gap-2">
+          <span
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M4 6 L12 3 L20 6 L20 18 L12 21 L4 18 Z" stroke="black" strokeWidth="1.6" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="text-[15px]" style={{ fontWeight: 500 }}>база</span>
+        </Link>
+
+        <div className="panel p-7">
+          <div className="eyebrow mb-2">вход в аккаунт</div>
+          <h1 className="h2 mb-1" style={{ fontSize: 32 }}>С возвращением.</h1>
+          <p className="text-[13px] t-72 mb-6">
+            Введите свои данные для входа в систему.
+          </p>
+
+          {inviteToken && (
+            <div className="mb-5 panel-flat p-3 text-[12px] t-72">
               После входа приглашение в организацию применится автоматически.
-            </p>
-          </CardContent>
-        )}
+            </div>
+          )}
 
-        <CardContent>
-          <form id="login-form" onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="eyebrow">email</label>
+              <input
                 id="email"
-                placeholder="name@example.com"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@example.com"
                 required
+                className="w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors"
               />
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <Label htmlFor="password">Пароль</Label>
-                <Link
-                  href="/forgot-password"
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  Забыли пароль?
+                <label htmlFor="password" className="eyebrow">пароль</label>
+                <Link href="/forgot-password" className="text-[11px] t-48 hover:text-white">
+                  забыли пароль?
                 </Link>
               </div>
-              <Input
+              <input
                 id="password"
-                placeholder="Введите пароль"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                placeholder="Введите пароль"
                 required
+                className="w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors"
               />
             </div>
 
-            <Button type="submit" className="w-full" size="lg" disabled={loading}>
-              {loading ? "Входим..." : "Войти"}
-            </Button>
-          </form>
-        </CardContent>
-
-        <CardFooter className="flex-col gap-3">
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            Нет аккаунта?{" "}
-            <Link
-              href={registerHref}
-              className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            <button
+              type="submit"
+              disabled={loading}
+              className="brand w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-60 disabled:pointer-events-none"
             >
-              Зарегистрироваться
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
+              {loading ? "Входим…" : "Войти"}
+              {!loading && (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 12h14M13 6l6 6-6 6" />
+                </svg>
+              )}
+            </button>
+          </form>
+
+          <div className="hairline mt-7 pt-5 text-center">
+            <p className="text-[13px] t-72">
+              Нет аккаунта?{" "}
+              <Link href={registerHref} className="text-white underline underline-offset-4">
+                Зарегистрироваться
+              </Link>
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-6 text-center text-[11px] t-40">
+          © 2026 База · usebaza.ru
+        </p>
+      </div>
     </main>
   );
 }
@@ -161,17 +161,10 @@ export default function LoginPage() {
     <Suspense
       fallback={
         <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-          {/* Animated gradient mesh */}
-          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-            <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
-            <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
-            <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+          <div className="field" />
+          <div className="panel p-7 w-full max-w-[420px] text-center t-48 text-[13px]">
+            Загрузка…
           </div>
-          <Card className="w-full max-w-md p-4 sm:p-6">
-            <CardContent className="py-12 text-center text-muted-foreground">
-              Загрузка...
-            </CardContent>
-          </Card>
         </main>
       }
     >

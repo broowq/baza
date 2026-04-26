@@ -270,115 +270,107 @@ export default function DashboardPage() {
       className="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6 lg:pl-10"
     >
       {/* ── Org header card ── */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-      <Card className="relative overflow-hidden bg-gradient-to-br from-white/[0.03] to-transparent border-white/[0.06] shadow-sm ring-1 ring-primary/[0.03]">
-        <div className="pointer-events-none absolute inset-0 rounded-xl bg-gradient-to-br from-primary/[0.02] to-transparent" />
-        <CardHeader className="relative">
-          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center justify-center rounded-xl bg-primary/10 p-2.5 text-primary">
-                <Building2 className="h-5 w-5" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-2">
-                  {organizations.length > 1 ? (
-                    <select
-                      className="w-full max-w-full rounded-md border border-border bg-card px-3 py-1.5 text-xl font-bold tracking-tight text-foreground sm:w-auto sm:text-2xl"
-                      value={org?.id ?? ""}
-                      disabled={switchingOrg}
-                      onChange={async (e) => {
-                        const val = e.target.value;
-                        if (!val) return;
-                        const selected = organizations.find((item) => item.id === val);
-                        if (!selected || switchingOrg) return;
-                        setSwitchingOrg(true);
-                        setOrgId(selected.id);
-                        setOrg(selected);
-                        try {
-                          const membership = await api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null);
-                          if (membership) setOrgRole(membership.role); else setOrgRole("member");
-                          await refreshProjects();
-                        } finally {
-                          setSwitchingOrg(false);
-                        }
-                      }}
-                    >
-                      {organizations.map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">{org?.name ?? "Организация"}</span>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {org?.plan && (
-                    <Badge className="border-0 bg-primary/10 text-xs font-medium text-primary hover:bg-primary/15">
-                      <Sparkles className="mr-1 h-3 w-3" />
-                      {planLabel[org.plan] ?? org.plan}
-                    </Badge>
-                  )}
-                  <Badge className="border-0 bg-accent text-xs font-medium text-accent-foreground">
-                    {roleLabel[orgRole] ?? orgRole}
-                  </Badge>
-                </div>
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="panel p-6">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="eyebrow mb-2">workspace</div>
+            <div className="flex items-center gap-3 flex-wrap">
+              {organizations.length > 1 ? (
+                <select
+                  className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[20px] font-light tracking-tight text-white outline-none focus:border-white/[0.24]"
+                  value={org?.id ?? ""}
+                  disabled={switchingOrg}
+                  onChange={async (e) => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    const selected = organizations.find((item) => item.id === val);
+                    if (!selected || switchingOrg) return;
+                    setSwitchingOrg(true);
+                    setOrgId(selected.id);
+                    setOrg(selected);
+                    try {
+                      const membership = await api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null);
+                      if (membership) setOrgRole(membership.role); else setOrgRole("member");
+                      await refreshProjects();
+                    } finally {
+                      setSwitchingOrg(false);
+                    }
+                  }}
+                >
+                  {organizations.map((item) => (
+                    <option key={item.id} value={item.id} className="bg-[var(--bg-2)]">{item.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <span className="h2" style={{ fontSize: 28 }}>{org?.name ?? "Организация"}</span>
+              )}
+              {org?.plan && (
+                <span className="panel-thin px-3 py-0.5 text-[11px] flex items-center gap-1.5">
+                  <span className="dot dot-mt" />
+                  {planLabel[org.plan] ?? org.plan}
+                </span>
+              )}
+              <span className="panel-thin px-3 py-0.5 text-[11px] t-72">
+                {roleLabel[orgRole] ?? orgRole}
+              </span>
+            </div>
+          </div>
+
+          {/* Quota */}
+          <div className="panel-flat px-4 py-3 flex items-center gap-4">
+            <div>
+              <div className="eyebrow">квота</div>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="h2 tnum" style={{ fontSize: 24 }}>{org?.leads_used_current_month ?? 0}</span>
+                <span className="t-48 text-[12px]">/ {org?.leads_limit_per_month}</span>
               </div>
             </div>
-
-            {/* Quota */}
-            <div className="flex w-full items-center gap-3 rounded-xl bg-muted/30 px-4 py-2 sm:w-auto">
-              <Gauge className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-initial">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-foreground">
-                    {org?.leads_used_current_month ?? 0}
-                    <span className="font-normal text-muted-foreground"> / {org?.leads_limit_per_month}</span>
-                  </span>
-                  <span className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${usagePercent >= 90 ? "bg-destructive/10 text-destructive" : usagePercent >= 70 ? "bg-amber-500/10 text-amber-600" : "bg-emerald-500/10 text-emerald-600"}`}>
-                    {usagePercent}%
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted ring-1 ring-border/30 sm:w-32">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${usagePercent >= 90 ? "bg-gradient-to-r from-destructive to-destructive/80" : usagePercent >= 70 ? "bg-gradient-to-r from-amber-500 to-amber-400" : "bg-gradient-to-r from-emerald-500 to-emerald-400"}`}
-                    style={{ width: `${usagePercent}%` }}
-                  />
-                </div>
+            <div className="w-32">
+              <div className="h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${usagePercent}%`,
+                    background: usagePercent >= 90 ? "var(--rose)" : usagePercent >= 70 ? "var(--amber)" : "var(--mint)",
+                  }}
+                />
+              </div>
+              <div className={`mt-1.5 mono text-[10px] tnum ${usagePercent >= 90 ? "text-[var(--rose)]" : usagePercent >= 70 ? "text-[var(--amber)]" : "text-[var(--mint)]"}`}>
+                {usagePercent}%
               </div>
             </div>
           </div>
-        </CardHeader>
-      </Card>
+        </div>
       </motion.div>
 
       {/* Quota warning */}
       {usagePercent >= 80 && (
-        <div className={`rounded-lg border p-3 flex items-center justify-between ${usagePercent >= 100 ? "border-destructive/30 bg-destructive/5" : "border-amber-500/30 bg-amber-500/5"}`}>
-          <p className="text-sm">
+        <div className={`rounded-2xl p-4 flex items-center justify-between ${usagePercent >= 100 ? "panel-flat" : "panel-flat"}`}
+             style={usagePercent >= 100 ? { borderColor: "rgba(244,63,94,0.18)", background: "rgba(40,28,28,0.65)" } : { borderColor: "rgba(251,191,36,0.18)", background: "rgba(40,32,18,0.55)" }}>
+          <p className="text-sm t-84">
             {usagePercent >= 100
               ? "Квота лидов исчерпана. Обновите тариф для продолжения сбора."
               : `Использовано ${usagePercent}% квоты лидов. Рекомендуем обновить тариф.`}
           </p>
-          <Link href="/plans">
-            <Button size="sm" variant="outline">Обновить тариф</Button>
-          </Link>
+          <Link href="/plans" className="ghost rounded-full px-4 py-1.5 text-[12.5px]">Обновить тариф</Link>
         </div>
       )}
 
-      {/* ── Subtle section divider ── */}
-      <Separator className="my-6" />
-
       {/* ── Projects header ── */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-end justify-between pt-4">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
-            <span className="inline-block h-2 w-2 rounded-full bg-violet-500 mr-2 align-middle" />
-            Ваши проекты
-          </h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {projects.length} из {org?.projects_limit ?? "?"} проектов
+          <div className="eyebrow mb-2">проекты</div>
+          <h2 className="h2" style={{ fontSize: 32 }}>Ваши воронки</h2>
+          <p className="mt-1 text-[13px] t-48 mono">
+            {projects.length} из {org?.projects_limit ?? "?"}
           </p>
         </div>
+        {canManage && (
+          <button onClick={() => setShowForm(true)} className="brand rounded-full px-4 py-2 text-[12.5px] flex items-center gap-2">
+            <Plus className="h-3.5 w-3.5" />
+            Новый проект
+          </button>
+        )}
       </div>
 
       {/* ── New project dialog ── */}
@@ -611,45 +603,45 @@ export default function DashboardPage() {
 
       {/* ── Empty state / Onboarding ── */}
       {projects.length === 0 && (
-        <Card className="border-dashed border-border/70">
-          <CardContent className="flex flex-col items-center justify-center py-12 px-6">
-            <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-primary/5 ring-1 ring-primary/10">
-              <Sparkles className="h-8 w-8 text-primary/40" />
-            </div>
-            <CardTitle className="mb-2 text-xl text-foreground">Добро пожаловать в БАЗА!</CardTitle>
-            <CardDescription className="max-w-md text-center text-sm text-muted-foreground mb-6">
-              Найдите клиентов для вашего бизнеса за 3 простых шага:
-            </CardDescription>
-            <div className="grid gap-3 max-w-md w-full mb-6">
-              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">1</span>
-                <span>Опишите ваш бизнес — что продаёте или какие услуги оказываете</span>
+        <div className="panel p-10 text-center">
+          <div className="mx-auto mb-6 inline-flex h-14 w-14 items-center justify-center rounded-full panel-flat">
+            <Sparkles className="h-7 w-7" style={{ color: "var(--mint)" }} />
+          </div>
+          <div className="eyebrow mb-3">добро пожаловать</div>
+          <h3 className="h2 mb-3" style={{ fontSize: 28 }}>Найдите клиентов за&nbsp;3&nbsp;шага.</h3>
+          <p className="t-72 text-[14px] mb-8 max-w-md mx-auto leading-relaxed">
+            Опишите ваш бизнес одной фразой — мы соберём базу компаний с проверенными контактами.
+          </p>
+          <div className="grid gap-2.5 max-w-md w-full mx-auto mb-7 text-left">
+            {[
+              ["01", "Опишите бизнес — что продаёте или какие услуги оказываете"],
+              ["02", "AI определит целевых клиентов и найдёт их в ЕГРЮЛ, 2ГИС, Яндекс.Картах"],
+              ["03", "Получите контакты с email/MX-проверкой и экспортируйте в CRM"],
+            ].map(([n, t]) => (
+              <div key={n} className="panel-flat px-4 py-3 flex items-center gap-3 text-[13px] t-72">
+                <span className="mono t-40 text-[11px]">{n}</span>
+                <span>{t}</span>
               </div>
-              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">2</span>
-                <span>AI определит целевых клиентов и найдёт их через 2ГИС и Яндекс Карты</span>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg border p-3 text-sm">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold">3</span>
-                <span>Получите контакты компаний и экспортируйте в CSV для CRM</span>
-              </div>
-            </div>
-            {canManage && (
-              <Button onClick={() => setShowForm(true)}>
-                <Plus className="mr-1.5 h-4 w-4" />
-                Создать первый проект
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+            ))}
+          </div>
+          {canManage && (
+            <button onClick={() => setShowForm(true)} className="brand rounded-full px-5 py-2.5 text-[13.5px] inline-flex items-center gap-2">
+              <Plus className="h-3.5 w-3.5" />
+              Создать первый проект
+            </button>
+          )}
+        </div>
       )}
 
       {/* ── Project cards ── */}
       <div className="grid gap-3">
-        {projects.map((project, i) => {
+        {projects.map((project) => {
           const latestJob = latestJobs[project.id];
-          const jobInfo = latestJob ? JOB_STATUS_MAP[latestJob.status] : null;
           const segmentText = project.segments.length > 0 ? project.segments.join(", ") : null;
+          const dotState = latestJob?.status === "done" ? "online"
+            : latestJob?.status === "running" ? "warning"
+            : latestJob?.status === "failed" ? "offline"
+            : null;
 
           return (
             <motion.div
@@ -658,107 +650,86 @@ export default function DashboardPage() {
               initial={false}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.2 }}
+              className="panel-flat group relative transition-colors duration-200 hover:bg-white/[0.045]"
             >
-              <Card className={`group relative overflow-hidden border-l-2 bg-gradient-to-br from-white/[0.03] to-transparent transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 ${latestJob?.status === "done" ? "border-l-emerald-500/60" : "border-l-primary/20"}`}>
-                <Link
-                  href={`/dashboard/projects/${project.id}`}
-                  className="flex items-center justify-between px-4 py-4 sm:px-5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2.5">
-                      <h3 className="truncate text-lg font-semibold text-foreground">{project.name}</h3>
-                      {latestJob && jobInfo && (
-                        <span className={`inline-flex h-5 items-center rounded-full px-2 text-[11px] font-semibold ${jobInfo.className}`}>
-                          {latestJob.status === "running" && (
-                            <span className="mr-1.5 h-1.5 w-1.5 rounded-full bg-blue-500" />
-                          )}
-                          {jobInfo.label}
+              <Link
+                href={`/dashboard/projects/${project.id}`}
+                className="flex items-center justify-between px-5 py-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    {dotState && <span className={`dot dot-${dotState === "online" ? "em" : dotState === "warning" ? "am" : "rs"}`} />}
+                    <h3 className="truncate text-[16px] text-white" style={{ fontWeight: 500 }}>{project.name}</h3>
+                    {latestJob && (
+                      <span className="panel-thin px-2 py-0.5 text-[10px] t-72">
+                        {JOB_STATUS_MAP[latestJob.status]?.label ?? latestJob.status}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[12.5px] t-56 mono">
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
+                      {project.niche} · {project.geography}
+                      {segmentText && (
+                        <span className="t-40" title={segmentText}>
+                          {" · "}
+                          <span className="inline-block max-w-[180px] truncate align-bottom">{segmentText}</span>
                         </span>
                       )}
-                    </div>
-                    <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        {project.niche} · {project.geography}
-                        {segmentText && (
-                          <span className="ml-1 text-muted-foreground/60" title={segmentText}>
-                            · <span className="inline-block max-w-[180px] truncate align-bottom">{segmentText}</span>
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex flex-col gap-y-1 text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-4">
-                      {latestJob ? (
-                        <>
-                          <span className="inline-flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            {latestJob.added_count ?? 0} добавлено
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <Sparkles className="h-3 w-3" />
-                            {latestJob.enriched_count ?? 0} обогащено
-                          </span>
-                          {(latestJob.found_count ?? 0) > 0 && (
-                            <span className="inline-flex items-center gap-1">
-                              <Search className="h-3 w-3" />
-                              {latestJob.found_count} найдено
-                            </span>
-                          )}
-                        </>
-                      ) : (
-                        <span className="italic">Ещё не запускали сбор</span>
-                      )}
-                    </div>
+                    </span>
                   </div>
-                  <div className="ml-3 flex shrink-0 items-center gap-2">
-                    {canManage && (
+                  <div className="mt-2 flex gap-x-4 gap-y-1 text-[11px] t-48 mono flex-wrap">
+                    {latestJob ? (
                       <>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="min-h-[44px] min-w-[44px] text-muted-foreground opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 hover:text-primary"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            openEditDialog(project);
-                          }}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          className="min-h-[44px] min-w-[44px] text-muted-foreground opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 hover:text-destructive"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setDeleteTarget(project);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                        <span><span className="text-white tnum">{latestJob.added_count ?? 0}</span> добавлено</span>
+                        <span><span className="text-white tnum">{latestJob.enriched_count ?? 0}</span> обогащено</span>
+                        {(latestJob.found_count ?? 0) > 0 && (
+                          <span><span className="text-white tnum">{latestJob.found_count}</span> найдено</span>
+                        )}
                       </>
+                    ) : (
+                      <span className="italic t-40">ещё не запускали сбор</span>
                     )}
-                    <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </div>
-                </Link>
-              </Card>
+                </div>
+                <div className="ml-3 flex shrink-0 items-center gap-1">
+                  {canManage && (
+                    <>
+                      <button
+                        type="button"
+                        className="t-48 hover:text-white transition-colors p-2 rounded-full hover:bg-white/[0.05]"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditDialog(project); }}
+                        aria-label="Редактировать"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="t-48 hover:text-[var(--rose)] transition-colors p-2 rounded-full hover:bg-white/[0.05]"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(project); }}
+                        aria-label="Удалить"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                  <ChevronRight className="h-4 w-4 t-48 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </Link>
             </motion.div>
           );
         })}
 
         {/* ── "+ Новый проект" placeholder card ── */}
         {canManage && projects.length > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowForm(true)}
-              className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-muted-foreground/20 px-4 py-6 text-sm font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground sm:px-5 sm:py-8"
-            >
-              <Plus className="h-5 w-5" />
-              Новый проект
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="rounded-2xl border border-dashed border-white/[0.12] px-4 py-6 text-[13px] t-56 hover:t-72 hover:border-white/[0.20] hover:bg-white/[0.02] transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Новый проект
+          </button>
         )}
       </div>
     </motion.main>

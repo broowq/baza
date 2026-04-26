@@ -5,18 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
 import { setOrgId, setToken } from "@/lib/auth";
 import type { Organization } from "@/lib/types";
@@ -27,6 +15,18 @@ type RegisterResponse = {
   message?: string | null;
   email_verification_required?: boolean;
 };
+
+function GlassInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={
+        "w-full h-11 rounded-2xl border border-[var(--line-2)] bg-white/[0.04] px-4 text-[14px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] backdrop-blur-xl transition-colors " +
+        (props.className ?? "")
+      }
+    />
+  );
+}
 
 function RegisterContent() {
   const router = useRouter();
@@ -103,104 +103,106 @@ function RegisterContent() {
 
   return (
     <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-      {/* Animated gradient mesh */}
-      <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
-        <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
-        <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
-      </div>
-      <Card className="w-full max-w-md p-4 sm:p-6 shadow-2xl shadow-black/20">
-        <CardHeader className="text-center">
-          <div className="mb-2 text-2xl sm:text-3xl font-bold tracking-tight">БАЗА</div>
-          <CardTitle className="text-lg sm:text-xl">Создание аккаунта</CardTitle>
-          <CardDescription>
-            Заполните форму для регистрации в системе
-          </CardDescription>
-        </CardHeader>
+      <div className="field" />
+      <div className="grid-lines" />
+      <div className="grain" />
 
-        {inviteToken && (
-          <CardContent>
-            <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+      <div className="relative z-10 w-full max-w-[460px]">
+        <Link href="/" className="mb-8 flex items-center justify-center gap-2">
+          <span
+            className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M4 6 L12 3 L20 6 L20 18 L12 21 L4 18 Z" stroke="black" strokeWidth="1.6" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="text-[15px]" style={{ fontWeight: 500 }}>база</span>
+        </Link>
+
+        <div className="panel p-7">
+          <div className="eyebrow mb-2">создание аккаунта</div>
+          <h1 className="h2 mb-1" style={{ fontSize: 32 }}>Начнём с первых лидов.</h1>
+          <p className="text-[13px] t-72 mb-6">
+            Бесплатные первые 100 — без карты.
+          </p>
+
+          {inviteToken && (
+            <div className="mb-5 panel-flat p-3 text-[12px] t-72">
               Создайте аккаунт, и приглашение в организацию применится автоматически.
-            </p>
-          </CardContent>
-        )}
+            </div>
+          )}
 
-        <CardContent>
-          <form id="register-form" onSubmit={onSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="full_name">Полное имя</Label>
-              <Input
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="full_name" className="eyebrow">полное имя</label>
+              <GlassInput
                 id="full_name"
                 placeholder="Иван Иванов"
                 value={form.full_name}
                 onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
-                required
-                minLength={2}
-                maxLength={120}
+                required minLength={2} maxLength={120}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="organization_name">Организация</Label>
-              <Input
+            <div className="space-y-1.5">
+              <label htmlFor="organization_name" className="eyebrow">организация</label>
+              <GlassInput
                 id="organization_name"
                 placeholder="Название организации"
                 value={form.organization_name}
                 onChange={(e) => setForm((p) => ({ ...p, organization_name: e.target.value }))}
-                required
-                minLength={2}
-                maxLength={120}
+                required minLength={2} maxLength={120}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="eyebrow">email</label>
+              <GlassInput
                 id="email"
-                placeholder="name@example.com"
                 type="email"
+                placeholder="name@example.com"
                 value={form.email}
                 onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
                 required
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Пароль</Label>
-              <Input
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="eyebrow">пароль</label>
+              <GlassInput
                 id="password"
-                placeholder="Минимум 8 символов"
                 type="password"
-                minLength={8}
-                maxLength={128}
+                placeholder="Минимум 8 символов"
+                minLength={8} maxLength={128}
                 value={form.password}
                 onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                 required
               />
               {form.password.length > 0 && form.password.length < 8 && (
-                <p className="text-xs text-destructive">
+                <p className="text-[11px] mono" style={{ color: "var(--rose)" }}>
                   Минимум 8 символов ({8 - form.password.length} ещё)
                 </p>
               )}
             </div>
 
-            <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+            <div className="space-y-3 panel-flat p-4">
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  className="mt-0.5 h-4 w-4 rounded accent-white"
+                  style={{ accentColor: "#fff" }}
                   required
                 />
-                <span className="text-xs leading-relaxed text-muted-foreground">
+                <span className="text-[12px] leading-[1.5] t-72">
                   Я принимаю{" "}
-                  <Link href="/terms" target="_blank" className="underline text-foreground hover:text-primary">
+                  <Link href="/terms" target="_blank" className="text-white underline underline-offset-2">
                     Условия использования
                   </Link>{" "}
                   и{" "}
-                  <Link href="/privacy" target="_blank" className="underline text-foreground hover:text-primary">
+                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2">
                     Политику конфиденциальности
                   </Link>
                 </span>
@@ -210,37 +212,47 @@ function RegisterContent() {
                   type="checkbox"
                   checked={acceptedPrivacy}
                   onChange={(e) => setAcceptedPrivacy(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  className="mt-0.5 h-4 w-4 rounded accent-white"
+                  style={{ accentColor: "#fff" }}
                   required
                 />
-                <span className="text-xs leading-relaxed text-muted-foreground">
+                <span className="text-[12px] leading-[1.5] t-72">
                   Даю согласие на обработку персональных данных в соответствии с{" "}
-                  <Link href="/privacy" target="_blank" className="underline text-foreground hover:text-primary">
+                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2">
                     152-ФЗ
                   </Link>
                 </span>
               </label>
             </div>
 
-            <Button type="submit" className="w-full" size="lg" disabled={loading || !acceptedTerms || !acceptedPrivacy}>
-              {loading ? "Создаём..." : "Зарегистрироваться"}
-            </Button>
-          </form>
-        </CardContent>
-
-        <CardFooter className="flex-col gap-3">
-          <Separator />
-          <p className="text-sm text-muted-foreground">
-            Уже есть аккаунт?{" "}
-            <Link
-              href={loginHref}
-              className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
+            <button
+              type="submit"
+              disabled={loading || !acceptedTerms || !acceptedPrivacy}
+              className="brand w-full rounded-full px-5 py-3 text-[13.5px] flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
             >
-              Войти
-            </Link>
-          </p>
-        </CardFooter>
-      </Card>
+              {loading ? "Создаём…" : "Зарегистрироваться"}
+              {!loading && (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M5 12h14M13 6l6 6-6 6" />
+                </svg>
+              )}
+            </button>
+          </form>
+
+          <div className="hairline mt-7 pt-5 text-center">
+            <p className="text-[13px] t-72">
+              Уже есть аккаунт?{" "}
+              <Link href={loginHref} className="text-white underline underline-offset-4">
+                Войти
+              </Link>
+            </p>
+          </div>
+        </div>
+
+        <p className="mt-6 text-center text-[11px] t-40">
+          © 2026 База · usebaza.ru
+        </p>
+      </div>
     </main>
   );
 }
@@ -250,17 +262,10 @@ export default function RegisterPage() {
     <Suspense
       fallback={
         <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
-          {/* Animated gradient mesh */}
-          <div className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
-            <div className="absolute inset-0 bg-gradient-to-br from-violet-50 via-background to-sky-50 dark:from-violet-950/20 dark:via-background dark:to-sky-950/20" />
-            <div className="absolute top-0 left-1/4 h-[500px] w-[500px] rounded-full bg-violet-200/30 blur-[100px] dark:bg-violet-800/10 animate-[aurora-1_15s_ease-in-out_infinite]" />
-            <div className="absolute bottom-0 right-1/4 h-[400px] w-[400px] rounded-full bg-sky-200/30 blur-[100px] dark:bg-sky-800/10 animate-[aurora-2_20s_ease-in-out_infinite]" />
+          <div className="field" />
+          <div className="panel p-7 w-full max-w-[460px] text-center t-48 text-[13px]">
+            Загрузка…
           </div>
-          <Card className="w-full max-w-md p-4 sm:p-6">
-            <CardContent className="py-12 text-center text-muted-foreground">
-              Загрузка...
-            </CardContent>
-          </Card>
         </main>
       }
     >
