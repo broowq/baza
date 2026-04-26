@@ -21,18 +21,13 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dark, setDark] = useState(true);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userName, setUserName] = useState("");
   const [org, setOrg] = useState<Organization | null>(null);
   const [projectCount, setProjectCount] = useState<number | null>(null);
-  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    setDark(document.documentElement.classList.contains("dark"));
-
     const token = getToken();
     if (!token) return;
 
@@ -56,14 +51,6 @@ export function Sidebar() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
-
-  const setTheme = (next: "dark" | "light") => {
-    const html = document.documentElement;
-    if (next === "dark") html.classList.add("dark");
-    else html.classList.remove("dark");
-    setDark(next === "dark");
-    localStorage.setItem("theme", next);
-  };
 
   const handleLogout = async () => {
     try {
@@ -228,35 +215,10 @@ export function Sidebar() {
             </div>
           </div>
         </div>
-        <div className="seg-v3 mb-3">
-          <button
-            type="button"
-            className={mounted && !dark ? "on" : ""}
-            onClick={() => setTheme("light")}
-            aria-label="Светлая тема"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
-            </svg>
-            Светлая
-          </button>
-          <button
-            type="button"
-            className={mounted && dark ? "on" : ""}
-            onClick={() => setTheme("dark")}
-            aria-label="Тёмная тема"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
-            </svg>
-            Тёмная
-          </button>
-        </div>
         <button
           type="button"
           onClick={handleLogout}
-          className="text-[12px] t-56 hover:c-rose transition-colors"
+          className="text-[12px] t-56 hover:c-rose transition-colors text-left"
         >
           Выйти →
         </button>

@@ -90,14 +90,6 @@ export default function PlansPage() {
       <div className="grain" />
 
       <div className="relative z-10 mx-auto max-w-5xl">
-        {isLoggedIn && (
-          <div className="mb-8">
-            <Link href="/dashboard" className="text-[12px] t-48 hover:text-white transition-colors">
-              ← Дашборд
-            </Link>
-          </div>
-        )}
-
         {/* Header */}
         <div className="mb-12 sm:mb-20 text-center">
           <div className="eyebrow mb-4">тарифы</div>
