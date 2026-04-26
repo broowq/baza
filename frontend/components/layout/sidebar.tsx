@@ -134,10 +134,16 @@ export function Sidebar() {
 
   const sidebar = (
     <aside className="sidebar-v3 h-full">
-      {/* Top: brand + org switcher */}
+      {/* Top: brand + org switcher.
+          Logo links to landing (/) — marketing «main screen».
+          To go to the product home, use the Дашборд nav item below. */}
       <div className="px-4 pt-5 pb-4">
         <div className="flex items-center gap-2.5">
-          <Link href={"/dashboard" as Route} className="flex items-center gap-2.5 min-w-0">
+          <Link
+            href={"/" as Route}
+            className="flex items-center gap-2.5 min-w-0"
+            aria-label="На главную"
+          >
             <span className="avatar w-7 h-7 text-[12px]">Б</span>
             <span className="text-[15px] truncate" style={{ fontWeight: 500 }}>
               база

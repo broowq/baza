@@ -24,6 +24,8 @@ import {
 } from "react";
 import Link from "next/link";
 
+import { getToken } from "@/lib/auth";
+
 /* ─────────────────────────────────────────────────────────────
    DATA
    ───────────────────────────────────────────────────────────── */
@@ -174,6 +176,12 @@ function CornerMeta() {
 }
 
 function TopNav() {
+  const [authed, setAuthed] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    setAuthed(Boolean(getToken()));
+  }, []);
+
   return (
     <header className="topnav">
       <div className="max-w-[1320px] mx-auto px-6 h-14 flex items-center gap-6">
@@ -201,8 +209,19 @@ function TopNav() {
             <span className="dot dot-em" />
             все системы стабильны
           </span>
-          <Link href="/login" className="ghost rounded-full px-3.5 py-1.5 text-[12.5px]">Войти</Link>
-          <Link href="/register" className="brand rounded-full px-4 py-1.5 text-[12.5px]">Получить доступ</Link>
+          {authed ? (
+            <Link
+              href="/dashboard"
+              className="brand rounded-full px-4 py-1.5 text-[12.5px]"
+            >
+              Открыть дашборд →
+            </Link>
+          ) : (
+            <>
+              <Link href="/login" className="ghost rounded-full px-3.5 py-1.5 text-[12.5px]">Войти</Link>
+              <Link href="/register" className="brand rounded-full px-4 py-1.5 text-[12.5px]">Получить доступ</Link>
+            </>
+          )}
         </div>
       </div>
     </header>
