@@ -88,7 +88,7 @@ export function Sidebar() {
       match: (p) => p === "/dashboard",
     },
     {
-      href: "/dashboard" as Route,
+      href: "/dashboard/projects" as Route,
       label: "Проекты",
       icon: (
         <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
