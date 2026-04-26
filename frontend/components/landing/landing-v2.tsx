@@ -198,11 +198,9 @@ function TopNav() {
           <span className="t-40 text-[11px] mono">v0.42</span>
         </Link>
         <nav className="hidden md:flex items-center gap-1 ml-4">
-          <span className="nav-link active">Продукт</span>
-          <span className="nav-link">Источники</span>
+          <a href="#product" className="nav-link">Продукт</a>
+          <a href="#sources" className="nav-link">Возможности</a>
           <Link href="/plans" className="nav-link">Цены</Link>
-          <span className="nav-link">Документация</span>
-          <span className="nav-link">Журнал</span>
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <span className="hidden md:flex items-center gap-2 text-[11px] t-48">
@@ -633,7 +631,7 @@ function ProductFrame() {
   }, []);
   const crumb = view === "overview" ? "Обзор" : view === "project" ? "Проект" : "Лид";
   return (
-    <section className="relative">
+    <section id="product" className="relative">
       <div className="max-w-[1320px] mx-auto px-6 pt-6 pb-24">
         <div className="flex items-end justify-between mb-7">
           <div>
@@ -1360,7 +1358,7 @@ function ViewLead({ active }: { active: boolean }) {
 
 function FeaturesSection() {
   return (
-    <section className="relative">
+    <section id="sources" className="relative">
       <div className="max-w-[1320px] mx-auto px-6 py-24">
         <div className="grid grid-cols-12 gap-10 mb-14">
           <div className="col-span-12 lg:col-span-6">
