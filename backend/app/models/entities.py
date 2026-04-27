@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum,
@@ -53,6 +54,19 @@ class Organization(Base):
     # Webhook URL for CRM integrations (Bitrix24, AmoCRM, etc). Each new lead
     # is POSTed there as JSON. Empty = disabled.
     lead_webhook_url: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    # ── AI cost cap (per calendar month) ────────────────────────────────────
+    # Stored in kopecks (₽ × 100) to keep arithmetic integer-only and avoid
+    # floating-point drift across thousands of LLM calls. Both fields reset
+    # alongside leads_used_current_month on the 1st of each month.
+    #   ai_cost_used_kopecks_current_month  — running spend
+    #   ai_cost_limit_kopecks_per_month     — hard cap; LLM calls refused above
+    # BigInteger so we don't overflow at team-tier (millions of kopecks/mo).
+    ai_cost_used_kopecks_current_month: Mapped[int] = mapped_column(
+        BigInteger, default=0, nullable=False, server_default="0"
+    )
+    ai_cost_limit_kopecks_per_month: Mapped[int] = mapped_column(
+        BigInteger, default=0, nullable=False, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")

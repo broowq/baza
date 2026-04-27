@@ -13,18 +13,24 @@ logger = logging.getLogger(__name__)
 
 @celery.task(name="periodic.reset_monthly_quotas")
 def reset_monthly_quotas() -> None:
-    """Reset leads_used_current_month to 0 for all organizations.
+    """Reset leads_used_current_month AND ai_cost_used_kopecks_current_month
+    to 0 for all organizations.
 
-    Runs on the 1st of each month at 00:05 UTC via Celery beat.
+    Runs on the 1st of each month at 00:05 UTC via Celery beat. Both counters
+    are zeroed in a single statement so they stay in lockstep — frontend
+    never shows "leads reset but AI quota didn't" as an inconsistent moment.
     """
     db = SessionLocal()
     try:
         result = db.execute(
-            update(Organization).values(leads_used_current_month=0)
+            update(Organization).values(
+                leads_used_current_month=0,
+                ai_cost_used_kopecks_current_month=0,
+            )
         )
         db.commit()
         logger.info(
-            "Monthly quota reset complete: %d organizations updated",
+            "Monthly quota reset complete: %d organizations updated (leads + AI cost)",
             result.rowcount,
         )
     except Exception:

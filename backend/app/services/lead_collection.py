@@ -1814,6 +1814,7 @@ def search_leads(
     segments: list[str] | None = None,
     prompt: str = "",
     use_yandex: bool = True,
+    organization_id: str | None = None,
 ) -> list[dict]:
     """Public entry point. Runs the single-tier search, and if the result
     set is materially below target, also probes the broader geographic
@@ -1822,11 +1823,15 @@ def search_leads(
     A thin tier-cascade rather than a 'big-bang' one-pass: avoids needless
     cost when the city already has plenty, but rescues thin-niche searches
     (e.g. 'птицефабрика в Урюпинске' → fallback to oblast → to country).
+
+    `organization_id` flows down to the LLM filter so AI calls inside the
+    candidate-relevance pass are metered against this org's monthly cap.
     """
     initial = _search_leads_one_tier(
         query, limit,
         niche=niche, geography=geography, segments=segments,
         prompt=prompt, use_yandex=use_yandex,
+        organization_id=organization_id,
     )
     # If we already have a healthy chunk OR geography is 'Россия' (no broader
     # tier to expand to), return as-is.
@@ -1853,6 +1858,7 @@ def search_leads(
             query, remaining,
             niche=niche, geography=tier_geo, segments=segments,
             prompt=prompt, use_yandex=use_yandex,
+            organization_id=organization_id,
         )
         if not extra:
             continue
@@ -1880,7 +1886,7 @@ def search_leads(
     return merged[:limit]
 
 
-def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True) -> list[dict]:
+def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -2077,7 +2083,10 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     ranked = _finalize_candidates(collected, limit)
     if ranked:
         from app.services.llm_filter import filter_candidates_llm
-        ranked = filter_candidates_llm(ranked, effective_niche, effective_geo, effective_segments, prompt=prompt)
+        ranked = filter_candidates_llm(
+            ranked, effective_niche, effective_geo, effective_segments,
+            prompt=prompt, organization_id=organization_id,
+        )
         return ranked
     # Never generate fake/synthetic leads — return empty list so callers see
     # real zero-result state and can act accordingly.

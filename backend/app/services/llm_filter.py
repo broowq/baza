@@ -18,15 +18,22 @@ def filter_candidates_llm(
     segments: list[str],
     *,
     prompt: str = "",
+    organization_id: str | None = None,
 ) -> list[dict]:
-    """Filter candidates for relevance. Uses AI if available, rule-based otherwise."""
+    """Filter candidates for relevance. Uses AI if available, rule-based otherwise.
+
+    `organization_id` is forwarded to llm_client so each batch call is
+    metered against the org's monthly AI-cost cap. Hitting the cap returns
+    None from chat() — caller transparently falls back to rule-based.
+    """
     if not candidates:
         return candidates
 
     # Try AI filter first
     if llm_client.is_configured():
         try:
-            result = _ai_filter(candidates, niche, geography, segments, prompt)
+            result = _ai_filter(candidates, niche, geography, segments, prompt,
+                                organization_id=organization_id)
             if result is not None:
                 return result
         except Exception as e:
@@ -79,6 +86,8 @@ def _ai_filter(
     geography: str,
     segments: list[str],
     prompt: str,
+    *,
+    organization_id: str | None = None,
 ) -> list[dict] | None:
     """AI-based filtering. Returns None on failure."""
     BATCH_SIZE = 30
@@ -86,9 +95,10 @@ def _ai_filter(
 
     for batch_start in range(0, len(candidates), BATCH_SIZE):
         batch = candidates[batch_start:batch_start + BATCH_SIZE]
-        kept = _ai_filter_batch(batch, niche, geography, segments, prompt)
+        kept = _ai_filter_batch(batch, niche, geography, segments, prompt,
+                                organization_id=organization_id)
         if kept is None:
-            return None  # Signal failure to caller
+            return None  # Signal failure to caller — incl. cap exhaustion
         all_kept.extend(kept)
 
     logger.info(
@@ -98,7 +108,7 @@ def _ai_filter(
     return all_kept
 
 
-def _ai_filter_batch(batch, niche, geography, segments, prompt) -> list[dict] | None:
+def _ai_filter_batch(batch, niche, geography, segments, prompt, *, organization_id: str | None = None) -> list[dict] | None:
     """Filter a single batch using AI. Returns None on failure."""
     lines = []
     for i, c in enumerate(batch):
@@ -154,6 +164,7 @@ def _ai_filter_batch(batch, niche, geography, segments, prompt) -> list[dict] | 
             filter_prompt,
             max_tokens=200,
             temperature=0.1,
+            organization_id=organization_id,
         )
         if answer is None:
             return None

@@ -136,7 +136,7 @@ def collect_leads_task(job_id: str) -> None:
         if user_prompt:
             try:
                 from app.services.prompt_enhancer import enhance_prompt
-                enhanced = enhance_prompt(user_prompt)
+                enhanced = enhance_prompt(user_prompt, organization_id=str(job.organization_id))
                 if enhanced.get("search_queries_niche"):
                     effective_niche = enhanced["search_queries_niche"]
                 elif enhanced.get("niche"):
@@ -165,6 +165,7 @@ def collect_leads_task(job_id: str) -> None:
             segments=effective_segments,
             prompt=user_prompt,
             use_yandex=use_yandex,
+            organization_id=str(job.organization_id),
         )
         job.found_count = len(candidates)
         db.commit()

@@ -10,6 +10,10 @@ export type Organization = {
   users_limit: number;
   can_invite_members: boolean;
   lead_webhook_url?: string;
+  // Per-org monthly AI/LLM spend cap. Both values are in kopecks (₽ × 100)
+  // so the API stays integer end-to-end; UI divides by 100 for display.
+  ai_cost_used_kopecks_current_month?: number;
+  ai_cost_limit_kopecks_per_month?: number;
 };
 
 export type OkvedCode = {

@@ -16,6 +16,11 @@ class OrganizationOut(BaseModel):
     users_limit: int
     can_invite_members: bool
     lead_webhook_url: str = ""
+    # Monthly AI/LLM spend cap, both fields in kopecks (₽ × 100). The cap
+    # protects the shared GigaChat/Anthropic credit pool from a single noisy
+    # team. Reset alongside leads on the 1st via celery beat.
+    ai_cost_used_kopecks_current_month: int = 0
+    ai_cost_limit_kopecks_per_month: int = 0
     created_at: datetime
 
     class Config:

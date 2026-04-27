@@ -491,10 +491,15 @@ _PRODUCT_TO_CUSTOMERS = [
 ]
 
 
-def enhance_prompt(raw_prompt: str) -> dict:
-    """Take a user's raw business description and generate a search strategy."""
+def enhance_prompt(raw_prompt: str, *, organization_id: str | None = None) -> dict:
+    """Take a user's raw business description and generate a search strategy.
+
+    `organization_id` propagates to the LLM client so the call gets metered
+    against the org's monthly AI-cost cap. Pass None for system/admin tooling
+    that shouldn't be charged.
+    """
     if llm_client.is_configured():
-        result = _try_llm_enhance(raw_prompt)
+        result = _try_llm_enhance(raw_prompt, organization_id=organization_id)
         if result:
             # Augment LLM segments with auto-discovered 2GIS categories
             result["segments"] = _augment_with_2gis_categories(
@@ -896,7 +901,7 @@ def _okved_from_segments(segments: list[str]) -> list[dict]:
     return out[:6]
 
 
-def _try_llm_enhance(raw_prompt: str) -> dict | None:
+def _try_llm_enhance(raw_prompt: str, *, organization_id: str | None = None) -> dict | None:
     """Try to enhance using LLM. Returns None on failure."""
     system_prompt = """Ты — AI-ассистент B2B платформы лидогенерации БАЗА. Твоя задача — проанализировать описание бизнеса пользователя и создать стратегию поиска ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ.
 
@@ -989,6 +994,7 @@ search_queries_niche — это то, что будет искаться на к
             system=system_prompt,
             max_tokens=2500,  # bumped from 800: we now ask for 25-40 segments
             temperature=0.3,
+            organization_id=organization_id,
         )
         if not answer:
             return None

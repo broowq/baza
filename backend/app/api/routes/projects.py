@@ -45,7 +45,7 @@ def enhance_prompt(
     """Enhance a raw user prompt into an optimized search strategy."""
     from app.services.prompt_enhancer import enhance_prompt as do_enhance
 
-    result = do_enhance(payload.prompt)
+    result = do_enhance(payload.prompt, organization_id=str(organization.id))
     return PromptEnhanceResponse(
         enhanced_prompt=result.get("enhanced_prompt", payload.prompt),
         project_name=result.get("project_name", "Новый проект"),

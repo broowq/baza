@@ -18,13 +18,14 @@ router = APIRouter(prefix="/search", tags=["search"])
 logger = logging.getLogger("baza.search")
 
 
-def _run_search(query: str, geography: str, limit: int) -> list[dict]:
+def _run_search(query: str, geography: str, limit: int, *, organization_id: str | None = None) -> list[dict]:
     """Execute search_leads and return raw result dicts."""
     return search_leads(
         query=query,
         limit=limit,
         niche=query,
         geography=geography,
+        organization_id=organization_id,
     )
 
 
@@ -54,7 +55,7 @@ def search_preview(
     Dry-run search: returns matching companies from available sources
     without saving anything to the database.
     """
-    raw = _run_search(payload.query, payload.geography, payload.limit)
+    raw = _run_search(payload.query, payload.geography, payload.limit, organization_id=str(organization.id))
     return _to_result_items(raw)
 
 
@@ -74,7 +75,7 @@ def search_and_save(
 
     ensure_lead_quota(organization, payload.limit)
 
-    raw = _run_search(payload.query, payload.geography, payload.limit)
+    raw = _run_search(payload.query, payload.geography, payload.limit, organization_id=str(organization.id))
 
     # Collect existing website URLs in this project to avoid duplicates
     existing_websites: set[str] = set(
