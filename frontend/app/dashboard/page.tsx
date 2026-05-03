@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Plus, ChevronRight, Trash2, Pencil, Sparkles, Search, Wand2, Loader2 } from "lucide-react";
+
+import { VoiceInput } from "@/components/voice-input";
 import { toast } from "sonner";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
@@ -389,16 +391,24 @@ export default function DashboardPage() {
                   </DialogDescription>
                 </DialogHeader>
                 <div className="mt-4 grid gap-4">
-                  <Textarea
-                    placeholder={"Например:\n• Продаю кормовые добавки для животных в Томске\n• Разрабатываю сайты и мобильные приложения в Москве\n• Поставляю стройматериалы оптом по всей России"}
-                    value={projectForm.prompt}
-                    onChange={(e) => setProjectForm((p) => ({ ...p, prompt: e.target.value }))}
-                    rows={5}
-                    className="resize-none text-base"
-                    maxLength={2000}
-                  />
+                  <div className="relative">
+                    <Textarea
+                      placeholder={"Например:\n• Продаю кормовые добавки для животных в Томске\n• Разрабатываю сайты и мобильные приложения в Москве\n• Поставляю стройматериалы оптом по всей России"}
+                      value={projectForm.prompt}
+                      onChange={(e) => setProjectForm((p) => ({ ...p, prompt: e.target.value }))}
+                      rows={5}
+                      className="resize-none text-base pr-14"
+                      maxLength={2000}
+                    />
+                    <div className="absolute right-2 bottom-2">
+                      <VoiceInput
+                        value={projectForm.prompt}
+                        onChange={(next) => setProjectForm((p) => ({ ...p, prompt: next.slice(0, 2000) }))}
+                      />
+                    </div>
+                  </div>
                   <p className="text-xs text-muted-foreground">
-                    AI улучшит ваш запрос и определит, кого именно искать как потенциальных покупателей
+                    AI улучшит ваш запрос и определит, кого именно искать как потенциальных покупателей. Можно надиктовать голосом.
                   </p>
                   <DialogFooter>
                     <Button type="button" variant="outline" onClick={() => setShowForm(false)}>

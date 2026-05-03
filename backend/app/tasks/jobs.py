@@ -245,6 +245,10 @@ def collect_leads_task(job_id: str) -> None:
                 has_address=bool(address_val),
                 demo=bool(c.get("demo", False)),
                 relevance_score=int(c.get("relevance_score", 0)),
+                # Pass effective_segments so target-buyer matches earn the
+                # +8/+16 segment bonus. Previously omitted, which silently
+                # cost real B2B buyers ~10 points relative to seller noise.
+                segments=effective_segments,
             )
             # Extract a stable external id we can link back to (2GIS firm_id,
             # rusprofile entity id, etc.). Preference order: explicit firm_id
@@ -414,6 +418,9 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         leads = db.execute(query).scalars().all()
         project = db.get(Project, job.project_id)
         project_niche = project.niche if project else ""
+        # Re-use the project's segments during enrichment scoring so the
+        # buyer-match bonus stays consistent with the initial collect-pass.
+        project_segments = list(project.segments) if (project and project.segments) else []
         enriched = 0
         for lead in leads:
             website = lead.website or ""
@@ -506,6 +513,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 has_phone=bool(lead.phone),
                 has_address=bool(lead.address),
                 demo=lead.demo,
+                segments=project_segments,
             )
             enriched += 1
 
