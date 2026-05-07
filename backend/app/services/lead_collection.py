@@ -894,6 +894,11 @@ _YANDEX_DEAD_KEY = False
 # bleeds 24 × 15s = 6min off every search before we even begin filtering.
 # Flipping the breaker on first auth-shaped error ends that bleed instantly.
 _TWOGIS_DEAD_KEY = False
+# 2GIS public scrape is independent of the API — blocked separately by their
+# captcha/anti-bot. Counter keeps it at zero unless we see persistent block,
+# then flip after 2nd failure to avoid wasting ~10s × 24 segments.
+_TWOGIS_SCRAPE_BLOCKED = False
+_TWOGIS_SCRAPE_CAPTCHA_FAILS = 0
 _RUSPROFILE_BLOCKED = False
 
 
@@ -1402,6 +1407,12 @@ def _search_2gis_scrape(niche: str, geo: str, limit: int) -> list[dict]:
     Returns the same dict format as _search_2gis (API version) so the caller
     can swap them transparently.
     """
+    global _TWOGIS_SCRAPE_BLOCKED
+    if _TWOGIS_SCRAPE_BLOCKED:
+        # Captcha is persistent; subsequent calls would each spend ~10s
+        # losing to the same bot-detection. Cleared on next worker restart.
+        return []
+
     slug = _city_to_slug(geo)
     if not slug:
         logger.debug("2GIS scrape: no slug for geo=%r, skip", geo)
@@ -2332,6 +2343,16 @@ def _fetch_2gis_html(url: str) -> str:
                 # it time and rotate UA before the next attempt.
                 if attempt == 3:
                     logger.info("2gis captcha persists after 4 attempts for %s", url)
+                    # Bump the global counter — after 2 segments fail in a row
+                    # we flip the scrape breaker, saving ~10s × remaining segments.
+                    global _TWOGIS_SCRAPE_CAPTCHA_FAILS, _TWOGIS_SCRAPE_BLOCKED
+                    _TWOGIS_SCRAPE_CAPTCHA_FAILS += 1
+                    if _TWOGIS_SCRAPE_CAPTCHA_FAILS >= 2 and not _TWOGIS_SCRAPE_BLOCKED:
+                        _TWOGIS_SCRAPE_BLOCKED = True
+                        logger.warning(
+                            "2GIS scrape: %d captcha failures, disabling for this worker process",
+                            _TWOGIS_SCRAPE_CAPTCHA_FAILS,
+                        )
                     # If captcha is hitting us this often, ops should know — but
                     # throttle to 1/15min so a captcha storm doesn't spam Telegram.
                     try:
