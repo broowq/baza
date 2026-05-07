@@ -889,6 +889,13 @@ def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
 # of wasted HTTP latency to a known-broken upstream.
 _YANDEX_DEAD_KEY = False
 
+# Same pattern for 2GIS API and rusprofile scrape. Both ALSO get hit on every
+# segment iteration (24×) inside _search_leads_one_tier, so a dead source
+# bleeds 24 × 15s = 6min off every search before we even begin filtering.
+# Flipping the breaker on first auth-shaped error ends that bleed instantly.
+_TWOGIS_DEAD_KEY = False
+_RUSPROFILE_BLOCKED = False
+
 
 def _search_yandex_maps(
     niche: str,
@@ -1052,6 +1059,12 @@ def _resolve_2gis_city_id(geo: str) -> str | None:
 
 
 def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
+    global _TWOGIS_DEAD_KEY
+    if _TWOGIS_DEAD_KEY:
+        # Skip 24× wasted HTTP roundtrips per search if we know the key is dead.
+        # Flag persists for the worker process — gets cleared on next deploy
+        # when the operator rotates the key (env reload).
+        return []
     settings = get_settings()
     api_key = settings.twogis_api_key
     if not api_key:
@@ -1119,7 +1132,10 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                         niche,
                     )
                     # Auth/quota errors → fire ops alert (throttled to 1/hour)
+                    # AND flip the process-wide circuit breaker so the next 23
+                    # segment iterations don't each pay 15s of HTTP timeout.
                     if meta_code in (401, 403, 429):
+                        _TWOGIS_DEAD_KEY = True
                         try:
                             from app.services.notifications import send_alert
                             send_alert(
@@ -1645,6 +1661,13 @@ def _search_rusprofile(niche: str, geo: str, limit: int) -> list[dict]:
     Returns up to `limit` candidates with company name + city + INN-like ID.
     No phones/emails (JS-rendered) — those come from later 2GIS lookup.
     """
+    global _RUSPROFILE_BLOCKED
+    if _RUSPROFILE_BLOCKED:
+        # Process-scoped breaker — once Cloudflare/captcha/IP-block kicks in,
+        # 24× scrapes per search just multiply the wait. Cleared on next worker
+        # restart (i.e. next deploy) — by then the IP reputation may have reset.
+        return []
+
     cache_k = _cache_key("rusprofile", niche, geo, str(limit))
     r_redis = _get_redis()
     if r_redis:
@@ -1668,6 +1691,22 @@ def _search_rusprofile(niche: str, geo: str, limit: int) -> list[dict]:
             })
     except Exception as exc:
         logger.info("Rusprofile fetch failed for %r: %s", query, exc)
+        return []
+    if resp.status_code in (403, 429):
+        # Server-side block — sticky, so flip the breaker and alert ops once.
+        _RUSPROFILE_BLOCKED = True
+        try:
+            from app.services.notifications import send_alert
+            send_alert(
+                "warning",
+                f"Rusprofile blocked (HTTP {resp.status_code})",
+                "Server is rejecting our IP — captcha or rate-limit. "
+                "Disabling rusprofile for this worker until restart.",
+                key=f"rusprofile_blocked_{resp.status_code}",
+                throttle_seconds=3600,
+            )
+        except Exception:
+            pass
         return []
     if resp.status_code != 200 or len(resp.text) < 1000:
         return []
