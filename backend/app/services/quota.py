@@ -5,8 +5,8 @@ spend this month (kopecks ₽×100). Both reset on the 1st via celery beat.
 
 The AI cap exists because every search now hits an LLM (prompt enhancer +
 candidate filter), so a single noisy team can otherwise drain the shared
-GigaChat / Anthropic credit pool. The cap is denominated in kopecks so we
-can do all accounting in plain ints without float drift.
+YandexGPT / GigaChat / Anthropic credit pool. The cap is denominated in
+kopecks so we can do all accounting in plain ints without float drift.
 """
 from fastapi import HTTPException
 

@@ -1,7 +1,8 @@
-"""Lead quality filter: AI-powered (GigaChat/Anthropic) with rule-based fallback.
+"""Lead quality filter: AI-powered (YandexGPT/GigaChat/Anthropic) with rule-based fallback.
 
-Uses unified llm_client which tries GigaChat first, then Anthropic.
-Falls back to rule-based competitor detection if both LLMs unavailable.
+Uses unified llm_client which tries the primary provider (YandexGPT by default),
+then cascades through the others on failure. Falls back to rule-based competitor
+detection if all LLMs are unavailable.
 """
 import logging
 import re

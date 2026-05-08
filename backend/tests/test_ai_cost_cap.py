@@ -131,7 +131,12 @@ def test_chat_charges_after_successful_call(monkeypatch):
     monkeypatch.setattr(llm_client, "_has_budget", lambda org_id: True)
     monkeypatch.setattr(llm_client, "_charge", fake_charge)
 
-    # Force gigachat path with a successful canned response.
+    # Force gigachat path with a successful canned response. We also pin
+    # _call_yandex so the new yandex→… rotation can't run a real HTTP call.
+    monkeypatch.setattr(
+        llm_client, "_call_yandex",
+        lambda *a, **kw: (None, 0, 0),
+    )
     monkeypatch.setattr(
         llm_client, "_call_gigachat",
         lambda *a, **kw: ("ok-response", 250, 80),
@@ -162,6 +167,10 @@ def test_chat_does_not_charge_when_organization_id_is_none(monkeypatch):
 
     monkeypatch.setattr(llm_client, "_charge", fake_charge)
     monkeypatch.setattr(
+        llm_client, "_call_yandex",
+        lambda *a, **kw: (None, 0, 0),
+    )
+    monkeypatch.setattr(
         llm_client, "_call_gigachat",
         lambda *a, **kw: ("ok", 100, 50),
     )
@@ -183,6 +192,7 @@ def test_chat_falls_back_to_anthropic_when_gigachat_returns_empty(monkeypatch):
     """Provider fallback still works WITH cap awareness."""
     monkeypatch.setattr(llm_client, "_has_budget", lambda org_id: True)
     monkeypatch.setattr(llm_client, "_charge", lambda *_a, **_kw: None)
+    monkeypatch.setattr(llm_client, "_call_yandex", lambda *a, **kw: (None, 0, 0))
     monkeypatch.setattr(llm_client, "_call_gigachat", lambda *a, **kw: (None, 0, 0))
     monkeypatch.setattr(
         llm_client, "_call_anthropic",
@@ -207,3 +217,156 @@ def test_estimate_tokens_grows_with_length():
     a = llm_client._estimate_tokens("привет мир")
     b = llm_client._estimate_tokens("привет мир " * 10)
     assert b > a
+
+
+# ── YandexGPT provider ─────────────────────────────────────────────────────
+
+def test_yandex_is_default_primary_provider(monkeypatch):
+    """With no override the cascade is yandex → anthropic → gigachat."""
+    seen_order = []
+
+    def make_spy(name):
+        def _fn(*a, **kw):
+            seen_order.append(name)
+            return (None, 0, 0)
+        return _fn
+
+    monkeypatch.setattr(llm_client, "_call_yandex", make_spy("yandex"))
+    monkeypatch.setattr(llm_client, "_call_anthropic", make_spy("anthropic"))
+    monkeypatch.setattr(llm_client, "_call_gigachat", make_spy("gigachat"))
+
+    settings_mock = MagicMock()
+    settings_mock.llm_provider = "yandex"
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        llm_client.chat("hi")
+
+    assert seen_order == ["yandex", "anthropic", "gigachat"]
+
+
+def test_yandex_charge_uses_yandex_provider_label(monkeypatch):
+    """Successful Yandex call charges as provider='yandex' (not gigachat)."""
+    captured = {}
+    monkeypatch.setattr(llm_client, "_has_budget", lambda _id: True)
+    monkeypatch.setattr(
+        llm_client, "_charge",
+        lambda org_id, provider, in_tok, out_tok: captured.update(
+            org_id=org_id, provider=provider, in_tok=in_tok, out_tok=out_tok
+        ),
+    )
+    monkeypatch.setattr(
+        llm_client, "_call_yandex",
+        lambda *a, **kw: ("yandex-response", 120, 90),
+    )
+    settings_mock = MagicMock()
+    settings_mock.llm_provider = "yandex"
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        out = llm_client.chat("hi", organization_id="org-1")
+
+    assert out == "yandex-response"
+    assert captured["provider"] == "yandex"
+    assert captured["in_tok"] == 120 and captured["out_tok"] == 90
+
+
+def test_yandex_pricing_in_kopecks_table():
+    """Pricing table must include Yandex; 1M+1M tokens at default rate = 40 000 kop."""
+    cost = llm_client._cost_kopecks("yandex", 1_000_000, 1_000_000)
+    assert cost == 40_000  # 20_000 (in) + 20_000 (out)
+
+
+def test_call_yandex_returns_zero_when_credentials_missing(monkeypatch):
+    """No api_key OR no folder_id ⇒ _call_yandex returns (None,0,0) silently."""
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = ""
+    settings_mock.yandex_gpt_folder_id = "f1"
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        assert llm_client._call_yandex("hi", "", 100, 0.3) == (None, 0, 0)
+
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = "k"
+    settings_mock.yandex_gpt_folder_id = ""
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        assert llm_client._call_yandex("hi", "", 100, 0.3) == (None, 0, 0)
+
+
+def test_call_yandex_parses_string_token_counts(monkeypatch):
+    """Yandex returns usage numbers as JSON strings; we coerce to int."""
+    canned = {
+        "result": {
+            "alternatives": [
+                {"message": {"role": "assistant", "text": "answer"}, "status": "ALTERNATIVE_STATUS_FINAL"},
+            ],
+            "usage": {
+                "inputTextTokens": "47",
+                "completionTokens": "13",
+                "totalTokens": "60",
+            },
+        }
+    }
+
+    class FakeResp:
+        status_code = 200
+        text = "ok"
+        def json(self):
+            return canned
+
+    class FakeClient:
+        def __init__(self, *_a, **_kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def post(self, *_a, **_kw): return FakeResp()
+
+    monkeypatch.setattr(llm_client.httpx, "Client", FakeClient)
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = "k"
+    settings_mock.yandex_gpt_folder_id = "f"
+    settings_mock.yandex_gpt_model = "yandexgpt-lite/latest"
+    settings_mock.yandex_gpt_endpoint = "https://example.invalid"
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        text, in_tok, out_tok = llm_client._call_yandex("hi", "sys", 100, 0.3)
+
+    assert text == "answer"
+    assert in_tok == 47 and out_tok == 13
+
+
+def test_call_yandex_4xx_returns_none(monkeypatch):
+    """A 4xx (auth/quota) response yields (None,0,0) so chat() can fall through."""
+    class FakeResp:
+        status_code = 401
+        text = "unauthorized"
+
+    class FakeClient:
+        def __init__(self, *_a, **_kw): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+        def post(self, *_a, **_kw): return FakeResp()
+
+    monkeypatch.setattr(llm_client.httpx, "Client", FakeClient)
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = "k"
+    settings_mock.yandex_gpt_folder_id = "f"
+    settings_mock.yandex_gpt_model = "yandexgpt-lite/latest"
+    settings_mock.yandex_gpt_endpoint = "https://example.invalid"
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        assert llm_client._call_yandex("hi", "", 100, 0.3) == (None, 0, 0)
+
+
+def test_is_configured_true_when_yandex_credentials_set(monkeypatch):
+    """is_configured() should pick up Yandex even without GigaChat/Anthropic keys."""
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = "k"
+    settings_mock.yandex_gpt_folder_id = "f"
+    settings_mock.gigachat_credentials = ""
+    settings_mock.anthropic_api_key = ""
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        assert llm_client.is_configured() is True
+
+
+def test_is_configured_false_when_yandex_only_partially_set():
+    """Half a Yandex config (key without folder, or vice versa) doesn't count."""
+    settings_mock = MagicMock()
+    settings_mock.yandex_gpt_api_key = "k"
+    settings_mock.yandex_gpt_folder_id = ""
+    settings_mock.gigachat_credentials = ""
+    settings_mock.anthropic_api_key = ""
+    with patch.object(llm_client, "get_settings", return_value=settings_mock):
+        assert llm_client.is_configured() is False

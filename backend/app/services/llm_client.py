@@ -1,7 +1,9 @@
-"""Unified LLM client — supports GigaChat (default, RU) and Anthropic Claude (fallback).
+"""Unified LLM client — supports YandexGPT (default, RU), GigaChat (RU fallback)
+and Anthropic Claude (overseas fallback).
 
 Provides a single `chat()` interface that returns the text response. Picks
-provider based on settings.llm_provider.
+the primary provider from settings.llm_provider and cascades through the
+others on failure.
 
 Cost-cap awareness
 ──────────────────
@@ -12,20 +14,24 @@ to None — same as a provider outage from the caller's perspective, so
 downstream code transparently falls back to its rule-based path.
 
 Token accounting:
-  – Anthropic: `usage.input_tokens` / `usage.output_tokens` straight from
-    the API. Prices come from settings (RUB per million tokens).
-  – GigaChat: response carries `usage.prompt_tokens` / `completion_tokens`.
-    If usage is missing (older SDK / mocked test), we estimate
-    ceil(len_chars / 4) × 1 token as a conservative upper-bound.
+  – YandexGPT: response.result.usage.{inputTextTokens,completionTokens} from
+    the REST API. Strings → ints (Yandex returns numerics as strings).
+  – Anthropic: usage.input_tokens / usage.output_tokens from the SDK.
+  – GigaChat:  usage.prompt_tokens / completion_tokens from the SDK.
+  – If usage is missing (older SDK / mocked test) we estimate
+    ceil(len_chars / 3) so a missing-usage path slightly over-counts
+    rather than slips free.
 
-Prices are kept in app.core.config so they're tunable per environment
-(currency floats, model upgrades) without redeploying code.
+Prices live in _DEFAULT_PRICES_KOPECKS_PER_MTOK; override via
+settings.llm_prices_kopecks_per_mtok if finance retunes them later.
 """
 from __future__ import annotations
 
 import logging
 import math
 from typing import Optional
+
+import httpx
 
 from app.core.config import get_settings
 
@@ -35,14 +41,19 @@ _gigachat_client = None
 _anthropic_client = None
 
 
-# Kopecks per million tokens. These mirror real-world Apr 2026 pricing
-# converted at ~83 ₽/$. Override via settings to keep code aligned with
-# whatever the finance team negotiated.
+# Kopecks per million tokens. Apr 2026 prices, converted at ~83 ₽/$.
+# Override via settings to keep code aligned with whatever finance negotiated.
 _DEFAULT_PRICES_KOPECKS_PER_MTOK = {
-    "anthropic_input": 25_000,    # claude-sonnet-4 input  ≈ $3 / 1M  → ₽250 / 1M  → 25_000 kopecks
-    "anthropic_output": 125_000,  # claude-sonnet-4 output ≈ $15 / 1M → ₽1250 / 1M → 125_000 kopecks
-    "gigachat_input":  500,       # GigaChat Lite input  ≈ ₽5 / 1M    → 500 kopecks
-    "gigachat_output": 500,       # GigaChat Lite output ≈ ₽5 / 1M    → 500 kopecks
+    # Anthropic Claude Sonnet
+    "anthropic_input": 25_000,    # ≈ $3 / 1M  → ₽250  / 1M  → 25_000 kopecks
+    "anthropic_output": 125_000,  # ≈ $15 / 1M → ₽1250 / 1M  → 125_000 kopecks
+    # GigaChat Lite (Sber)
+    "gigachat_input":  500,       # ≈ ₽5 / 1M
+    "gigachat_output": 500,
+    # YandexGPT Lite (Yandex Cloud)
+    # Public price 0.20 ₽/1K tokens → ₽200/1M → 20_000 kopecks per Mtok
+    "yandex_input":  20_000,
+    "yandex_output": 20_000,
 }
 
 
@@ -65,7 +76,7 @@ def _cost_kopecks(provider: str, input_tokens: int, output_tokens: int) -> int:
 
 def _estimate_tokens(text: str) -> int:
     """Conservative upper-bound when the provider didn't report usage.
-    GigaChat's tokenizer is roughly 1 token per 3-4 Cyrillic chars; we use 4
+    RU tokenizers are roughly 1 token per 3-4 Cyrillic chars; we use 3
     so a missing-usage path slightly over-counts rather than slips free."""
     if not text:
         return 0
@@ -131,14 +142,19 @@ def chat(
     Pass `organization_id=None` for system-level calls (CLI, admin tooling)
     that shouldn't be metered.
 
-    Falls back from GigaChat to Anthropic automatically.
+    Provider cascade is built from settings.llm_provider as the head, then
+    the remaining two configured providers in deterministic order. So with
+    `llm_provider=yandex` the chain is yandex → anthropic → gigachat; with
+    `llm_provider=gigachat` it's gigachat → yandex → anthropic; etc.
     """
     settings = get_settings()
-    providers_to_try = (
-        ["gigachat", "anthropic"]
-        if settings.llm_provider == "gigachat"
-        else ["anthropic", "gigachat"]
-    )
+    primary = (settings.llm_provider or "yandex").lower()
+    rotation = {
+        "yandex":   ["yandex", "anthropic", "gigachat"],
+        "anthropic":["anthropic", "yandex", "gigachat"],
+        "gigachat": ["gigachat", "yandex", "anthropic"],
+    }
+    providers_to_try = rotation.get(primary, rotation["yandex"])
 
     # Pre-flight cap check — short-circuits before we hit the network.
     if organization_id is not None:
@@ -151,7 +167,9 @@ def chat(
 
     for provider in providers_to_try:
         try:
-            if provider == "gigachat":
+            if provider == "yandex":
+                result, in_tok, out_tok = _call_yandex(user_message, system, max_tokens, temperature)
+            elif provider == "gigachat":
                 result, in_tok, out_tok = _call_gigachat(user_message, system, max_tokens, temperature)
             else:
                 result, in_tok, out_tok = _call_anthropic(user_message, system, max_tokens, temperature)
@@ -167,6 +185,87 @@ def chat(
 
 
 # ── Provider call wrappers — return (text, input_tokens, output_tokens) ─────
+
+def _call_yandex(
+    user_message: str, system: str, max_tokens: int, temperature: float
+) -> tuple[Optional[str], int, int]:
+    """Call YandexGPT via Yandex Cloud Foundation Models REST API.
+
+    Auth: Api-Key in Authorization header. Folder ID is part of the modelUri
+    (gpt://<folder>/<model>) and Yandex doesn't accept the call without it.
+
+    No third-party SDK — the REST surface is small and adding `yandex-cloud-ml-sdk`
+    would pull >40 transitive deps for one POST. httpx is already in the stack.
+    """
+    settings = get_settings()
+    if not settings.yandex_gpt_api_key or not settings.yandex_gpt_folder_id:
+        return None, 0, 0
+
+    messages = []
+    if system:
+        messages.append({"role": "system", "text": system})
+    messages.append({"role": "user", "text": user_message})
+
+    payload = {
+        "modelUri": f"gpt://{settings.yandex_gpt_folder_id}/{settings.yandex_gpt_model}",
+        "completionOptions": {
+            "stream": False,
+            "temperature": float(temperature),
+            "maxTokens": str(int(max_tokens)),
+        },
+        "messages": messages,
+    }
+    headers = {
+        "Authorization": f"Api-Key {settings.yandex_gpt_api_key}",
+        "Content-Type": "application/json",
+        # x-folder-id is technically redundant when folder is in modelUri, but
+        # Yandex docs recommend setting both for tracing/quota observability.
+        "x-folder-id": settings.yandex_gpt_folder_id,
+    }
+
+    # 60s — enough room for a max-tokens=2500 completion plus network jitter,
+    # but still bounded so one slow upstream doesn't lock a celery worker.
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.post(settings.yandex_gpt_endpoint, json=payload, headers=headers)
+
+    if resp.status_code >= 400:
+        # Surface auth/quota errors loudly so ops alerts can pick them up
+        # (mirrors the GigaChat error envelope handling).
+        body = resp.text[:300]
+        logger.warning(
+            "YandexGPT HTTP %s: %s", resp.status_code, body,
+        )
+        return None, 0, 0
+
+    data = resp.json()
+    result = data.get("result") or {}
+    alternatives = result.get("alternatives") or []
+    text: Optional[str] = None
+    if alternatives:
+        msg = alternatives[0].get("message") or {}
+        text = msg.get("text") or None
+
+    usage = result.get("usage") or {}
+    # Yandex returns numeric fields as STRINGS in JSON ("47" not 47).
+    in_tok = _safe_int(usage.get("inputTextTokens"))
+    out_tok = _safe_int(usage.get("completionTokens"))
+    if in_tok is None:
+        in_tok = _estimate_tokens(system) + _estimate_tokens(user_message)
+    if out_tok is None:
+        out_tok = _estimate_tokens(text or "")
+
+    return text, int(in_tok), int(out_tok)
+
+
+def _safe_int(value) -> Optional[int]:
+    """Yandex usage fields are JSON strings; coerce defensively."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _call_gigachat(
     user_message: str, system: str, max_tokens: int, temperature: float
@@ -306,4 +405,8 @@ def _charge(organization_id: str, provider: str, input_tokens: int, output_token
 def is_configured() -> bool:
     """Check if at least one LLM provider is configured."""
     settings = get_settings()
-    return bool(settings.gigachat_credentials) or bool(settings.anthropic_api_key)
+    return bool(
+        (settings.yandex_gpt_api_key and settings.yandex_gpt_folder_id)
+        or settings.gigachat_credentials
+        or settings.anthropic_api_key
+    )

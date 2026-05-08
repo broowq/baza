@@ -52,8 +52,19 @@ class Settings(BaseSettings):
     anthropic_base_url: str = ""  # Optional proxy URL for Anthropic API
     gigachat_credentials: str = ""  # Authorization key from developers.sber.ru
     gigachat_scope: str = "GIGACHAT_API_PERS"  # PERS (личный) или B2B / CORP
-    llm_provider: str = "gigachat"  # gigachat | anthropic
-    gigachat_model: str = "GigaChat-2-Pro"  # GigaChat-2-Lite | GigaChat-2-Pro | GigaChat-2-Max
+    gigachat_model: str = "GigaChat"  # GigaChat (Lite) | GigaChat-Pro | GigaChat-Max
+    # ── YandexGPT (Yandex Cloud Foundation Models) ───────────────────────
+    # API-Key auth (simpler than IAM-token rotation). Get one at:
+    #   https://console.cloud.yandex.ru/ → IAM → Service accounts → API keys
+    # Folder ID is required because the modelUri embeds it: gpt://<folder>/...
+    yandex_gpt_api_key: str = ""
+    yandex_gpt_folder_id: str = ""
+    yandex_gpt_model: str = "yandexgpt-lite/latest"   # yandexgpt-lite | yandexgpt | yandexgpt-32k
+    yandex_gpt_endpoint: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
+    # Default provider order is yandex → anthropic → gigachat. Override via env
+    # if you need a different primary; the chat() function still cascades
+    # through the others on transient failure.
+    llm_provider: str = "yandex"  # yandex | gigachat | anthropic
 
     @computed_field
     @property
