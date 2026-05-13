@@ -910,3 +910,191 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
   background: linear-gradient(90deg, #fff, var(--mint));
   box-shadow: 0 0 6px rgba(168, 197, 192, 0.5);
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   ════════════════  SCROLL CHOREOGRAPHY (Goonies / Dogstudio feel)
+   Smooth scroll comes from Lenis (see SmoothScrollProvider).
+   These rules are the visual side: reveals, marquee, scroll-progress,
+   parallax tied to --scroll-progress, letter-reveal, magnetic
+   button surface. All disabled when prefers-reduced-motion: reduce.
+   ───────────────────────────────────────────────────────────────── */
+
+/* ── Scroll-reveal (fade-up / scale / stagger) ───────────────────── */
+/* Distinct namespace `srv-*` ("scroll-reveal") to avoid clobbering the
+   legacy `.reveal` keyframe used by hero auto-mount animations. */
+.srv {
+  opacity: 0;
+  transform: translateY(28px);
+  filter: blur(8px);
+  transition:
+    opacity 1.1s cubic-bezier(.2, .7, .15, 1),
+    transform 1.1s cubic-bezier(.2, .7, .15, 1),
+    filter   1.0s cubic-bezier(.2, .7, .15, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform, filter;
+}
+.srv-scale {
+  opacity: 0;
+  transform: scale(1.06);
+  filter: blur(10px);
+}
+.srv.srv-shown,
+.srv-scale.srv-shown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+/* Stagger variant — parent stays static, each direct child reveals
+   independently with its own --reveal-delay (set by Reveal.tsx). */
+.srv-stagger {
+  opacity: 1;
+  transform: none;
+  filter: none;
+  transition: none;
+}
+.srv-stagger > * {
+  opacity: 0;
+  transform: translateY(22px);
+  filter: blur(6px);
+  transition:
+    opacity .9s cubic-bezier(.2, .7, .15, 1),
+    transform .9s cubic-bezier(.2, .7, .15, 1),
+    filter   .8s cubic-bezier(.2, .7, .15, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+  will-change: opacity, transform, filter;
+}
+.srv-stagger > .srv-shown {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .srv, .srv-stagger > *,
+  .srv-scale {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+}
+
+/* ── Scroll progress bar (top, mint hairline) ────────────────────── */
+.scroll-progress {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 2px; z-index: 70; pointer-events: none;
+  background: transparent;
+}
+.scroll-progress::before {
+  content: "";
+  display: block; height: 100%;
+  width: calc(var(--scroll-progress, 0) * 100%);
+  background: linear-gradient(90deg, transparent, var(--mint) 30%, #fff 80%, var(--mint));
+  box-shadow: 0 0 10px rgba(168, 197, 192, 0.55);
+  transition: width 0.1s linear;
+}
+
+/* ── Marquee text band ───────────────────────────────────────────── */
+.marquee {
+  position: relative;
+  overflow: hidden;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.012);
+  padding: 22px 0;
+  white-space: nowrap;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+          mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.marquee-track {
+  display: inline-flex; gap: 56px; align-items: center;
+  animation: marqueeScroll 38s linear infinite;
+  will-change: transform;
+}
+.marquee-token {
+  font-family: 'Geist Mono', monospace;
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--t-56);
+}
+.marquee-token .dot-em,
+.marquee-token .dot-mt {
+  display: inline-block; vertical-align: 1px; margin-right: 12px;
+}
+@keyframes marqueeScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track { animation: none; }
+}
+
+/* ── Letter-by-letter hero headline reveal ───────────────────────── */
+/* Apply to a container with text broken into <span class="letter">...</span>
+   chunks. Letters wave in from below as the hero mounts. */
+.letter-reveal .letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(0.6em) rotate(2deg);
+  filter: blur(6px);
+  animation: letterIn 1.0s cubic-bezier(.2, .7, .15, 1) forwards;
+  animation-delay: calc(var(--letter-index, 0) * 28ms);
+  will-change: opacity, transform, filter;
+}
+@keyframes letterIn {
+  0%   { opacity: 0; transform: translateY(0.6em) rotate(2deg); filter: blur(6px); }
+  60%  { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) rotate(0); filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .letter-reveal .letter {
+    opacity: 1; transform: none; filter: none; animation: none;
+  }
+}
+
+/* ── Scroll-bound parallax (uses --scroll-progress) ──────────────── */
+/* Decorate hero background scenery so it drifts upward as user scrolls. */
+.parallax-slow {
+  transform: translate3d(0, calc(var(--scroll-progress, 0) * -120px), 0);
+  will-change: transform;
+}
+.parallax-mid {
+  transform: translate3d(0, calc(var(--scroll-progress, 0) * -240px), 0);
+}
+.parallax-fast {
+  transform: translate3d(0, calc(var(--scroll-progress, 0) * -380px), 0);
+}
+
+/* ── Magnetic button polish ──────────────────────────────────────── */
+.magnetic { display: inline-block; }
+.magnetic:hover > * { box-shadow: 0 14px 36px -12px rgba(168, 197, 192, 0.7); }
+
+/* ── Section hairline-rule that draws in on reveal ───────────────── */
+.draw-line {
+  position: relative; height: 1px; background: transparent;
+}
+.draw-line::after {
+  content: ""; position: absolute; left: 0; top: 0; height: 100%;
+  width: 0; background: var(--mint);
+  box-shadow: 0 0 12px rgba(168, 197, 192, 0.6);
+  transition: width 1.6s cubic-bezier(.2, .7, .15, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.draw-line.srv-shown::after { width: 100%; }
+
+/* ── Image clip-path reveal (used on the product frame) ──────────── */
+.clip-reveal {
+  -webkit-clip-path: inset(0 0 100% 0);
+          clip-path: inset(0 0 100% 0);
+  transition: clip-path 1.4s cubic-bezier(.2, .7, .15, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+.clip-reveal.srv-shown {
+  -webkit-clip-path: inset(0 0 0 0);
+          clip-path: inset(0 0 0 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .clip-reveal { clip-path: none !important; -webkit-clip-path: none !important; }
+}

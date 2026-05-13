@@ -9,6 +9,7 @@ import Analytics from "@/components/analytics";
 import { CookieConsent } from "@/components/cookie-consent";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Navbar } from "@/components/layout/navbar";
+import { SmoothScrollProvider } from "@/components/smooth-scroll-provider";
 
 // Inter kept as Cyrillic fallback; Geist is the primary display + body face.
 const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
@@ -50,14 +51,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ru" className={`dark ${GeistSans.variable} ${GeistMono.variable} ${inter.variable} ${instrument.variable}`}>
       <body className={`${GeistSans.className} font-sans overflow-x-hidden antialiased`}>
-        <div className="page-shell">
-          <Navbar />
-          <ErrorBoundary>
-            {children}
-          </ErrorBoundary>
-          <Toaster richColors position="top-right" />
-          <CookieConsent />
-        </div>
+        {/* Top hairline that fills mint-to-white as the user scrolls.
+            Driven by --scroll-progress emitted by SmoothScrollProvider. */}
+        <div className="scroll-progress" aria-hidden />
+        <SmoothScrollProvider>
+          <div className="page-shell">
+            <Navbar />
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
+            <Toaster richColors position="top-right" />
+            <CookieConsent />
+          </div>
+        </SmoothScrollProvider>
         <Analytics />
       </body>
     </html>

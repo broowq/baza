@@ -25,6 +25,8 @@ import {
 import Link from "next/link";
 
 import { getToken } from "@/lib/auth";
+import { Reveal } from "@/components/reveal";
+import { Magnetic } from "@/components/magnetic";
 
 /* ─────────────────────────────────────────────────────────────
    DATA
@@ -365,8 +367,11 @@ function HeroLiveCard() {
 function HeroSection() {
   return (
     <section className="relative overflow-hidden">
-      <div className="field" />
-      <div className="grid-lines" />
+      {/* Hero scenery drifts upward as the user scrolls — gives the impression
+          that the page is sliding into the canvas, not the canvas underneath
+          the page. Each plane has its own parallax speed for depth. */}
+      <div className="field parallax-slow" />
+      <div className="grid-lines parallax-mid" />
       <div className="grain" />
 
       <div className="relative z-10 max-w-[1320px] mx-auto px-6 pt-24 pb-20">
@@ -404,16 +409,20 @@ function HeroSection() {
               className="flex flex-wrap items-center gap-3 mt-9 reveal"
               style={{ animationDelay: "0.28s" }}
             >
-              <Link href="/register" className="brand rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2">
-                Получить доступ
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M5 12h14M13 6l6 6-6 6" />
-                </svg>
-              </Link>
-              <a className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-                Посмотреть продукт · 2 мин
-              </a>
+              <Magnetic strength={14}>
+                <Link href="/register" className="brand rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2">
+                  Получить доступ
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </Link>
+              </Magnetic>
+              <Magnetic strength={10}>
+                <a className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
+                  Посмотреть продукт · 2 мин
+                </a>
+              </Magnetic>
               <span className="ml-2 text-[12px] t-48">
                 от <span className="text-white mono">2 ₽</span> за обогащённый контакт
               </span>
@@ -1488,6 +1497,37 @@ function FooterSection() {
   );
 }
 
+/* ── Marquee band ───────────────────────────────────────────────────
+   Goonies-style running text — pure CSS keyframe (defined in globals.css
+   under .marquee). Track is duplicated so the loop is seamless. */
+function MarqueeBand() {
+  const tokens = [
+    "лидогенерация без перекупщиков",
+    "ЕГРЮЛ · СПАРК · 2ГИС · Yandex Maps · SearXNG",
+    "обогащение в фоне",
+    "AI-фильтр покупателей",
+    "интеграция Bitrix24 · AmoCRM",
+    "хранение данных в РФ",
+    "оплата в копейках",
+    "от 2 ₽ за обогащённый контакт",
+  ];
+  // Duplicate the tokens so the -50% translate at the end of the loop
+  // lands on a visually identical frame — seam disappears.
+  const loop = [...tokens, ...tokens];
+  return (
+    <div className="marquee" aria-hidden>
+      <div className="marquee-track">
+        {loop.map((t, i) => (
+          <span key={`${t}-${i}`} className="marquee-token">
+            <span className={i % 2 === 0 ? "dot dot-mt" : "dot dot-em"} />
+            {t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ── Page wrapper ──────────────────────────────────── */
 
 export function LandingPage() {
@@ -1497,10 +1537,22 @@ export function LandingPage() {
       <CornerMeta />
       <TopNav />
       <HeroSection />
-      <PromptDemo />
-      <ProductFrame />
-      <FeaturesSection />
-      <CtaSection />
+      <MarqueeBand />
+      {/* Each major section gets a fade-up + blur-clear entry as it scrolls
+          into view. PromptDemo uses scale so the typed-prompt feels like
+          it's stepping forward, the rest use the default `up` variant. */}
+      <Reveal variant="scale">
+        <PromptDemo />
+      </Reveal>
+      <Reveal>
+        <ProductFrame />
+      </Reveal>
+      <Reveal>
+        <FeaturesSection />
+      </Reveal>
+      <Reveal>
+        <CtaSection />
+      </Reveal>
       <FooterSection />
     </div>
   );
