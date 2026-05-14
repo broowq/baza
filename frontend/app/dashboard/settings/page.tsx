@@ -7,8 +7,10 @@ import {
   CheckIcon,
   ClipboardListIcon,
   CopyIcon,
+  DownloadIcon,
   MailIcon,
   PlusIcon,
+  ShieldIcon,
   Trash2Icon,
   UserIcon,
   UsersIcon,
@@ -72,7 +74,7 @@ type ActionLog = {
   created_at: string;
 };
 
-type TabValue = "profile" | "organization" | "members" | "invites" | "activity";
+type TabValue = "profile" | "organization" | "members" | "invites" | "activity" | "privacy";
 
 function getInitials(name: string | undefined): string {
   if (!name) return "?";
@@ -318,6 +320,9 @@ export default function SettingsPage() {
     ...(isAdmin
       ? [{ value: "activity" as TabValue, label: "Журнал", icon: ClipboardListIcon }]
       : []),
+    // 152-ФЗ subject rights — выгрузка и удаление ПД. Видна всем
+    // пользователям (любому субъекту персональных данных).
+    { value: "privacy", label: "Конфиденциальность", icon: ShieldIcon },
   ];
 
   return (
@@ -849,6 +854,11 @@ export default function SettingsPage() {
                 )}
               </section>
             )}
+
+            {/* ── Privacy / Subject Rights tab — 152-ФЗ compliance ───── */}
+            {activeTab === "privacy" && (
+              <PrivacyTab profileEmail={profile?.email ?? ""} />
+            )}
           </div>
         </div>
       </div>
@@ -913,5 +923,221 @@ function WebhookEditor({
         {saving ? "Сохранение…" : "Сохранить"}
       </button>
     </div>
+  );
+}
+
+
+/* ───────────────────────────────────────────────────────────────────
+   Privacy tab — реализация прав субъекта ПД по 152-ФЗ.
+   Доступ ко всем своим ПД (ст. 14 ч. 7) + удаление аккаунта (ст. 21).
+   Видна каждому пользователю независимо от роли.
+   ─────────────────────────────────────────────────────────────────── */
+
+function PrivacyTab({ profileEmail }: { profileEmail: string }) {
+  const [exporting, setExporting] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const data = await api<Record<string, unknown>>("/auth/me/export");
+      // Sanitize filename — выгружаем под уникальным именем
+      // с email + timestamp, чтобы потом легко разобраться в нескольких файлах.
+      const slug = profileEmail.replace(/[^a-z0-9]+/gi, "_").toLowerCase().slice(0, 40) || "user";
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+      const filename = `baza-pd-export-${slug}-${stamp}.json`;
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Экспорт ПД скачан. Дополнительно факт обращения зафиксирован в журнале.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось выгрузить ПД");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const onDelete = async () => {
+    if (deletePassword.length < 1) {
+      toast.error("Введите ваш пароль для подтверждения");
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api<{ message: string }>("/auth/me", {
+        method: "DELETE",
+        body: JSON.stringify({
+          password: deletePassword,
+          reason: deleteReason || "",
+        }),
+      });
+      // После DELETE серверный access-токен ещё в localStorage — чистим,
+      // чтобы не показывать «зомби»-состояние UI авторизованным.
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("lid_access_token");
+        window.location.href = "/?deleted=1";
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось удалить аккаунт");
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <>
+      <section className="panel p-6">
+        <div className="eyebrow mb-1">персональные данные</div>
+        <p className="text-[12px] t-56 mb-5">
+          В соответствии с 152-ФЗ вы можете в любой момент получить копию своих
+          персональных данных или потребовать их удаления. Все обращения
+          фиксируются в журнале обработки.
+        </p>
+
+        <div className="space-y-4">
+          {/* Экспорт ПД */}
+          <div className="panel-flat p-5 flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="eyebrow mb-1">право на доступ · ст. 14 ч. 7</div>
+              <p className="text-[13px] t-84">
+                Скачать все ваши персональные данные одним JSON-файлом — профиль,
+                членство, организации, проекты, журнал ваших действий.
+              </p>
+              <p className="text-[11px] mono t-48 mt-1.5">
+                лимит: 1 запрос в минуту
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onExport}
+              disabled={exporting}
+              className="btn btn-ghost shrink-0"
+            >
+              <DownloadIcon className="size-3.5" />
+              {exporting ? "Готовим…" : "Скачать ПД"}
+            </button>
+          </div>
+
+          {/* Удаление */}
+          <div
+            className="panel-flat p-5 flex items-start justify-between gap-4"
+            style={{ borderColor: "rgba(244,63,94,0.18)" }}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="eyebrow mb-1" style={{ color: "var(--rose)" }}>
+                право на уничтожение · ст. 21
+              </div>
+              <p className="text-[13px] t-84">
+                Полное и необратимое удаление аккаунта и связанных данных. Если
+                вы — единственный владелец организации, она удаляется целиком
+                со всеми проектами и лидами.
+              </p>
+              <p className="text-[11px] mono t-48 mt-1.5">
+                действие невозможно отменить
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              className="btn btn-ghost shrink-0"
+              style={{ color: "var(--rose)", borderColor: "rgba(244,63,94,0.30)" }}
+            >
+              <Trash2Icon className="size-3.5" />
+              Удалить аккаунт
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Контакт оператора */}
+      <section className="panel p-6">
+        <div className="eyebrow mb-1">контакты оператора ПД</div>
+        <p className="text-[12px] t-56 mb-4">
+          Оператор: <span className="t-84">ИП / ООО (наименование уточняется при регистрации)</span>,
+          usebaza.ru. Полный текст Политики обработки персональных данных —{" "}
+          <Link href={"/privacy" as never} className="text-white underline underline-offset-2">
+            на странице /privacy
+          </Link>.
+        </p>
+        <div className="flex flex-wrap gap-x-8 gap-y-2 text-[12.5px]">
+          <span className="t-84">
+            <span className="t-48 mono">email DPO:</span>{" "}
+            <a href="mailto:dpo@usebaza.ru" className="text-white">dpo@usebaza.ru</a>
+          </span>
+          <span className="t-84">
+            <span className="t-48 mono">общие вопросы:</span>{" "}
+            <a href="mailto:hello@usebaza.ru" className="text-white">hello@usebaza.ru</a>
+          </span>
+        </div>
+      </section>
+
+      {/* Confirm-dialog для удаления */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Удалить аккаунт?</DialogTitle>
+            <DialogDescription>
+              Это действие необратимо. Будут удалены ваш профиль, ваши данные в
+              продукте и (если вы — единственный владелец) ваша организация со
+              всеми её проектами и лидами. Введите пароль для подтверждения.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-1">
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>пароль</div>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="••••••••"
+                className="input"
+                autoFocus
+              />
+            </div>
+            <div>
+              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>причина (необязательно)</div>
+              <input
+                type="text"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value.slice(0, 500))}
+                placeholder="Отзыв согласия / закрытие бизнеса / иное"
+                className="input"
+              />
+              <p className="mono-cap mt-1.5 t-48" style={{ fontSize: 11 }}>
+                фиксируется в журнале обращений субъектов ПД
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(false)}
+              className="ghost rounded-full px-4 py-2 text-[13px]"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={deleting || deletePassword.length < 1}
+              className="rounded-full px-4 py-2 text-[13px] text-white disabled:opacity-50 disabled:pointer-events-none"
+              style={{ background: "var(--rose)" }}
+            >
+              {deleting ? "Удаляем…" : "Удалить навсегда"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

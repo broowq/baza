@@ -67,6 +67,15 @@ class Organization(Base):
     ai_cost_limit_kopecks_per_month: Mapped[int] = mapped_column(
         BigInteger, default=0, nullable=False, server_default="0"
     )
+    # ── 152-ФЗ retention policy (ст. 5 ч. 7) ──────────────────────────
+    # Срок хранения собранных лидов. По истечении этого срока без
+    # активности лид удаляется фоновым cron-таском (purge_old_leads).
+    # Дефолт 730 дней (2 года) — соответствует требованию НК РФ ст. 23
+    # о хранении документов налогового учёта.
+    # 0 = бесконечно (только для тестовых аккаунтов).
+    leads_retention_days: Mapped[int] = mapped_column(
+        Integer, default=730, nullable=False, server_default="730"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     memberships = relationship("Membership", back_populates="organization", cascade="all, delete-orphan")

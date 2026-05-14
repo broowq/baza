@@ -21,6 +21,10 @@ class OrganizationOut(BaseModel):
     # team. Reset alongside leads on the 1st via celery beat.
     ai_cost_used_kopecks_current_month: int = 0
     ai_cost_limit_kopecks_per_month: int = 0
+    # 152-ФЗ ст. 5 ч. 7 — обязательный срок хранения ПД лидов.
+    # Cron `periodic.purge_old_leads` ежедневно удаляет лиды старше этого
+    # срока без updated_at-изменений. 0 = неограниченно.
+    leads_retention_days: int = 730
     created_at: datetime
 
     class Config:

@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     # through the others on transient failure.
     llm_provider: str = "yandex"  # yandex | gigachat | anthropic
 
+    # ── 152-ФЗ compliance guard ──────────────────────────────────────
+    # When False (default), the LLM client REFUSES to call any provider
+    # whose data plane is outside the Russian Federation (currently:
+    # Anthropic). This prevents accidental трансграничная передача to a
+    # country not on the «adequate protection» list, which under Приказ
+    # РКН №178 requires a separate notification BEFORE the first transfer.
+    #
+    # Set to True only if you have filed «Уведомление о трансграничной
+    # передаче ПД» AND have explicit consent from data subjects covering
+    # the destination country.
+    llm_allow_foreign_providers: bool = False
+
     @computed_field
     @property
     def cors_origins(self) -> list[str]:

@@ -38,6 +38,13 @@ celery.conf.update(
             "task": "periodic.cleanup_expired_invites",
             "schedule": crontab(minute=0, hour=3),
         },
+        # 152-ФЗ ст. 5 ч. 7: ежедневно подчищать лиды старше
+        # Organization.leads_retention_days. Сразу после cleanup invites
+        # чтобы оба задания шли в ночь когда нагрузка минимальна.
+        "purge-old-leads": {
+            "task": "periodic.purge_old_leads",
+            "schedule": crontab(minute=0, hour=4),
+        },
         "health-check": {
             "task": "periodic.health_check",
             "schedule": crontab(minute="*/15"),  # every 15 min

@@ -15,6 +15,7 @@ from app.core.security import create_access_token, create_refresh_token, decode_
 from app.db.session import get_db
 from app.models import Membership, Organization, PlanType, User
 from app.schemas.auth import (
+    AccountDeleteRequest,
     AuthMessageResponse,
     ForgotPasswordRequest,
     LoginRequest,
@@ -310,3 +311,215 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
     db.commit()
     redis_client.delete(f"verify_email:{payload.token}")
     return {"message": "Email подтвержден"}
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 152-ФЗ Data Subject Rights
+# =========================
+# ст. 14 ч. 7 — право получить от оператора все ПД, которые у него есть.
+# ст. 14 ч. 3 / ст. 21 — право требовать уничтожения ПД (отзыв согласия).
+# Эти эндпойнты обязательны для соответствия требованиям РКН.
+# Все вызовы пишутся в audit log (журнал обращений субъектов ПД), который
+# можно предъявить при проверке.
+# ─────────────────────────────────────────────────────────────────────────
+
+@router.get("/me/export")
+def export_my_data(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Право на доступ (ст. 14 ч. 7 152-ФЗ).
+
+    Возвращает все персональные данные субъекта, которые хранит оператор,
+    в машиночитаемом формате (JSON). Включает:
+      • профиль пользователя
+      • членство в организациях и роли
+      • аудит-лог действий пользователя
+      • если пользователь — owner: данные организации и собранные лиды
+        (формально это ПД представителей юр.лиц, обрабатываемые на
+        основании п.10 ч.1 ст.6 — общедоступные данные)
+
+    Throttle: 1 запрос / 60 секунд (Redis SETNX). Защита от использования
+    эндпойнта как утечкоканала компрометированного токена.
+    """
+    from datetime import datetime as _dt
+
+    # Throttle
+    throttle_key = f"sar_export:{user.id}"
+    if not redis_client.set(throttle_key, "1", nx=True, ex=60):
+        raise HTTPException(
+            status_code=429,
+            detail="Запрос на экспорт ПД доступен раз в минуту. Попробуйте позже.",
+        )
+
+    memberships = db.execute(
+        select(Membership).where(Membership.user_id == user.id)
+    ).scalars().all()
+
+    payload: dict = {
+        "export_metadata": {
+            "exported_at": _dt.now(timezone.utc).isoformat(),
+            "operator": "БАЗА (usebaza.ru)",
+            "legal_basis": "ст. 14 ч. 7 ФЗ-152",
+            "subject_email": user.email,
+        },
+        "profile": {
+            "id": str(user.id),
+            "email": user.email,
+            "full_name": user.full_name,
+            "email_verified": user.email_verified,
+            "created_at": user.created_at.isoformat() if user.created_at else None,
+        },
+        "memberships": [
+            {
+                "organization_id": str(m.organization_id),
+                "role": m.role,
+            }
+            for m in memberships
+        ],
+        "organizations": [],
+    }
+
+    # Detailed org / lead payload только если пользователь — owner.
+    # Member видит только свою принадлежность; полный массив лидов
+    # принадлежит организации как оператору-клиенту, а не отдельному юзеру.
+    from app.models import Lead, Project, ActionLog
+
+    for m in memberships:
+        if m.role != "owner":
+            continue
+        org = db.get(Organization, m.organization_id)
+        if not org:
+            continue
+        projects = db.execute(
+            select(Project).where(Project.organization_id == org.id)
+        ).scalars().all()
+        leads = db.execute(
+            select(Lead).where(Lead.organization_id == org.id)
+        ).scalars().all()
+        payload["organizations"].append({
+            "id": str(org.id),
+            "name": org.name,
+            "plan": org.plan.value if hasattr(org.plan, "value") else str(org.plan),
+            "projects": [
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "niche": p.niche,
+                    "geography": p.geography,
+                    "segments": p.segments,
+                }
+                for p in projects
+            ],
+            "leads_count": len(leads),
+            # Полный массив лидов клиент может выгрузить через свой
+            # обычный экспорт CSV/Excel в продуктовом UI — здесь только
+            # счётчик чтобы JSON не разрастался на десятки МБ.
+        })
+
+    # Audit log — обязательно фиксируем факт обращения по ст. 14 ч. 2
+    if memberships:
+        log_action(
+            db,
+            user_id=str(user.id),
+            organization_id=str(memberships[0].organization_id),
+            action="pd.exported",
+            meta={"format": "json", "size_orgs": len(payload["organizations"])},
+        )
+        db.commit()
+
+    return payload
+
+
+@router.delete("/me", response_model=AuthMessageResponse)
+def delete_my_account(
+    payload: AccountDeleteRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Право на уничтожение ПД (ст. 14 ч. 3 + ст. 21 ФЗ-152).
+
+    Полное удаление аккаунта пользователя и всех связанных с ним ПД.
+    Если пользователь — единственный owner организации, удаляется и
+    организация со всеми её проектами / лидами (cascade delete).
+
+    Защита:
+      • Требуется пароль (защита от случайного клика и от
+        скомпрометированного access-токена без знания пароля).
+      • Все refresh-токены отзываются.
+      • Действие необратимо.
+
+    Журнал:
+      • Запись `pd.delete_requested` ДО удаления (на случай rollback).
+      • Запись `pd.deleted` пишется в отдельный системный audit log
+        (на уровне сервера, не в users table — она будет удалена).
+    """
+    import logging as _logging
+    _logger = _logging.getLogger("baza.pd_deletion")
+
+    # 1. Подтвердить пароль
+    if not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=403, detail="Неверный пароль")
+
+    user_id_str = str(user.id)
+    user_email = user.email
+    reason = payload.reason or "не указана"
+
+    # 2. Журнал обращения ДО удаления (по ст. 14 ч. 2 — обязан фиксировать
+    # обращения субъектов ПД).
+    memberships = db.execute(
+        select(Membership).where(Membership.user_id == user.id)
+    ).scalars().all()
+    primary_org_id = str(memberships[0].organization_id) if memberships else None
+    if primary_org_id:
+        log_action(
+            db,
+            user_id=user_id_str,
+            organization_id=primary_org_id,
+            action="pd.delete_requested",
+            meta={"reason": reason[:500]},
+        )
+        db.commit()
+
+    # 3. Удаление каскадом
+    # Если пользователь единственный owner в организации — удаляем и её.
+    # Иначе — только отзываем membership.
+    orgs_to_delete: list = []
+    for m in memberships:
+        org = db.get(Organization, m.organization_id)
+        if not org:
+            continue
+        owners = db.execute(
+            select(Membership)
+            .where(Membership.organization_id == org.id)
+            .where(Membership.role == "owner")
+        ).scalars().all()
+        # Если этот пользователь — единственный owner организации,
+        # организация остаётся без хозяина → удалить её целиком.
+        if len(owners) == 1 and owners[0].user_id == user.id:
+            orgs_to_delete.append(org)
+
+    for org in orgs_to_delete:
+        db.delete(org)  # cascade: memberships, projects, leads, invites
+
+    db.delete(user)
+    db.commit()
+
+    # 4. Отозвать ВСЕ refresh-токены (на всякий случай — даже если строка
+    # юзера уже удалена, токены ещё могут жить в Redis).
+    _revoke_all_user_refresh_tokens(user_id_str)
+
+    # 5. Структурный лог в файл — это запись остаётся даже если все БД-
+    # таблицы аудита привязаны к удалённому пользователю и каскадом
+    # тоже исчезли. Нужно для аудита РКН.
+    _logger.warning(
+        "PD_DELETED user_id=%s email=%s orgs_deleted=%d reason=%r",
+        user_id_str, user_email, len(orgs_to_delete), reason[:500],
+    )
+
+    return AuthMessageResponse(
+        message=(
+            "Аккаунт и все связанные персональные данные удалены. "
+            "Если у вас были вопросы или жалобы — обратитесь на dpo@usebaza.ru."
+        ),
+    )

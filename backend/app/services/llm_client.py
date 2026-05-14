@@ -41,8 +41,19 @@ _gigachat_client = None
 _anthropic_client = None
 
 
-# Kopecks per million tokens. Apr 2026 prices, converted at ~83 ₽/$.
-# Override via settings to keep code aligned with whatever finance negotiated.
+# Kopecks per million tokens. May 2026 published rates (sync mode, with VAT)
+# from https://aistudio.yandex.ru/docs/ru/ai-studio/pricing.html and Sber/Anthropic
+# public pages. Override via settings.llm_prices_kopecks_per_mtok if finance
+# negotiated a different tariff.
+#
+# Reference YandexGPT sync prices (₽/1K → kopecks/1M):
+#   yandexgpt-lite/latest    : ₽0.20  →   20_000  ← our default
+#   gpt-oss-20b/latest       : ₽0.10  →   10_000  ← 2× cheaper, same arch
+#   gpt-oss-120b/latest      : ₽0.30  →   30_000
+#   qwen3-35b (sync)         : ₽0.20 in / ₽0.30 out
+#   yandexgpt/rc  (Pro 5.1)  : ₽0.80  →   80_000
+#   yandexgpt/latest (Pro 5) : ₽1.20  →  120_000
+# Async mode (where supported) is ~50% of sync — see Yandex pricing docs.
 _DEFAULT_PRICES_KOPECKS_PER_MTOK = {
     # Anthropic Claude Sonnet
     "anthropic_input": 25_000,    # ≈ $3 / 1M  → ₽250  / 1M  → 25_000 kopecks
@@ -50,8 +61,7 @@ _DEFAULT_PRICES_KOPECKS_PER_MTOK = {
     # GigaChat Lite (Sber)
     "gigachat_input":  500,       # ≈ ₽5 / 1M
     "gigachat_output": 500,
-    # YandexGPT Lite (Yandex Cloud)
-    # Public price 0.20 ₽/1K tokens → ₽200/1M → 20_000 kopecks per Mtok
+    # YandexGPT Lite (Yandex AI Studio) — current code default
     "yandex_input":  20_000,
     "yandex_output": 20_000,
 }
@@ -155,6 +165,21 @@ def chat(
         "gigachat": ["gigachat", "yandex", "anthropic"],
     }
     providers_to_try = rotation.get(primary, rotation["yandex"])
+
+    # ── 152-ФЗ guard ────────────────────────────────────────────────
+    # Strip out-of-RF providers when foreign-transfer is not authorised
+    # (default). This is the single hardest line in the codebase to bypass
+    # accidentally: even if ANTHROPIC_API_KEY is set in env, the provider
+    # is never tried unless settings.llm_allow_foreign_providers is True.
+    if not getattr(settings, "llm_allow_foreign_providers", False):
+        foreign = {"anthropic"}
+        providers_to_try = [p for p in providers_to_try if p not in foreign]
+        if primary in foreign:
+            logger.warning(
+                "Primary provider %r is out-of-RF but "
+                "LLM_ALLOW_FOREIGN_PROVIDERS=false; falling back to in-RF chain",
+                primary,
+            )
 
     # Pre-flight cap check — short-circuits before we hit the network.
     if organization_id is not None:

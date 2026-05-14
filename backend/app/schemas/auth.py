@@ -46,3 +46,18 @@ class VerifyEmailRequest(BaseModel):
 class AuthMessageResponse(BaseModel):
     message: str
     preview_url: str | None = None
+
+
+# ── 152-ФЗ Subject Access Request / Right to Erasure ────────────────────
+# ст. 14 ч. 7 — субъект имеет право получить все свои ПД от оператора.
+# ст. 14 ч. 3 + ст. 21 — субъект имеет право требовать уничтожения ПД.
+# Эти схемы используются эндпойнтами /auth/me/export и DELETE /auth/me.
+
+class AccountDeleteRequest(BaseModel):
+    """Право на удаление (ст. 21 152-ФЗ). Требует пароля как подтверждения —
+    защита от случайного клика и от компрометированного access-токена."""
+    password: str = Field(min_length=1, max_length=1024)
+    # Free-text causa — попадёт в журнал обращений субъектов ПД, чтобы
+    # при проверке РКН видно было основание (отзыв согласия / закрытие
+    # бизнеса / прочее).
+    reason: str = Field(default="", max_length=500)

@@ -189,3 +189,56 @@ def cleanup_expired_invites() -> None:
         db.rollback()
     finally:
         db.close()
+
+
+@celery.task(name="periodic.purge_old_leads")
+def purge_old_leads() -> None:
+    """152-ФЗ ст. 5 ч. 7 — обработка прекращается по достижении цели/срока.
+
+    Удаляет лиды, у которых:
+      • не было updated_at-изменений в течение Organization.leads_retention_days
+      • либо явно `marked_for_deletion=True` (после отзыва согласия —
+        отдельно реализуем когда появится UI)
+
+    Задача идемпотентная — гоняется ежедневно в 04:00 UTC из Celery beat.
+    Если org.leads_retention_days == 0, лиды этой организации не трогаются
+    (внутренние/тестовые аккаунты).
+    """
+    from app.models import Lead, Organization
+    from sqlalchemy import select as _select
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        orgs = db.execute(_select(Organization)).scalars().all()
+        total_deleted = 0
+        for org in orgs:
+            retention = int(getattr(org, "leads_retention_days", 0) or 0)
+            if retention <= 0:
+                continue
+            cutoff = now - timedelta(days=retention)
+            # SQL DELETE напрямую, без вычитки в Python — на больших таблицах
+            # сэкономит memory и обойдёт ORM-cascade-tracking.
+            result = db.execute(
+                delete(Lead)
+                .where(Lead.organization_id == org.id)
+                .where(Lead.updated_at < cutoff)
+            )
+            if result.rowcount:
+                logger.info(
+                    "purge_old_leads: org=%s deleted %d leads "
+                    "(retention=%d days, cutoff=%s)",
+                    org.id, result.rowcount, retention, cutoff.date(),
+                )
+                total_deleted += result.rowcount
+        db.commit()
+        if total_deleted:
+            logger.info(
+                "Retention sweep complete: %d leads purged across %d orgs",
+                total_deleted, len(orgs),
+            )
+    except Exception:
+        logger.exception("purge_old_leads failed")
+        db.rollback()
+    finally:
+        db.close()
