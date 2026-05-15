@@ -10,6 +10,8 @@ import { CookieConsent } from "@/components/cookie-consent";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Navbar } from "@/components/layout/navbar";
 import { SmoothScrollProvider } from "@/components/smooth-scroll-provider";
+import { CustomCursor } from "@/components/custom-cursor";
+import { PageTransition } from "@/components/page-transition";
 
 // Inter kept as Cyrillic fallback; Geist is the primary display + body face.
 const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
@@ -54,6 +56,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Top hairline that fills mint-to-white as the user scrolls.
             Driven by --scroll-progress emitted by SmoothScrollProvider. */}
         <div className="scroll-progress" aria-hidden />
+        <PageTransition />
+        <CustomCursor />
         <SmoothScrollProvider>
           <div className="page-shell">
             <Navbar />

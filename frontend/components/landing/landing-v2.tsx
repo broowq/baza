@@ -364,9 +364,45 @@ function HeroLiveCard() {
   );
 }
 
+/* ── Letter-by-letter reveal helper ────────────────────────────────
+   Splits text into <span class="letter"> chunks each with a CSS
+   --letter-index so the keyframe in globals.css picks up a staggered
+   delay (28ms per letter). Preserves whitespace as non-breaking so the
+   row metric doesn't shift mid-animation. The `startIndex` lets you
+   continue the stagger across multiple SplitLetters in one headline. */
+function SplitLetters({ text, startIndex = 0 }: { text: string; startIndex?: number }) {
+  const chars = Array.from(text);
+  return (
+    <>
+      {chars.map((ch, i) => {
+        if (ch === " ") {
+          // Visible space without breaking the letter cascade timeline.
+          return <span key={i}>&nbsp;</span>;
+        }
+        return (
+          <span
+            key={i}
+            className="letter"
+            style={{ ["--letter-index" as never]: startIndex + i }}
+          >
+            {ch}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 function HeroSection() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
+      {/* Animated mesh gradient backdrop — stands in for a cinematic video
+          loop until Higgsfield credits are topped up. Three radial blobs
+          drift on Lissajous-like trajectories, giving the dark canvas a
+          living quality without dragging WebGL into the bundle. */}
+      <div className="mesh-bg" aria-hidden>
+        <div className="mesh-aux" />
+      </div>
       {/* Hero scenery drifts upward as the user scrolls — gives the impression
           that the page is sliding into the canvas, not the canvas underneath
           the page. Each plane has its own parallax speed for depth. */}
@@ -385,16 +421,15 @@ function HeroSection() {
               <span className="t-48 text-[12px]">для B2B-команд продаж в РФ</span>
             </div>
             <h1
-              className="h1 reveal"
-              style={{
-                fontSize: "clamp(64px,9vw,128px)",
-                animationDelay: "0.1s",
-              }}
+              className="h1 letter-reveal"
+              style={{ fontSize: "clamp(64px,9vw,128px)" }}
             >
-              Лиды, которые{" "}
-              <span style={{ color: "var(--mint)" }} className="serif">созревают</span>
+              <SplitLetters text="Лиды, которые " />
+              <span style={{ color: "var(--mint)" }} className="serif">
+                <SplitLetters text="созревают" startIndex={14} />
+              </span>
               <br />
-              до того, как вы их откроете.
+              <SplitLetters text="до того, как вы их откроете." startIndex={24} />
             </h1>
             <p
               className="mt-7 max-w-[640px] text-[17px] t-72 leading-[1.5] light reveal"
@@ -410,7 +445,11 @@ function HeroSection() {
               style={{ animationDelay: "0.28s" }}
             >
               <Magnetic strength={14}>
-                <Link href="/register" className="brand rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2">
+                <Link
+                  href="/register"
+                  className="brand rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2"
+                  data-cursor-label="ENTER"
+                >
                   Получить доступ
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M5 12h14M13 6l6 6-6 6" />
@@ -418,7 +457,10 @@ function HeroSection() {
                 </Link>
               </Magnetic>
               <Magnetic strength={10}>
-                <a className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer">
+                <a
+                  className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer"
+                  data-cursor-label="WATCH"
+                >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                   Посмотреть продукт · 2 мин
                 </a>

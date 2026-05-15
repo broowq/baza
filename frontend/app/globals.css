@@ -1098,3 +1098,182 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
 @media (prefers-reduced-motion: reduce) {
   .clip-reveal { clip-path: none !important; -webkit-clip-path: none !important; }
 }
+
+/* ─────────────────────────────────────────────────────────────────
+   ════════════════  CUSTOM CURSOR (Dogstudio/Goonies signature)
+   Two-layer cursor: tight mint dot + soft trailer circle. Trailer
+   scales 2.4× on interactive elements, paints a small label badge
+   inside if the focused element carries data-cursor-label.
+   Disabled at media-query level on touch + reduced-motion.
+   ───────────────────────────────────────────────────────────────── */
+
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  /* Hide native cursor everywhere when the JS cursor is mounted.
+     The CustomCursor effect short-circuits on touch / reduced-motion
+     so the native cursor naturally remains there. */
+  body { cursor: none; }
+  body a, body button, body [role="button"], body [data-cursor="focus"],
+  body input, body textarea, body [contenteditable] { cursor: none; }
+  /* Escape hatch — if cursor-hide class is on body (we hovered a text
+     input), reveal native cursor over the input so users see the I-beam. */
+  body.cursor-hide,
+  body.cursor-hide * { cursor: auto !important; }
+  body.cursor-hide .cursor-core,
+  body.cursor-hide .cursor-trailer { opacity: 0; }
+}
+
+.cursor-core {
+  position: fixed; top: 0; left: 0;
+  width: 6px; height: 6px; border-radius: 999px;
+  background: var(--mint);
+  box-shadow: 0 0 12px rgba(168, 197, 192, 0.85), 0 0 28px rgba(168, 197, 192, 0.35);
+  pointer-events: none;
+  z-index: 9999;
+  mix-blend-mode: screen;
+  transition: opacity .15s ease;
+  will-change: transform, opacity;
+}
+.cursor-trailer {
+  position: fixed; top: 0; left: 0;
+  width: 44px; height: 44px; border-radius: 999px;
+  border: 1px solid rgba(168, 197, 192, 0.55);
+  background: rgba(168, 197, 192, 0.04);
+  backdrop-filter: invert(0.06) blur(2px);
+  -webkit-backdrop-filter: invert(0.06) blur(2px);
+  pointer-events: none;
+  z-index: 9998;
+  transform: translate3d(-100px, -100px, 0);
+  transition: width .25s cubic-bezier(.2,.7,.15,1),
+              height .25s cubic-bezier(.2,.7,.15,1),
+              border-color .25s ease,
+              background .25s ease;
+  display: flex; align-items: center; justify-content: center;
+  will-change: transform;
+  /* Scale lives in a CSS var so the lerp-driven transform doesn't fight
+     it. The CSS scales an inner pseudo via a calc on the var. */
+  --cursor-scale: 1;
+}
+.cursor-trailer::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit;
+  transform: scale(var(--cursor-scale));
+  transition: transform .25s cubic-bezier(.2,.7,.15,1);
+  background: rgba(168, 197, 192, 0.06);
+  border: 1px solid rgba(168, 197, 192, 0.4);
+  pointer-events: none;
+}
+.cursor-trailer.is-focused {
+  border-color: rgba(168, 197, 192, 0);
+}
+.cursor-trailer.is-focused::before {
+  background: rgba(168, 197, 192, 0.10);
+  border-color: rgba(168, 197, 192, 0.55);
+  box-shadow: 0 8px 36px -6px rgba(168, 197, 192, 0.40);
+}
+.cursor-trailer.has-label {
+  width: auto; min-width: 96px; height: 32px;
+  border-radius: 999px;
+  padding: 0 14px;
+}
+.cursor-label {
+  font-family: 'Geist Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mint);
+  white-space: nowrap;
+}
+@media (max-width: 920px), (pointer: coarse) {
+  .cursor-core, .cursor-trailer { display: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   ANIMATED MESH GRADIENT — drop-in hero backdrop standing in for
+   the cinematic video loop until we generate one. Three radial blobs
+   drift on slightly different Lissajous-like trajectories; together
+   they read as a living dark scene with mint highlights.
+
+   Tagged .mesh-bg — drop on any container; it fills via inset:0.
+   Cheap (pure CSS animation), no JS, GPU-friendly.
+   ───────────────────────────────────────────────────────────────── */
+.mesh-bg {
+  position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  background: #0A0A0C;
+  isolation: isolate;
+}
+.mesh-bg::before,
+.mesh-bg::after,
+.mesh-bg > .mesh-aux {
+  content: ""; position: absolute; border-radius: 50%;
+  filter: blur(120px);
+  mix-blend-mode: screen;
+  opacity: 0.7;
+  will-change: transform;
+}
+.mesh-bg::before {
+  width: 60vw; height: 60vw;
+  background: radial-gradient(circle, rgba(168, 197, 192, 0.45), transparent 60%);
+  top: -10%; left: -10%;
+  animation: mesh-a 22s ease-in-out infinite alternate;
+}
+.mesh-bg::after {
+  width: 50vw; height: 50vw;
+  background: radial-gradient(circle, rgba(125, 211, 252, 0.30), transparent 60%);
+  bottom: -20%; right: -10%;
+  animation: mesh-b 28s ease-in-out infinite alternate;
+}
+.mesh-bg > .mesh-aux {
+  width: 40vw; height: 40vw;
+  background: radial-gradient(circle, rgba(168, 197, 192, 0.22), transparent 60%);
+  top: 30%; left: 40%;
+  animation: mesh-c 34s ease-in-out infinite alternate;
+}
+@keyframes mesh-a {
+  0%   { transform: translate3d(-4%, -2%, 0) rotate(0deg); }
+  100% { transform: translate3d(8%, 12%, 0) rotate(40deg); }
+}
+@keyframes mesh-b {
+  0%   { transform: translate3d(2%, 4%, 0) rotate(0deg); }
+  100% { transform: translate3d(-10%, -8%, 0) rotate(-30deg); }
+}
+@keyframes mesh-c {
+  0%   { transform: translate3d(-12%, 6%, 0); }
+  100% { transform: translate3d(10%, -10%, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mesh-bg::before, .mesh-bg::after, .mesh-bg > .mesh-aux { animation: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   PAGE TRANSITION OVERLAY — mint band swipe between client-side routes
+   ───────────────────────────────────────────────────────────────── */
+.page-transition {
+  position: fixed; inset: 0;
+  z-index: 9000;
+  pointer-events: none;
+  will-change: transform, opacity;
+  background:
+    linear-gradient(90deg,
+      rgba(168, 197, 192, 0.0) 0%,
+      rgba(168, 197, 192, 0.35) 22%,
+      rgba(255, 255, 255, 0.95) 50%,
+      rgba(168, 197, 192, 0.35) 78%,
+      rgba(168, 197, 192, 0.0) 100%);
+  mix-blend-mode: difference;
+}
+.page-transition.swiping {
+  animation: pt-enter .58s cubic-bezier(.6, .05, .2, .95) forwards;
+}
+.page-transition.leaving {
+  animation: pt-leave .60s cubic-bezier(.6, .05, .2, .95) forwards;
+}
+@keyframes pt-enter {
+  0%   { transform: translate3d(-110%, 0, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+@keyframes pt-leave {
+  0%   { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(110%, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-transition { display: none; }
+}
