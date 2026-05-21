@@ -47,16 +47,41 @@ if [[ ! -s /root/.ssh/authorized_keys ]]; then
   echo "      Затем перезапусти этот скрипт."
   echo
 else
-  # Backup и подмена настройки
+  # Backup main config
   cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%F)
   sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
   sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
   sed -i 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' /etc/ssh/sshd_config
-  # Гарантируем что после ребута политика держится
-  grep -q "^PubkeyAuthentication yes" /etc/ssh/sshd_config || \
-    echo "PubkeyAuthentication yes" >> /etc/ssh/sshd_config
-  systemctl reload sshd
-  echo "  ✓ Парольная аутентификация SSH отключена."
+
+  # CRITICAL: cloud providers (Timeweb, Reg.Cloud, etc.) ship a drop-in
+  # /etc/ssh/sshd_config.d/50-cloud-init.conf with `PasswordAuthentication yes`
+  # that OVERRIDES the main config — the first match in the Include chain wins.
+  # Editing only sshd_config silently leaves password auth ENABLED. We must
+  # neutralise the cloud-init drop-in AND add our own high-priority drop-in
+  # that survives future cloud-init regeneration.
+  if [[ -d /etc/ssh/sshd_config.d ]]; then
+    for f in /etc/ssh/sshd_config.d/*cloud-init*.conf; do
+      [[ -e "$f" ]] || continue
+      sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' "$f"
+    done
+    cat > /etc/ssh/sshd_config.d/99-baza-hardening.conf <<'SSHEOF'
+# 152-ФЗ: вход только по ключу. Высший приоритет — переживает cloud-init.
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin prohibit-password
+PubkeyAuthentication yes
+SSHEOF
+    chmod 600 /etc/ssh/sshd_config.d/99-baza-hardening.conf
+  fi
+
+  # Validate before reload — broken config must NOT take down sshd.
+  if sshd -t; then
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null
+    EFFECTIVE=$(sshd -T 2>/dev/null | grep -i '^passwordauthentication' || echo '?')
+    echo "  ✓ Парольная аутентификация SSH отключена ($EFFECTIVE)."
+  else
+    echo "  ⚠️  sshd config невалиден — reload пропущен, проверь вручную."
+  fi
 fi
 
 echo "==[ 3/6 ]== fail2ban"
