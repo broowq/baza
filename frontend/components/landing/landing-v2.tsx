@@ -448,7 +448,6 @@ function HeroSection() {
                 <Link
                   href="/register"
                   className="brand rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2"
-                  data-cursor-label="ENTER"
                 >
                   Получить доступ
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -459,7 +458,6 @@ function HeroSection() {
               <Magnetic strength={10}>
                 <a
                   className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer"
-                  data-cursor-label="WATCH"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                   Посмотреть продукт · 2 мин
