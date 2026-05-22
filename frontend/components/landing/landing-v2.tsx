@@ -317,7 +317,7 @@ function HeroLiveCard() {
   }, []);
 
   return (
-    <div ref={sectionRef} className="col-span-12 lg:col-span-4 lg:pl-6 reveal" style={{ animationDelay: "0.34s" }}>
+    <div ref={sectionRef} className="col-span-1 lg:col-span-4 lg:pl-6 reveal" style={{ animationDelay: "0.34s" }}>
       <div className="panel p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -365,32 +365,37 @@ function HeroLiveCard() {
 }
 
 /* ── Letter-by-letter reveal helper ────────────────────────────────
-   Splits text into <span class="letter"> chunks each with a CSS
-   --letter-index so the keyframe in globals.css picks up a staggered
-   delay (28ms per letter). Preserves whitespace as non-breaking so the
-   row metric doesn't shift mid-animation. The `startIndex` lets you
-   continue the stagger across multiple SplitLetters in one headline. */
+   Splits text into per-letter <span class="letter"> chunks (each with a
+   --letter-index so the keyframe staggers 28ms/letter), but groups them by
+   WORD inside an inline-block .letter-word with a real breakable space
+   between words. So letters within a word stay together while the headline
+   still wraps across lines on narrow screens — the previous &nbsp; version
+   forced one unbreakable line that blew past the mobile viewport. */
 function SplitLetters({ text, startIndex = 0 }: { text: string; startIndex?: number }) {
-  const chars = Array.from(text);
-  return (
-    <>
-      {chars.map((ch, i) => {
-        if (ch === " ") {
-          // Visible space without breaking the letter cascade timeline.
-          return <span key={i}>&nbsp;</span>;
-        }
-        return (
-          <span
-            key={i}
-            className="letter"
-            style={{ ["--letter-index" as never]: startIndex + i }}
-          >
-            {ch}
-          </span>
-        );
-      })}
-    </>
-  );
+  const words = text.split(" ");
+  let idx = startIndex;
+  const out: React.ReactNode[] = [];
+  words.forEach((word, wi) => {
+    const letters = Array.from(word).map((ch) => {
+      const li = idx++;
+      return (
+        <span key={li} className="letter" style={{ ["--letter-index" as never]: li }}>
+          {ch}
+        </span>
+      );
+    });
+    out.push(
+      <span key={`w${wi}`} className="letter-word">
+        {letters}
+      </span>,
+    );
+    // Breakable space between words (skip after the last word).
+    if (wi < words.length - 1) {
+      idx++; // keep the cascade timing consistent with the space
+      out.push(" ");
+    }
+  });
+  return <>{out}</>;
 }
 
 function HeroSection() {
@@ -411,9 +416,9 @@ function HeroSection() {
       <div className="grain" />
 
       <div className="relative z-10 max-w-[1320px] mx-auto px-6 pt-24 pb-20">
-        <div className="grid grid-cols-12 gap-10 items-end">
-          <div className="col-span-12 lg:col-span-8">
-            <div className="flex items-center gap-3 mb-7 reveal" style={{ animationDelay: "0.05s" }}>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
+          <div className="col-span-1 lg:col-span-8 min-w-0">
+            <div className="flex flex-wrap items-center gap-3 mb-7 reveal" style={{ animationDelay: "0.05s" }}>
               <span className="panel-thin px-3 py-1 text-[11px] flex items-center gap-2">
                 <span className="dot dot-em" />
                 раннее открытие · апрель 2026
@@ -422,7 +427,7 @@ function HeroSection() {
             </div>
             <h1
               className="h1 letter-reveal"
-              style={{ fontSize: "clamp(64px,9vw,128px)" }}
+              style={{ fontSize: "clamp(34px,9vw,128px)" }}
             >
               <SplitLetters text="Лиды, которые " />
               <span style={{ color: "var(--mint)" }} className="serif">
@@ -583,10 +588,10 @@ function PromptDemo() {
   return (
     <section className="relative">
       <div className="max-w-[1320px] mx-auto px-6 pt-6 pb-20">
-        <div className="grid grid-cols-12 gap-8 items-start">
-          <div className="col-span-12 lg:col-span-5">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+          <div className="col-span-1 lg:col-span-5">
             <div className="eyebrow mb-3">шаг 01 · описание</div>
-            <h2 className="h2" style={{ fontSize: "clamp(40px,4.4vw,64px)" }}>
+            <h2 className="h2" style={{ fontSize: "clamp(28px,4.4vw,64px)" }}>
               Опишите, кого вы ищете —
               <br />
               как вы бы рассказали стажёру.
@@ -602,7 +607,7 @@ function PromptDemo() {
             </ul>
           </div>
 
-          <div ref={wrapRef} className="col-span-12 lg:col-span-7">
+          <div ref={wrapRef} className="col-span-1 lg:col-span-7">
             <div className="panel p-5">
               <div className="flex items-center gap-2 mb-4 px-1">
                 <span className="dot dot-em" />
@@ -619,7 +624,7 @@ function PromptDemo() {
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-5 gap-2 text-[11px]">
+              <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
                 {[
                   ["01 · парсинг", "8 источников", 100, "var(--mint)"],
                   ["02 · матчинг", "12 410 → 384", 100, "var(--mint)"],
@@ -682,16 +687,16 @@ function ProductFrame() {
   return (
     <section id="product" className="relative">
       <div className="max-w-[1320px] mx-auto px-6 pt-6 pb-24">
-        <div className="flex items-end justify-between mb-7">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between mb-7">
           <div>
             <div className="eyebrow mb-3">шаг 02 · работа с результатом</div>
-            <h2 className="h2" style={{ fontSize: "clamp(40px,4.4vw,64px)" }}>
+            <h2 className="h2" style={{ fontSize: "clamp(28px,4.4vw,64px)" }}>
               Один экран от обзора
               <br />
               до карточки лида.
             </h2>
           </div>
-          <div className="seg">
+          <div className="seg self-start sm:self-auto">
             {[
               { k: "overview", label: "Обзор" },
               { k: "project", label: "Проект" },
@@ -708,6 +713,10 @@ function ProductFrame() {
           </div>
         </div>
 
+        {/* On phones the app mockup keeps its desktop proportions and scrolls
+            horizontally inside this container, instead of crushing the rail +
+            dashboards into 320px. .frame-scroll handles the overflow + min-width. */}
+        <div className="frame-scroll">
         <div className="frame">
           <div className="frame-bar">
             <div className="flex items-center gap-1.5">
@@ -744,6 +753,7 @@ function ProductFrame() {
               <ViewLead active={view === "lead"} />
             </main>
           </div>
+        </div>
         </div>
 
         <div className="mt-6 flex items-center gap-3 t-48 text-[12px]">
@@ -1409,23 +1419,23 @@ function FeaturesSection() {
   return (
     <section id="sources" className="relative">
       <div className="max-w-[1320px] mx-auto px-6 py-24">
-        <div className="grid grid-cols-12 gap-10 mb-14">
-          <div className="col-span-12 lg:col-span-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 mb-14">
+          <div className="col-span-1 lg:col-span-6">
             <div className="eyebrow mb-3">шаг 03 · что внутри</div>
-            <h2 className="h2" style={{ fontSize: "clamp(40px,4.4vw,64px)" }}>
+            <h2 className="h2" style={{ fontSize: "clamp(28px,4.4vw,64px)" }}>
               Не каталог компаний.
               <br />
               Машина по производству лидов.
             </h2>
           </div>
-          <div className="col-span-12 lg:col-span-6 lg:pt-10 text-[15px] t-72 light leading-[1.55]">
+          <div className="col-span-1 lg:col-span-6 lg:pt-10 text-[15px] t-72 light leading-[1.55]">
             База подключена к 8 верифицированным источникам, обновляется ежедневно и работает
             как единая поверхность. Никаких CSV из неизвестных папок.
           </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-5">
-          <div className="col-span-12 md:col-span-4 panel-flat p-6">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+          <div className="col-span-1 md:col-span-4 panel-flat p-6">
             <div className="flex items-center justify-between"><div className="eyebrow">обогащение</div><span className="mono t-40 text-[10px]">01</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>Email, телефон, ЛПР, выручка — для каждой компании.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">SMTP+MX-проверка, валидация по ФНС, сопоставление ЛПР с открытыми профилями.</p>
@@ -1435,7 +1445,7 @@ function FeaturesSection() {
               <div><div className="t-40">ЛПР</div><div className="mono mt-0.5 tnum">71%</div></div>
             </div>
           </div>
-          <div className="col-span-12 md:col-span-4 panel-flat p-6">
+          <div className="col-span-1 md:col-span-4 panel-flat p-6">
             <div className="flex items-center justify-between"><div className="eyebrow">scoring</div><span className="mono t-40 text-[10px]">02</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>100-балльный скоринг под ваш промпт.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">Соответствие, контактность, платёжеспособность — три оси, прозрачные веса, объяснение для каждого балла.</p>
@@ -1446,7 +1456,7 @@ function FeaturesSection() {
               </div>
             </div>
           </div>
-          <div className="col-span-12 md:col-span-4 panel-flat p-6">
+          <div className="col-span-1 md:col-span-4 panel-flat p-6">
             <div className="flex items-center justify-between"><div className="eyebrow">экспорт</div><span className="mono t-40 text-[10px]">03</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>CSV, API, webhook прямо в CRM.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">Bitrix24, amoCRM, Pipedrive — нативные коннекторы. По API — 50 запросов в секунду.</p>
@@ -1470,7 +1480,7 @@ function CtaSection() {
       <div className="max-w-[1320px] mx-auto px-6 py-24">
         <div className="panel p-10 lg:p-14 text-center">
           <div className="eyebrow mb-5">раннее открытие</div>
-          <h2 className="h2 max-w-[820px] mx-auto" style={{ fontSize: "clamp(40px,4.8vw,72px)" }}>
+          <h2 className="h2 max-w-[820px] mx-auto" style={{ fontSize: "clamp(30px,4.8vw,72px)" }}>
             Покажите, кого вы ищете —
             <br />
             посмотрите, что мы найдём.
@@ -1496,8 +1506,8 @@ function CtaSection() {
 function FooterSection() {
   return (
     <footer className="hairline">
-      <div className="max-w-[1320px] mx-auto px-6 py-10 grid grid-cols-12 gap-8 t-48 text-[12px]">
-        <div className="col-span-12 md:col-span-4">
+      <div className="max-w-[1320px] mx-auto px-6 py-10 grid grid-cols-2 md:grid-cols-12 gap-8 t-48 text-[12px]">
+        <div className="col-span-2 md:col-span-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-6 h-6 rounded-md" style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }} />
             <span className="text-white text-[14px]" style={{ fontWeight: 500 }}>база</span>
@@ -1511,14 +1521,14 @@ function FooterSection() {
           { title: "Компания", items: ["О нас", "Журнал", "Карьера", "Контакты"] },
           { title: "Документы", items: ["Условия", "Конфиденциальность", "Обработка ПДн", "152-ФЗ"] },
         ].map((g) => (
-          <div key={g.title} className="col-span-6 md:col-span-2">
+          <div key={g.title} className="col-span-1 md:col-span-2">
             <div className="text-white mb-3 text-[12px]">{g.title}</div>
             <div className="space-y-2">
               {g.items.map((i) => <div key={i}>{i}</div>)}
             </div>
           </div>
         ))}
-        <div className="col-span-6 md:col-span-2 md:text-right">
+        <div className="col-span-1 md:col-span-2 md:text-right">
           <div className="text-white mb-3 text-[12px]">Статус</div>
           <div className="flex md:justify-end items-center gap-2">
             <span className="dot dot-em" />
@@ -1528,7 +1538,7 @@ function FooterSection() {
         </div>
       </div>
       <div className="hairline">
-        <div className="max-w-[1320px] mx-auto px-6 py-6 flex items-center justify-between t-40 text-[11px]">
+        <div className="max-w-[1320px] mx-auto px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 t-40 text-[11px]">
           <div>© 2026 База · usebaza.ru · v0.42 предварительный обзор</div>
           <div className="mono">№ 0042 / Tomsk · LTR</div>
         </div>
