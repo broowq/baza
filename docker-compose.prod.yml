@@ -69,8 +69,13 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
       GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
-      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-2-Pro}
-      LLM_PROVIDER: ${LLM_PROVIDER:-gigachat}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat}
+      YANDEX_GPT_API_KEY: ${YANDEX_GPT_API_KEY:-}
+      YANDEX_GPT_FOLDER_ID: ${YANDEX_GPT_FOLDER_ID:-}
+      YANDEX_GPT_MODEL: ${YANDEX_GPT_MODEL:-yandexgpt-lite/latest}
+      YANDEX_GPT_ENDPOINT: ${YANDEX_GPT_ENDPOINT:-https://llm.api.cloud.yandex.net/foundationModels/v1/completion}
+      LLM_ALLOW_FOREIGN_PROVIDERS: ${LLM_ALLOW_FOREIGN_PROVIDERS:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-yandex}
       FRONTEND_ORIGINS: ${CORS_ORIGINS:-http://usebaza.ru,https://usebaza.ru,http://www.usebaza.ru,https://www.usebaza.ru,http://${SERVER_IP}}
       FRONTEND_APP_URL: ${FRONTEND_APP_URL:-http://usebaza.ru}
       REFRESH_COOKIE_SECURE: ${REFRESH_COOKIE_SECURE:-false}
@@ -155,8 +160,13 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
       GIGACHAT_CREDENTIALS: ${GIGACHAT_CREDENTIALS:-}
       GIGACHAT_SCOPE: ${GIGACHAT_SCOPE:-GIGACHAT_API_PERS}
-      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat-2-Pro}
-      LLM_PROVIDER: ${LLM_PROVIDER:-gigachat}
+      GIGACHAT_MODEL: ${GIGACHAT_MODEL:-GigaChat}
+      YANDEX_GPT_API_KEY: ${YANDEX_GPT_API_KEY:-}
+      YANDEX_GPT_FOLDER_ID: ${YANDEX_GPT_FOLDER_ID:-}
+      YANDEX_GPT_MODEL: ${YANDEX_GPT_MODEL:-yandexgpt-lite/latest}
+      YANDEX_GPT_ENDPOINT: ${YANDEX_GPT_ENDPOINT:-https://llm.api.cloud.yandex.net/foundationModels/v1/completion}
+      LLM_ALLOW_FOREIGN_PROVIDERS: ${LLM_ALLOW_FOREIGN_PROVIDERS:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-yandex}
       FRONTEND_APP_URL: http://${SERVER_IP}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
