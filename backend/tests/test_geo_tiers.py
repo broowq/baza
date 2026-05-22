@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.lead_collection import _geo_tiers
+from app.services.lead_collection import _geo_tiers, _maps_geo_targets, _MAJOR_RU_CITIES
 
 
 @pytest.mark.parametrize(
@@ -41,3 +41,21 @@ def test_unknown_city_falls_through_to_russia() -> None:
 
 def test_strips_whitespace() -> None:
     assert _geo_tiers("  Томск  ") == ["Томск", "Томская область", "Россия"]
+
+
+# ── _maps_geo_targets: city fan-out for nationwide searches ──────────────
+
+@pytest.mark.parametrize("geo", ["Россия", "россия", "РФ", "", "  ", "вся Россия"])
+def test_nationwide_geo_fans_out_to_cities(geo: str) -> None:
+    """A nationwide setting must expand to the major-cities list, because
+    2GIS/Yandex Maps return nothing for a whole-country query."""
+    targets = _maps_geo_targets(geo)
+    assert targets == _MAJOR_RU_CITIES
+    assert "Москва" in targets and "Санкт-Петербург" in targets
+    assert len(targets) >= 10
+
+
+@pytest.mark.parametrize("geo", ["Москва", "Томск", "Екатеринбург"])
+def test_specific_city_is_passthrough(geo: str) -> None:
+    """A concrete city queries only that city — no fan-out."""
+    assert _maps_geo_targets(geo) == [geo]

@@ -1855,6 +1855,34 @@ def _geo_tiers(geo: str) -> list[str]:
     return tiers
 
 
+# Largest RU cities by population / business density. When a project is set to
+# "Россия" (nationwide) the geo-aware map sources (2GIS, Yandex Maps) CANNOT
+# search a whole country in one call — they're city-scoped and return 404 for
+# "Россия". So for nationwide searches we fan the map queries out across these
+# cities and aggregate. Ordered by lead density so the oversample cap is hit
+# from the richest markets first.
+_MAJOR_RU_CITIES = [
+    "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург",
+    "Казань", "Нижний Новгород", "Челябинск", "Самара",
+    "Краснодар", "Ростов-на-Дону", "Уфа", "Пермь",
+    "Воронеж", "Волгоград", "Красноярск", "Тюмень",
+]
+
+_NATIONWIDE_GEOS = {"", "россия", "рф", "ru", "russia", "вся россия", "по россии"}
+
+
+def _maps_geo_targets(geo: str) -> list[str]:
+    """Cities to actually query the map sources with.
+
+    A specific city → [that city] (unchanged behaviour).
+    Nationwide ("Россия"/empty) → the major-cities fan-out, because 2GIS /
+    Yandex Maps can't resolve a country to a city_id and return nothing.
+    """
+    if (geo or "").strip().lower() in _NATIONWIDE_GEOS:
+        return list(_MAJOR_RU_CITIES)
+    return [geo]
+
+
 def search_leads(
     query: str,
     limit: int,
@@ -1988,86 +2016,98 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     _twogis_api_settings = get_settings()
     _twogis_api_available = bool(_twogis_api_settings.twogis_api_key)
 
-    for term in map_search_terms:
-        # 2GIS: API first (licensed, stable, legally clean), public-scrape
-        # only as a last-resort fallback if the API key is missing or returns
-        # nothing. Previously scrape was primary — faster but violates 2GIS
-        # ToS and risks captcha/IP bans and a civil claim under ст.1334 ГК РФ
-        # (database rights).
-        try:
-            if len(collected) < oversample_limit:
-                twogis_results: list[dict] = []
-                used_source = ""
-                if _twogis_api_available:
-                    twogis_results = _search_2gis(term, effective_geo, per_term_limit)
-                    used_source = "2gis_api"
-                if not twogis_results:
-                    # No API key, or API returned empty (e.g. unknown city) —
-                    # fall back to public-page scrape. This is the legacy path
-                    # kept as a safety net; we log a warning so ops notices if
-                    # the API key needs top-up.
-                    if _twogis_api_available:
-                        logger.warning(
-                            "2GIS API returned 0 results for '%s %s' — falling back to scrape",
-                            term, effective_geo,
-                        )
-                    twogis_results = _search_2gis_scrape(term, effective_geo, per_term_limit)
-                    used_source = "2gis_scrape"
-                collect_candidates(twogis_results)
-                if twogis_results:
-                    logger.info(
-                        "2GIS returned %d results for '%s %s' via %s",
-                        len(twogis_results), term, effective_geo, used_source,
-                    )
-        except Exception:
-            logger.warning("2GIS search error for '%s'", term, exc_info=True)
-
-        # Yandex Maps scrape — parallel free source. Adds coverage for firms
-        # that Yandex indexes better than 2GIS (especially newer/smaller businesses).
-        try:
-            if len(collected) < oversample_limit:
-                yandex_scrape_results = _search_yandex_maps_scrape(term, effective_geo, per_term_limit)
-                collect_candidates(yandex_scrape_results)
-                if yandex_scrape_results:
-                    logger.info("Yandex scrape returned %d results for '%s %s'",
-                                len(yandex_scrape_results), term, effective_geo)
-        except Exception:
-            logger.warning("Yandex scrape error for '%s'", term, exc_info=True)
-
-        # Yandex Maps API — if the key is still valid (disabled by circuit
-        # breaker on 401/403/429 — see _search_yandex_maps).
-        if use_yandex:
+    # Geo fan-out: a specific city queries just that city; a nationwide
+    # ("Россия") search fans out across major cities, because 2GIS / Yandex
+    # Maps cannot resolve a country to a city_id (they 404 on "Россия").
+    # The oversample cap below stops the fan-out early once we have enough,
+    # so popular niches fill from Москва+СПб while thin niches work through
+    # more cities to reach target.
+    maps_geo_targets = _maps_geo_targets(effective_geo)
+    for map_geo in maps_geo_targets:
+        if len(collected) >= oversample_limit:
+            break
+        for term in map_search_terms:
+            if len(collected) >= oversample_limit:
+                break
+            # 2GIS: API first (licensed, stable, legally clean), public-scrape
+            # only as a last-resort fallback if the API key is missing or returns
+            # nothing. Previously scrape was primary — faster but violates 2GIS
+            # ToS and risks captcha/IP bans and a civil claim under ст.1334 ГК РФ
+            # (database rights).
             try:
                 if len(collected) < oversample_limit:
-                    yandex_results = _search_yandex_maps(
-                        term, effective_geo, effective_segments, per_term_limit,
-                        has_prompt=has_prompt,
-                    )
-                    collect_candidates(yandex_results)
-                    if yandex_results:
-                        logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, effective_geo)
+                    twogis_results: list[dict] = []
+                    used_source = ""
+                    if _twogis_api_available:
+                        twogis_results = _search_2gis(term, map_geo, per_term_limit)
+                        used_source = "2gis_api"
+                    if not twogis_results:
+                        # No API key, or API returned empty (e.g. unknown city) —
+                        # fall back to public-page scrape. This is the legacy path
+                        # kept as a safety net; we log a warning so ops notices if
+                        # the API key needs top-up.
+                        if _twogis_api_available:
+                            logger.warning(
+                                "2GIS API returned 0 results for '%s %s' — falling back to scrape",
+                                term, map_geo,
+                            )
+                        twogis_results = _search_2gis_scrape(term, map_geo, per_term_limit)
+                        used_source = "2gis_scrape"
+                    collect_candidates(twogis_results)
+                    if twogis_results:
+                        logger.info(
+                            "2GIS returned %d results for '%s %s' via %s",
+                            len(twogis_results), term, map_geo, used_source,
+                        )
             except Exception:
-                logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
+                logger.warning("2GIS search error for '%s'", term, exc_info=True)
 
-        # Rusprofile.ru — PRIMARY legal-entity source (not just supplementary).
-        # Every term gets 20 entities. Real ФНС-registered ЮЛ/ИП → downstream
-        # enrichment (website + 2GIS-card fallback) fills in contacts. This
-        # turns a thin "12 leads" search into 100+ legitimate buyers.
-        # Previously this was gated behind `collected < limit // 3`, which
-        # essentially disabled it for any decent-sized search.
-        try:
-            if len(collected) < oversample_limit:
-                rp_results = _search_rusprofile(term, effective_geo, 20)
-                collect_candidates(rp_results)
-                if rp_results:
-                    logger.info(
-                        "Rusprofile returned %d results for '%s %s'",
-                        len(rp_results), term, effective_geo,
-                    )
-        except Exception:
-            logger.warning("Rusprofile error for '%s'", term, exc_info=True)
+            # Yandex Maps scrape — parallel free source. Adds coverage for firms
+            # that Yandex indexes better than 2GIS (especially newer/smaller businesses).
+            try:
+                if len(collected) < oversample_limit:
+                    yandex_scrape_results = _search_yandex_maps_scrape(term, map_geo, per_term_limit)
+                    collect_candidates(yandex_scrape_results)
+                    if yandex_scrape_results:
+                        logger.info("Yandex scrape returned %d results for '%s %s'",
+                                    len(yandex_scrape_results), term, map_geo)
+            except Exception:
+                logger.warning("Yandex scrape error for '%s'", term, exc_info=True)
 
-        time.sleep(0.2)
+            # Yandex Maps API — if the key is still valid (disabled by circuit
+            # breaker on 401/403/429 — see _search_yandex_maps).
+            if use_yandex:
+                try:
+                    if len(collected) < oversample_limit:
+                        yandex_results = _search_yandex_maps(
+                            term, map_geo, effective_segments, per_term_limit,
+                            has_prompt=has_prompt,
+                        )
+                        collect_candidates(yandex_results)
+                        if yandex_results:
+                            logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, map_geo)
+                except Exception:
+                    logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
+
+            # Rusprofile.ru — PRIMARY legal-entity source (not just supplementary).
+            # Every term gets 20 entities. Real ФНС-registered ЮЛ/ИП → downstream
+            # enrichment (website + 2GIS-card fallback) fills in contacts. This
+            # turns a thin "12 leads" search into 100+ legitimate buyers.
+            # Previously this was gated behind `collected < limit // 3`, which
+            # essentially disabled it for any decent-sized search.
+            try:
+                if len(collected) < oversample_limit:
+                    rp_results = _search_rusprofile(term, map_geo, 20)
+                    collect_candidates(rp_results)
+                    if rp_results:
+                        logger.info(
+                            "Rusprofile returned %d results for '%s %s'",
+                            len(rp_results), term, map_geo,
+                        )
+            except Exception:
+                logger.warning("Rusprofile error for '%s'", term, exc_info=True)
+
+            time.sleep(0.2)
 
     try:
         queries = _build_discover_queries(effective_niche, effective_geo, effective_segments, has_prompt=bool(prompt))
