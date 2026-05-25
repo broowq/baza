@@ -58,10 +58,13 @@ export default function TermsPage() {
             </h2>
             <p className="mt-4 leading-relaxed text-gray-600 dark:text-gray-300">
               Стоимость подписки определяется выбранным тарифным планом. Оплата
-              производится ежемесячно в рублях РФ. При отмене подписки доступ к
-              платным функциям сохраняется до конца оплаченного периода.
-              Возврат средств осуществляется в соответствии с законодательством
-              РФ о защите прав потребителей.
+              производится ежемесячно в рублях РФ. Сервис является цифровым:
+              доступ к оплаченным функциям предоставляется онлайн автоматически
+              сразу после поступления оплаты, услуга оказывается дистанционно,
+              физическая доставка товаров отсутствует. При отмене подписки
+              доступ к платным функциям сохраняется до конца оплаченного
+              периода. Возврат средств осуществляется в соответствии с
+              законодательством РФ о защите прав потребителей.
             </p>
 
             <h2 className="mt-10 text-xl font-semibold text-[#191C1F] dark:text-white">
@@ -111,13 +114,34 @@ export default function TermsPage() {
             <p className="mt-4 leading-relaxed text-gray-600 dark:text-gray-300">
               По вопросам, связанным с настоящими Условиями, обращайтесь:{" "}
               <a
-                href="mailto:support@baza.io"
+                href="mailto:support@usebaza.ru"
                 className="text-[#191C1F] underline dark:text-white"
               >
-                support@baza.io
+                support@usebaza.ru
               </a>
               .
             </p>
+
+            <h2 className="mt-10 text-xl font-semibold text-[#191C1F] dark:text-white">
+              9. Реквизиты Исполнителя
+            </h2>
+            <p className="mt-4 leading-relaxed text-gray-600 dark:text-gray-300">
+              Услуги по настоящим Условиям оказывает:
+            </p>
+            <ul className="mt-4 list-disc space-y-2 pl-6 text-gray-600 dark:text-gray-300">
+              <li>Полное наименование: Общество с ограниченной ответственностью «ПРО ЛЕС»</li>
+              <li>Сокращённое наименование: ООО «ПРО ЛЕС»</li>
+              <li>ОГРН: 1215400050117</li>
+              <li>ИНН: 5406817586</li>
+              <li>КПП: 540601001</li>
+              <li>Юридический адрес: 630007, г. Новосибирск, ул. Коммунистическая, влд. 6, оф. 205</li>
+              <li>
+                Электронная почта:{" "}
+                <a href="mailto:support@usebaza.ru" className="text-[#191C1F] underline dark:text-white">
+                  support@usebaza.ru
+                </a>
+              </li>
+            </ul>
 
             <div className="mt-12 border-t border-gray-200 pt-6 dark:border-[#2A2C2F]">
               <Link

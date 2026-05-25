@@ -520,6 +520,6 @@ def delete_my_account(
     return AuthMessageResponse(
         message=(
             "Аккаунт и все связанные персональные данные удалены. "
-            "Если у вас были вопросы или жалобы — обратитесь на dpo@usebaza.ru."
+            "Если у вас были вопросы или жалобы — обратитесь на support@usebaza.ru."
         ),
     )

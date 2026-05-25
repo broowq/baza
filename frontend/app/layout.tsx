@@ -23,7 +23,7 @@ const instrument = Instrument_Serif({
   display: "swap",
 });
 
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://baza.io";
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://usebaza.ru";
 
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),

@@ -15,8 +15,8 @@ export const metadata = {
  *   • Приказ Роскомнадзора № 996 от 2022-12-27 — рекомендации по содержанию
  *   • разъяснения Минцифры о размещении документа на сайте оператора
  *
- * Текст содержит шаблонные места «реквизиты уточняются при регистрации»,
- * которые надо подменить точными данными ИП/ООО оператора при подаче в РКН.
+ * Реквизиты оператора — ООО «ПРО ЛЕС» (ИНН 5406817586, ОГРН 1215400050117) —
+ * заполнены в разделе 1.
  */
 export default function PrivacyPage() {
   return (
@@ -48,14 +48,14 @@ export default function PrivacyPage() {
             оператором.
           </P>
           <P>
-            <b>Оператор:</b> индивидуальный предприниматель / общество с
-            ограниченной ответственностью, осуществляющее деятельность по
-            адресу usebaza.ru (точные реквизиты — ОГРН/ОГРНИП, ИНН и юридический
-            адрес — указаны в пользовательском соглашении и в реестре операторов
-            Роскомнадзора). Контактный адрес оператора по вопросам обработки
+            <b>Оператор:</b> Общество с ограниченной ответственностью «ПРО ЛЕС»
+            (ООО «ПРО ЛЕС»), ОГРН 1215400050117, ИНН 5406817586, КПП 540601001,
+            юридический адрес: 630007, г. Новосибирск, ул. Коммунистическая,
+            влд. 6, оф. 205. Оператор осуществляет деятельность по адресу
+            usebaza.ru. Контактный адрес оператора по вопросам обработки
             ПД:{" "}
-            <a href="mailto:dpo@usebaza.ru" className="text-white underline underline-offset-2">
-              dpo@usebaza.ru
+            <a href="mailto:support@usebaza.ru" className="text-white underline underline-offset-2">
+              support@usebaza.ru
             </a>.
           </P>
           <P>
@@ -239,8 +239,8 @@ export default function PrivacyPage() {
               «Настройки» → «Конфиденциальность»
             </Link>
             . Также субъект может направить письменное обращение по адресу{" "}
-            <a href="mailto:dpo@usebaza.ru" className="text-white underline underline-offset-2">
-              dpo@usebaza.ru
+            <a href="mailto:support@usebaza.ru" className="text-white underline underline-offset-2">
+              support@usebaza.ru
             </a>{" "}
             — ответ предоставляется в течение 10 рабочих дней.
           </P>
@@ -273,7 +273,7 @@ export default function PrivacyPage() {
           <span>© 2026 БАЗА · usebaza.ru</span>
           <span>
             редакция 2.0 · 14.05.2026 · вопросы на{" "}
-            <a href="mailto:dpo@usebaza.ru" className="text-white">dpo@usebaza.ru</a>
+            <a href="mailto:support@usebaza.ru" className="text-white">support@usebaza.ru</a>
           </span>
         </footer>
       </article>
