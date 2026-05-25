@@ -1517,14 +1517,29 @@ function FooterSection() {
           </p>
         </div>
         {[
-          { title: "Продукт", items: ["Возможности", "Источники", "Цены", "API"] },
-          { title: "Компания", items: ["О нас", "Журнал", "Карьера", "Контакты"] },
-          { title: "Документы", items: ["Условия", "Конфиденциальность", "Обработка ПДн", "152-ФЗ"] },
+          { title: "Продукт", items: [
+            { label: "Возможности", href: "#product" },
+            { label: "Источники", href: "#sources" },
+            { label: "Цены", href: "/plans" },
+          ] },
+          { title: "Документы", items: [
+            { label: "Условия", href: "/terms" },
+            { label: "Конфиденциальность", href: "/privacy" },
+            { label: "Обработка ПДн", href: "/privacy" },
+            { label: "152-ФЗ", href: "/privacy" },
+          ] },
+          { title: "Контакты", items: [
+            { label: "support@usebaza.ru", href: "mailto:support@usebaza.ru" },
+          ] },
         ].map((g) => (
           <div key={g.title} className="col-span-1 md:col-span-2">
             <div className="text-white mb-3 text-[12px]">{g.title}</div>
             <div className="space-y-2">
-              {g.items.map((i) => <div key={i}>{i}</div>)}
+              {g.items.map((i) => (
+                <div key={i.label}>
+                  <a href={i.href} className="transition-colors hover:text-white">{i.label}</a>
+                </div>
+              ))}
             </div>
           </div>
         ))}
