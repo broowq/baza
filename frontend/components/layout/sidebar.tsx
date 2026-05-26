@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
@@ -27,6 +28,14 @@ export function Sidebar() {
   const [org, setOrg] = useState<Organization | null>(null);
   const [projectCount, setProjectCount] = useState<number | null>(null);
 
+  const fetchProjectCount = () => {
+    const token = getToken();
+    if (!token) return;
+    api<unknown[]>("/projects")
+      .then((rows) => setProjectCount(Array.isArray(rows) ? rows.length : null))
+      .catch(() => {});
+  };
+
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -43,10 +52,17 @@ export function Sidebar() {
       .then(setOrg)
       .catch(() => {});
 
-    api<unknown[]>("/projects")
-      .then((rows) => setProjectCount(Array.isArray(rows) ? rows.length : null))
-      .catch(() => {});
+    fetchProjectCount();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Re-fetch project count on pathname change so the badge stays fresh
+  // after create/delete (dashboard calls router.refresh() which triggers
+  // a navigation and this effect).
+  useEffect(() => {
+    fetchProjectCount();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
 
   useEffect(() => {
     setMobileOpen(false);
@@ -233,28 +249,42 @@ export function Sidebar() {
       </button>
 
       {/* Mobile overlay */}
-      {mobileOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
-            onClick={() => setMobileOpen(false)}
-          />
-          <div className="fixed left-0 top-0 z-50 h-full lg:hidden">
-            <div className="relative h-full">
-              <button
-                onClick={() => setMobileOpen(false)}
-                className="absolute right-3 top-4 z-10 min-h-[44px] min-w-[44px] rounded-lg p-2.5 t-72 hover:text-white"
-                aria-label="Закрыть меню"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-              </button>
-              {sidebar}
-            </div>
-          </div>
-        </>
-      )}
+      <AnimatePresence>
+        {mobileOpen && (
+          <>
+            <motion.div
+              key="backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+              onClick={() => setMobileOpen(false)}
+            />
+            <motion.div
+              key="drawer"
+              initial={{ x: -240 }}
+              animate={{ x: 0 }}
+              exit={{ x: -240 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="fixed left-0 top-0 z-50 h-full lg:hidden"
+            >
+              <div className="relative h-full">
+                <button
+                  onClick={() => setMobileOpen(false)}
+                  className="absolute right-3 top-4 z-10 min-h-[44px] min-w-[44px] rounded-lg p-2.5 t-72 hover:text-white"
+                  aria-label="Закрыть меню"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+                {sidebar}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
 
       {/* Desktop sticky sidebar */}
       <div className="sticky top-0 hidden h-screen lg:block">{sidebar}</div>

@@ -9,6 +9,21 @@ import { api } from "@/lib/api";
 import { setOrgId, setToken } from "@/lib/auth";
 import type { Organization } from "@/lib/types";
 
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 type RegisterResponse = {
   access_token: string;
   refresh_token: string;
@@ -40,6 +55,7 @@ function RegisterContent() {
     email: "",
     password: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
@@ -119,29 +135,31 @@ function RegisterContent() {
 
           <form onSubmit={onSubmit} className="mt-7 flex flex-col gap-3.5">
             <div>
-              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>имя</div>
+              <label htmlFor="full_name" className="eyebrow mb-2" style={{ fontSize: 10, display: "block" }}>имя</label>
               <GlassInput
                 id="full_name"
                 placeholder="Михаил Кудрявцев"
                 value={form.full_name}
                 onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
                 required minLength={2} maxLength={120}
+                autoComplete="name"
               />
             </div>
 
             <div>
-              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>организация</div>
+              <label htmlFor="organization_name" className="eyebrow mb-2" style={{ fontSize: 10, display: "block" }}>организация</label>
               <GlassInput
                 id="organization_name"
                 placeholder="ООО «Кедр-Сибирь»"
                 value={form.organization_name}
                 onChange={(e) => setForm((p) => ({ ...p, organization_name: e.target.value }))}
                 required minLength={2} maxLength={120}
+                autoComplete="organization"
               />
             </div>
 
             <div>
-              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>email</div>
+              <label htmlFor="email" className="eyebrow mb-2" style={{ fontSize: 10, display: "block" }}>email</label>
               <GlassInput
                 id="email"
                 type="email"
@@ -149,20 +167,34 @@ function RegisterContent() {
                 value={form.email}
                 onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
                 required
+                autoComplete="email"
               />
             </div>
 
             <div>
-              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>пароль</div>
-              <GlassInput
-                id="password"
-                type="password"
-                placeholder="минимум 10 символов"
-                minLength={8} maxLength={128}
-                value={form.password}
-                onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
-                required
-              />
+              <label htmlFor="password" className="eyebrow mb-2" style={{ fontSize: 10, display: "block" }}>пароль</label>
+              <div className="relative">
+                <GlassInput
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="минимум 8 символов"
+                  minLength={8} maxLength={128}
+                  value={form.password}
+                  onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
+                  required
+                  autoComplete="new-password"
+                  style={{ paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
+                  aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                  tabIndex={-1}
+                >
+                  <EyeIcon open={showPassword} />
+                </button>
+              </div>
               {form.password.length > 0 && form.password.length < 8 && (
                 <p className="mt-1.5 mono" style={{ fontSize: 11, color: "var(--rose)" }}>
                   Минимум 8 символов ({8 - form.password.length} ещё)
@@ -175,7 +207,7 @@ function RegisterContent() {
               <label className="flex items-start gap-3 cursor-pointer">
                 <span
                   className={`cbox mt-[2px] ${acceptedTerms ? "checked" : ""}`}
-                  onClick={() => setAcceptedTerms((v) => !v)}
+                  aria-hidden="true"
                 >
                   {acceptedTerms && (
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
@@ -204,7 +236,7 @@ function RegisterContent() {
               <label className="flex items-start gap-3 cursor-pointer">
                 <span
                   className={`cbox mt-[2px] ${acceptedPrivacy ? "checked" : ""}`}
-                  onClick={() => setAcceptedPrivacy((v) => !v)}
+                  aria-hidden="true"
                 >
                   {acceptedPrivacy && (
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">

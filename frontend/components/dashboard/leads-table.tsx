@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyboardEvent, useMemo, useState } from "react";
+import React, { KeyboardEvent, useMemo, useState } from "react";
 import { ArrowDownUp, ExternalLink, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -222,7 +222,7 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
 
   return (
     <TableRow className="border-b border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.02]">
-      <TableCell colSpan={11} className="px-4 py-4 sm:px-8">
+      <TableCell colSpan={10} className="px-4 py-4 sm:px-8">
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Notes */}
           <div className="flex flex-col gap-1.5">
@@ -565,9 +565,8 @@ export function LeadsTable({
                 const statusDot = STATUS_DOTS[lead.status];
 
                 return (
-                  <>
+                  <React.Fragment key={lead.id}>
                     <TableRow
-                      key={lead.id}
                       data-state={isSelected ? "selected" : undefined}
                       className="cursor-pointer border-b border-white/[0.06] transition-colors duration-150 hover:bg-white/[0.04] data-[state=selected]:bg-white/[0.06]"
                       onClick={(e) => handleRowClick(lead.id, e)}
@@ -702,9 +701,9 @@ export function LeadsTable({
                       </TableCell>
                     </TableRow>
                     {isExpanded && (
-                      <NotesRow key={`${lead.id}-notes`} lead={lead} onLeadUpdate={onLeadUpdate} />
+                      <NotesRow lead={lead} onLeadUpdate={onLeadUpdate} />
                     )}
-                  </>
+                  </React.Fragment>
                 );
               })}
             </TableBody>

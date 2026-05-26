@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 import { getToken, getTokenExpirySeconds, setToken } from "@/lib/auth";
 
 const WARNING_BEFORE_EXPIRY_SEC = 5 * 60; // 5 minutes
@@ -11,6 +12,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 export function SessionWarning() {
   const warningShown = useRef(false);
   const refreshing = useRef(false);
+  const router = useRouter();
 
   useEffect(() => {
     const check = async () => {
@@ -23,9 +25,17 @@ export function SessionWarning() {
       const remaining = getTokenExpirySeconds();
       if (remaining === null) return;
 
-      // Token already expired
+      // Token already expired — redirect to login immediately
       if (remaining <= 0) {
         warningShown.current = false;
+        toast.error("Сессия истекла. Войдите снова.", {
+          duration: 5000,
+          action: {
+            label: "Войти",
+            onClick: () => router.push("/login"),
+          },
+        });
+        router.push("/login");
         return;
       }
 

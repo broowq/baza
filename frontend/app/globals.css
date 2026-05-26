@@ -746,6 +746,24 @@ table.lt tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
 }
 .input.mono { font-family: 'Geist Mono', monospace; }
 
+/* Keyboard focus rings (WCAG 2.4.7) — mint outline on custom interactive
+   primitives that previously had no :focus-visible indicator at all. */
+.brand:focus-visible,
+.ghost:focus-visible,
+.nav-link:focus-visible,
+.seg-btn:focus-visible,
+.btn:focus-visible,
+.btn-brand:focus-visible,
+.btn-ghost:focus-visible,
+.btn-icon:focus-visible,
+.nav-item:focus-visible,
+.seg-v3 button:focus-visible,
+.ptabs button:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
 .cbox {
   width: 16px; height: 16px; flex: none;
   border: 1px solid var(--line-3);

@@ -33,6 +33,18 @@ export function Navbar() {
     setMobileOpen(false);
   }, [pathname]);
 
+  // Body scroll-lock when mobile menu is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [mobileOpen]);
+
   if (isDashboardRoute) return null;
   // Landing renders its own custom v2 topnav inline.
   if (pathname === "/") return null;
@@ -96,7 +108,7 @@ export function Navbar() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <nav className="sm:hidden border-t border-slate-200/70 dark:border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
+        <nav className="sm:hidden z-50 border-t border-slate-200/70 dark:border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
           <Link href="/plans" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
             Тарифы
           </Link>

@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
@@ -20,7 +21,7 @@ function VerifyEmailContent() {
     }
     api<{ message: string }>("/auth/verify-email", {
       method: "POST",
-      body: JSON.stringify({ token })
+      body: JSON.stringify({ token }),
     })
       .then(() => {
         setStatus("success");
@@ -35,26 +36,66 @@ function VerifyEmailContent() {
   }, [token, router]);
 
   return (
-    <main className="mx-auto max-w-md px-6 py-16">
-      <section className="card space-y-3">
-        <h1 className="text-2xl font-bold">Подтверждение email</h1>
-        {status === "verifying" && (
-          <p className="text-sm text-slate-500">Проверяем токен подтверждения...</p>
-        )}
-        {status === "success" && (
-          <p className="text-sm text-green-600 dark:text-green-400">Email подтверждён! Перенаправляем на вход...</p>
-        )}
-        {status === "error" && (
-          <p className="text-sm text-red-600 dark:text-red-400">{errorMsg || "Не удалось подтвердить email."}</p>
-        )}
-      </section>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+      <div className="canvas-bg" />
+      <div className="grain" />
+
+      <div className="relative z-10 w-full max-w-[460px]">
+        <Link href="/" className="mb-10 flex items-center justify-center gap-2.5">
+          <span className="avatar" style={{ width: 32, height: 32, fontSize: 14, borderRadius: 9 }}>Б</span>
+          <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
+        </Link>
+
+        <div className="panel" style={{ padding: 40 }}>
+          <div className="eyebrow mb-3">подтверждение email</div>
+          <h2 className="h2">Проверяем адрес.</h2>
+
+          <div className="mt-7">
+            {status === "verifying" && (
+              <p className="caption">Проверяем токен подтверждения…</p>
+            )}
+            {status === "success" && (
+              <p className="caption" style={{ color: "var(--mint)" }}>
+                Email подтверждён! Перенаправляем на вход…
+              </p>
+            )}
+            {status === "error" && (
+              <div className="flex flex-col gap-4">
+                <div className="panel-flat px-3 py-2.5 text-[13px] t-72">
+                  {errorMsg || "Не удалось подтвердить email."}
+                </div>
+                <Link
+                  href="/login"
+                  className="btn btn-ghost w-full text-center"
+                  style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  Перейти ко входу
+                </Link>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-6 text-center mono-cap" style={{ fontSize: 10, letterSpacing: "0.12em", color: "var(--t-40)" }}>
+          © 2026 БАЗА · USEBAZA.RU · ХРАНЕНИЕ ДАННЫХ В РФ
+        </p>
+      </div>
     </main>
   );
 }
 
 export default function VerifyEmailPage() {
   return (
-    <Suspense fallback={<main className="mx-auto max-w-md px-6 py-16"><section className="card">Загрузка...</section></main>}>
+    <Suspense
+      fallback={
+        <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+          <div className="canvas-bg" />
+          <div className="panel p-7 w-full max-w-[460px] text-center t-48 text-[13px]">
+            Загрузка…
+          </div>
+        </main>
+      }
+    >
       <VerifyEmailContent />
     </Suspense>
   );

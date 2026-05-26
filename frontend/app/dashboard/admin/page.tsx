@@ -11,6 +11,16 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { useAuthGuard } from "@/lib/hooks";
 
@@ -55,6 +65,8 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<LogRow[]>([]);
   const [limits, setLimits] = useState<Record<string, { projects_limit: number; leads_limit_per_month: number }>>({});
   const [loading, setLoading] = useState(true);
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -89,11 +101,19 @@ export default function AdminPage() {
     await load();
   };
 
-  const deleteUser = async (userId: string, email: string) => {
-    if (!confirm(`Удалить пользователя ${email}?`)) return;
-    await api(`/admin/users/${userId}`, { method: "DELETE" });
-    toast.success("Пользователь удалён");
-    await load();
+  const confirmDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api(`/admin/users/${deleteTarget.id}`, { method: "DELETE" });
+      toast.success("Пользователь удалён");
+      setDeleteTarget(null);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось удалить пользователя");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const saveLimits = async (orgId: string) => {
@@ -219,7 +239,7 @@ export default function AdminPage() {
                             <Button size="sm" variant="ghost" onClick={() => toggleAdmin(u.id, u.is_admin)}>
                               {u.is_admin ? "Снять админа" : "Сделать админом"}
                             </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteUser(u.id, u.email)}>
+                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleteTarget(u)}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </Button>
                           </div>
@@ -346,6 +366,28 @@ export default function AdminPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Delete user confirmation dialog */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить пользователя?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Пользователь &laquo;{deleteTarget?.email}&raquo; будет удалён безвозвратно.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDeleteUser()}
+            >
+              {deleting ? "Удаляем..." : "Удалить"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   );
 }

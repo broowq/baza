@@ -9,6 +9,21 @@ import { api } from "@/lib/api";
 import { setOrgId, setToken } from "@/lib/auth";
 import type { Organization } from "@/lib/types";
 
+function EyeIcon({ open }: { open: boolean }) {
+  return open ? (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ) : (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
+      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  );
+}
+
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,6 +36,7 @@ function LoginContent() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -84,7 +100,7 @@ function LoginContent() {
 
           <form onSubmit={onSubmit} className="mt-7 flex flex-col gap-4">
             <div>
-              <div className="eyebrow mb-2" style={{ fontSize: 10 }}>email</div>
+              <label htmlFor="email" className="eyebrow mb-2" style={{ fontSize: 10, display: "block" }}>email</label>
               <input
                 id="email"
                 type="email"
@@ -92,26 +108,40 @@ function LoginContent() {
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@company.ru"
                 required
+                autoComplete="email"
                 className="input"
               />
             </div>
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <div className="eyebrow" style={{ fontSize: 10 }}>пароль</div>
+                <label htmlFor="password" className="eyebrow" style={{ fontSize: 10 }}>пароль</label>
                 <Link href="/forgot-password" className="mono-cap t-56 hover:text-white" style={{ fontSize: "10.5px" }}>
                   забыли пароль?
                 </Link>
               </div>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••"
-                required
-                className="input"
-              />
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••"
+                  required
+                  autoComplete="current-password"
+                  className="input"
+                  style={{ paddingRight: 40 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
+                  aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
+                  tabIndex={-1}
+                >
+                  <EyeIcon open={showPassword} />
+                </button>
+              </div>
             </div>
 
             <button

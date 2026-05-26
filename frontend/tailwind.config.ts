@@ -24,10 +24,6 @@ const config: Config = {
         light: "300",
       },
       colors: {
-        // Canvas tokens — see DESIGN.md §2
-        canvas: "hsl(var(--canvas))",
-        "canvas-raised": "hsl(var(--canvas-raised))",
-        fg: "hsl(var(--fg))",
         // Status palette
         "status-online": "#34D399",
         "status-offline": "#F43F5E",
@@ -116,6 +112,25 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        shimmer: {
+          from: { backgroundPosition: "200% center" },
+          to: { backgroundPosition: "-200% center" },
+        },
+        "aurora-1": {
+          "0%, 100%": { transform: "translate(0%, 0%) scale(1)" },
+          "33%": { transform: "translate(4%, -6%) scale(1.05)" },
+          "66%": { transform: "translate(-3%, 4%) scale(0.97)" },
+        },
+        "aurora-2": {
+          "0%, 100%": { transform: "translate(0%, 0%) scale(1)" },
+          "40%": { transform: "translate(-5%, 5%) scale(1.08)" },
+          "70%": { transform: "translate(4%, -3%) scale(0.95)" },
+        },
+        "aurora-3": {
+          "0%, 100%": { transform: "translate(0%, 0%) scale(1)" },
+          "25%": { transform: "translate(6%, 4%) scale(0.96)" },
+          "60%": { transform: "translate(-4%, -5%) scale(1.06)" },
+        },
       },
       animation: {
         "fade-in": "fade-in 300ms ease-out",
@@ -124,6 +139,10 @@ const config: Config = {
         "draw-line": "draw-line 800ms ease-out forwards",
         "accordion-down": "accordion-down 200ms ease-out",
         "accordion-up": "accordion-up 200ms ease-out",
+        shimmer: "shimmer 1.5s linear infinite",
+        "aurora-1": "aurora-1 12s ease-in-out infinite",
+        "aurora-2": "aurora-2 16s ease-in-out infinite",
+        "aurora-3": "aurora-3 20s ease-in-out infinite",
       },
     },
   },

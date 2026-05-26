@@ -17,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Loader } from "@/components/ui/loader";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, apiFetch } from "@/lib/api";
 import { getOrgId, getToken } from "@/lib/auth";
 import { useDebounce } from "@/lib/hooks";
@@ -51,7 +52,7 @@ export default function ProjectDetailsPage() {
   const [running, setRunning] = useState(false);
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [stats, setStats] = useState({ total: 0, enriched: 0, withEmail: 0, avgScore: 0 });
-  const [activeTab, setActiveTab] = useState<string | null>("leads");
+  const [activeTab, setActiveTab] = useState<string>("leads");
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLElement>(null);
@@ -206,7 +207,7 @@ export default function ProjectDetailsPage() {
   };
 
   if (loading) {
-    return <main className="mx-auto max-w-7xl px-6 py-10"><Loader /></main>;
+    return <main className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 lg:px-10"><Loader /></main>;
   }
 
   const canManage = orgRole === "owner" || orgRole === "admin";
@@ -257,19 +258,29 @@ export default function ProjectDetailsPage() {
           </div>
 
           <div className="flex items-start gap-2 pt-2">
-            <button className="btn-icon" aria-label="избранное">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <path d="M12 17.3l-5.5 3 1-6.2L3 9.6l6.3-.9L12 3l2.7 5.7 6.3.9-4.5 4.5 1 6.2z" />
-              </svg>
-            </button>
-            <button className="btn-icon" aria-label="поделиться">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <circle cx="18" cy="5" r="3" />
-                <circle cx="6" cy="12" r="3" />
-                <circle cx="18" cy="19" r="3" />
-                <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
-              </svg>
-            </button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<button disabled aria-label="избранное" className="btn-icon cursor-not-allowed opacity-50" />}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M12 17.3l-5.5 3 1-6.2L3 9.6l6.3-.9L12 3l2.7 5.7 6.3.9-4.5 4.5 1 6.2z" />
+                  </svg>
+                </TooltipTrigger>
+                <TooltipContent>Скоро</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger render={<button disabled aria-label="поделиться" className="btn-icon cursor-not-allowed opacity-50" />}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <circle cx="18" cy="5" r="3" />
+                    <circle cx="6" cy="12" r="3" />
+                    <circle cx="18" cy="19" r="3" />
+                    <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
+                  </svg>
+                </TooltipTrigger>
+                <TooltipContent>Скоро</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         </div>
 
@@ -360,7 +371,7 @@ export default function ProjectDetailsPage() {
       <Separator />
 
       {/* Tabs */}
-      <Tabs defaultValue="leads" value={activeTab} onValueChange={setActiveTab}>
+      <Tabs defaultValue="leads" value={activeTab} onValueChange={(v) => setActiveTab(v ?? "leads")}>
         <div className="flex items-center justify-between gap-4 overflow-x-auto">
           <TabsList className="shrink-0">
             <TabsTrigger value="leads" className="font-medium">Лиды</TabsTrigger>

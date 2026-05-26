@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useCallback } from "react";
 import { Plus, ChevronRight, Trash2, Pencil, Sparkles, Search, Wand2, Loader2 } from "lucide-react";
 
 import { VoiceInput } from "@/components/voice-input";
@@ -80,8 +80,10 @@ export default function DashboardPage() {
   const [enhancing, setEnhancing] = useState(false);
   const [enhanced, setEnhanced] = useState<PromptEnhanceResponse | null>(null);
   const [formStep, setFormStep] = useState<"prompt" | "review">("prompt");
+  const [error, setError] = useState<string | null>(null);
 
-  const bootstrap = async () => {
+  const bootstrap = useCallback(async () => {
+    setError(null);
     try {
       // Critical calls: /auth/me determines session validity. If it throws an
       // auth error after refresh-retry inside api(), redirect to login rather
@@ -125,14 +127,15 @@ export default function DashboardPage() {
           }
         }
       }
-    } catch {
-      // Silently handle
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Не удалось загрузить данные";
+      setError(msg);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { if (authed) void bootstrap(); }, [authed]);
+  useEffect(() => { if (authed) void bootstrap(); }, [authed, bootstrap]);
 
   const refreshProjects = async () => {
     const prs = await api<Project[]>("/projects");
@@ -249,6 +252,22 @@ export default function DashboardPage() {
     );
   }
 
+  if (error) {
+    return (
+      <main className="mx-auto max-w-4xl px-6 py-14">
+        <div className="panel p-8 text-center space-y-4">
+          <p className="t-72 text-sm">{error}</p>
+          <button
+            className="btn btn-brand"
+            onClick={() => { setLoading(true); void bootstrap(); }}
+          >
+            Повторить
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   const canManage = orgRole === "owner" || orgRole === "admin";
   const usagePercent = org ? Math.min(100, Math.round(((org.leads_used_current_month ?? 0) / (org.leads_limit_per_month || 1)) * 100)) : 0;
 
@@ -279,12 +298,10 @@ export default function DashboardPage() {
             <div className="eyebrow mb-3">workspace</div>
             <div className="flex items-center gap-3 flex-wrap">
               {organizations.length > 1 ? (
-                <select
-                  className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[26px] font-light tracking-tight text-white outline-none focus:border-white/[0.24]"
+                <Select
                   value={org?.id ?? ""}
                   disabled={switchingOrg}
-                  onChange={async (e) => {
-                    const val = e.target.value;
+                  onValueChange={async (val) => {
                     if (!val) return;
                     const selected = organizations.find((item) => item.id === val);
                     if (!selected || switchingOrg) return;
@@ -300,10 +317,15 @@ export default function DashboardPage() {
                     }
                   }}
                 >
-                  {organizations.map((item) => (
-                    <option key={item.id} value={item.id} className="bg-[var(--bg-2)]">{item.name}</option>
-                  ))}
-                </select>
+                  <SelectTrigger className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[26px] font-light tracking-tight text-white outline-none focus:border-white/[0.24] h-auto">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {organizations.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               ) : (
                 <h2 className="h2">{org?.name ?? "Организация"}</h2>
               )}
@@ -316,11 +338,11 @@ export default function DashboardPage() {
               <span className="chip">{roleLabel[orgRole] ?? orgRole}</span>
             </div>
             <div className="mono-cap mt-3 flex items-center flex-wrap" style={{ gap: "0 4px" }}>
-              <span>{projects.length} {projects.length === 1 ? "проект" : "проектов"}</span>
+              <span>{projects.length} {(new Intl.PluralRules("ru").select(projects.length) === "one" ? "проект" : new Intl.PluralRules("ru").select(projects.length) === "few" ? "проекта" : "проектов")}</span>
               <span className="sep-dot mx-2" />
               <span>{org?.users_limit ? `${org.users_limit} мест` : "—"}</span>
               <span className="sep-dot mx-2" />
-              <span>ru-RU · UTC+7</span>
+              <span>ru-RU · {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
             </div>
           </div>
 
@@ -345,7 +367,7 @@ export default function DashboardPage() {
 
       {/* Quota warning */}
       {usagePercent >= 80 && (
-        <div className={`rounded-2xl p-4 flex items-center justify-between ${usagePercent >= 100 ? "panel-flat" : "panel-flat"}`}
+        <div className="rounded-2xl p-4 flex items-center justify-between panel-flat"
              style={usagePercent >= 100 ? { borderColor: "rgba(244,63,94,0.18)", background: "rgba(40,28,28,0.65)" } : { borderColor: "rgba(251,191,36,0.18)", background: "rgba(40,32,18,0.55)" }}>
           <p className="text-sm t-84">
             {usagePercent >= 100
