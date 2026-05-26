@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 
 const COOKIE_CONSENT_KEY = "baza_cookie_consent";
@@ -10,6 +10,7 @@ const COOKIE_CONSENT_KEY = "baza_cookie_consent";
 export function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
+  const shouldReduce = useReducedMotion();
 
   useEffect(() => {
     const consent = localStorage.getItem(COOKIE_CONSENT_KEY);
@@ -33,9 +34,9 @@ export function CookieConsent() {
     <AnimatePresence onExitComplete={handleExitComplete}>
       {!exiting && (
         <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 24 }}
+          initial={shouldReduce ? { opacity: 0 } : { opacity: 0, y: 24 }}
+          animate={shouldReduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+          exit={shouldReduce ? { opacity: 0 } : { opacity: 0, y: 24 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
           className="fixed bottom-4 left-4 right-4 sm:left-auto z-50 max-w-[calc(100vw-2rem)] sm:max-w-md rounded-2xl border border-border/50 bg-background/90 p-4 shadow-lg backdrop-blur-lg"
         >

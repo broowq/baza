@@ -214,7 +214,7 @@ function TopNav() {
             <span className="dot dot-em" />
             все системы стабильны
           </span>
-          {authed ? (
+          {authed === null ? null : authed ? (
             <Link
               href="/dashboard"
               className="brand rounded-full px-4 py-1.5 text-[12.5px]"
@@ -439,7 +439,7 @@ function HeroSection() {
                 <SplitLetters text="созревают" startIndex={14} />
               </span>
               <br />
-              <SplitLetters text="до того, как вы их откроете." startIndex={24} />
+              <SplitLetters text="до того, как вы их откроете." startIndex={23} />
             </h1>
             <p
               className="mt-7 max-w-[640px] text-[17px] t-72 leading-[1.5] light reveal"
@@ -467,6 +467,7 @@ function HeroSection() {
               </Magnetic>
               <Magnetic strength={10}>
                 <a
+                  href="#product"
                   className="ghost rounded-full px-5 py-2.5 text-[13.5px] flex items-center gap-2 cursor-pointer"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
@@ -1186,6 +1187,14 @@ function BubbleChart() {
   const medY = [...BUBBLE_DATA].map((d) => d.leads).sort((a, b) => a - b)[Math.floor(BUBBLE_DATA.length / 2)];
 
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduceMotion(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReduceMotion(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 
   return (
     <div className={"bubble-wrap" + (hoverIdx !== null ? " has-hover" : "")}>
@@ -1250,8 +1259,8 @@ function BubbleChart() {
                   <>
                     <circle cx={cx} cy={cy} r={r + 10} fill="url(#b-glow)" opacity="0.7" />
                     <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke="var(--mint)" strokeOpacity="0.4" strokeWidth="0.7">
-                      <animate attributeName="r" values={`${r + 2};${r + 12};${r + 2}`} dur="2.8s" repeatCount="indefinite" />
-                      <animate attributeName="stroke-opacity" values="0.5;0;0.5" dur="2.8s" repeatCount="indefinite" />
+                      {!reduceMotion && <animate attributeName="r" values={`${r + 2};${r + 12};${r + 2}`} dur="2.8s" repeatCount="indefinite" />}
+                      {!reduceMotion && <animate attributeName="stroke-opacity" values="0.5;0;0.5" dur="2.8s" repeatCount="indefinite" />}
                     </circle>
                   </>
                 )}
@@ -1505,7 +1514,7 @@ function CtaSection() {
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>
             </Link>
-            <a className="ghost rounded-full px-6 py-3 text-[14px] cursor-pointer">Связаться с командой</a>
+            <a href="mailto:support@usebaza.ru" className="ghost rounded-full px-6 py-3 text-[14px] cursor-pointer">Связаться с командой</a>
           </div>
         </div>
       </div>

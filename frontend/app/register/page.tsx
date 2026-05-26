@@ -190,7 +190,6 @@ function RegisterContent() {
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
                   aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
-                  tabIndex={-1}
                 >
                   <EyeIcon open={showPassword} />
                 </button>
@@ -219,7 +218,6 @@ function RegisterContent() {
                   type="checkbox"
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
-                  required
                   className="sr-only"
                 />
                 <span className="text-[12.5px] t-72">
@@ -248,7 +246,6 @@ function RegisterContent() {
                   type="checkbox"
                   checked={acceptedPrivacy}
                   onChange={(e) => setAcceptedPrivacy(e.target.checked)}
-                  required
                   className="sr-only"
                 />
                 <span className="text-[12.5px] t-72">

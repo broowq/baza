@@ -29,6 +29,7 @@ function ResetPasswordContent() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [done, setDone] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -39,6 +40,7 @@ function ResetPasswordContent() {
         body: JSON.stringify({ token, new_password: password }),
       });
       toast.success("Пароль обновлён, войдите с новым паролем");
+      setDone(true);
       setPassword("");
       setTimeout(() => router.push("/login"), 2000);
     } catch (error) {
@@ -100,7 +102,6 @@ function ResetPasswordContent() {
                     onClick={() => setShowPassword((v) => !v)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
                     aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
-                    tabIndex={-1}
                   >
                     <EyeIcon open={showPassword} />
                   </button>
@@ -109,7 +110,7 @@ function ResetPasswordContent() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || done || !token}
                 className="btn btn-brand w-full mt-2"
                 style={{ height: 44 }}
               >

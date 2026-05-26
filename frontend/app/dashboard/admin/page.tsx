@@ -96,9 +96,13 @@ export default function AdminPage() {
   if (loading || !authed) return <main className="mx-auto max-w-6xl px-6 py-12"><p className="text-muted-foreground">Загрузка...</p></main>;
 
   const toggleAdmin = async (userId: string, current: boolean) => {
-    await api(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify({ is_admin: !current }) });
-    toast.success(!current ? "Назначен администратором" : "Снят с администратора");
-    await load();
+    try {
+      await api(`/admin/users/${userId}`, { method: "PATCH", body: JSON.stringify({ is_admin: !current }) });
+      toast.success(!current ? "Назначен администратором" : "Снят с администратора");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить роль");
+    }
   };
 
   const confirmDeleteUser = async () => {
@@ -117,16 +121,24 @@ export default function AdminPage() {
   };
 
   const saveLimits = async (orgId: string) => {
-    await api(`/admin/organizations/${orgId}/limits`, { method: "PATCH", body: JSON.stringify(limits[orgId]) });
-    toast.success("Лимиты обновлены");
-    await load();
+    try {
+      await api(`/admin/organizations/${orgId}/limits`, { method: "PATCH", body: JSON.stringify(limits[orgId]) });
+      toast.success("Лимиты обновлены");
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось сохранить лимиты");
+    }
   };
 
   const changePlan = async (orgId: string, plan: string | null) => {
     if (!plan) return;
-    await api(`/admin/organizations/${orgId}/plan`, { method: "PATCH", body: JSON.stringify({ plan }) });
-    toast.success(`Тариф изменён на ${plan}`);
-    await load();
+    try {
+      await api(`/admin/organizations/${orgId}/plan`, { method: "PATCH", body: JSON.stringify({ plan }) });
+      toast.success(`Тариф изменён на ${plan}`);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить тариф");
+    }
   };
 
   return (

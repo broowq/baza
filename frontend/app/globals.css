@@ -1083,7 +1083,6 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
   filter: blur(6px);
   animation: letterIn 1.0s cubic-bezier(.2, .7, .15, 1) forwards;
   animation-delay: calc(var(--letter-index, 0) * 28ms);
-  will-change: opacity, transform, filter;
 }
 /* Words stay intact (inline-block, no internal break); the headline wraps
    only at the real spaces between words. Keeps letter animation while
@@ -1148,6 +1147,24 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
 }
 @media (prefers-reduced-motion: reduce) {
   .clip-reveal { clip-path: none !important; -webkit-clip-path: none !important; }
+}
+
+/* Reduced-motion: disable the remaining JS-triggered / infinite landing
+   animations the audit flagged (caret blink, live status dot, hero feed,
+   number/tag flashes). */
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; }
+  .status-dot[data-state="online"] { animation: none; }
+  .hero-feed .feed-row { animation: none; opacity: 1; transform: none; }
+  .hero-bignum.flash { animation: none; }
+  .ptag.lit.flash { animation: none; }
+}
+
+/* Bubble-chart legend swatch — referenced in markup but never defined,
+   so the size legend rendered as blank gaps. */
+.bub-dot {
+  display: inline-block; border-radius: 50%;
+  background: rgba(168, 197, 192, 0.55); flex: none;
 }
 
 /* Custom cursor removed by request — native cursor restored. */

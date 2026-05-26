@@ -165,7 +165,7 @@ export function Sidebar() {
               {org.plan}
             </span>
           )}
-          <svg className="car shrink-0" viewBox="0 0 24 24">
+          <svg className="car shrink-0" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M8 10l4 4 4-4" />
           </svg>
         </div>

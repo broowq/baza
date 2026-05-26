@@ -74,7 +74,7 @@ export function SessionWarning() {
     void check();
     const interval = setInterval(() => void check(), CHECK_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, []);
+  }, [router]);
 
   return null; // Invisible component, communicates via toasts
 }

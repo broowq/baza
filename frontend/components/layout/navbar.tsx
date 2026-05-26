@@ -51,13 +51,13 @@ export function Navbar() {
   // /plans renders its own sidebar layout when user is logged in.
   if (pathname?.startsWith("/plans") && mounted && authed) return null;
 
-  const navLinkClass = "rounded-lg px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]";
+  const navLinkClass = "rounded-lg px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]";
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/80 backdrop-blur-xl dark:border-white/[0.06] dark:bg-[#0a0a12]/80">
+    <header className="sticky top-0 z-20 border-b border-white/[0.06] bg-[#0a0a12]/80 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 py-4">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#191C1F] text-xs font-bold text-white dark:bg-white dark:text-[#191C1F]">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-[#191C1F]">
             Б
           </div>
           <span className="text-xl font-bold tracking-tight">БАЗА</span>
@@ -100,7 +100,7 @@ export function Navbar() {
 
         {/* Mobile hamburger */}
         <div className="flex sm:hidden items-center gap-1">
-          <Button variant="ghost" onClick={() => setMobileOpen((v) => !v)} className="h-9 w-9 p-0" aria-label="Меню">
+          <Button variant="ghost" onClick={() => setMobileOpen((v) => !v)} className="h-9 w-9 p-0" aria-label="Меню" aria-expanded={mobileOpen} aria-controls="mobile-nav">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </Button>
         </div>
@@ -108,17 +108,17 @@ export function Navbar() {
 
       {/* Mobile menu */}
       {mobileOpen && (
-        <nav className="sm:hidden z-50 border-t border-slate-200/70 dark:border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
-          <Link href="/plans" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+        <nav id="mobile-nav" className="sm:hidden z-50 border-t border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
+          <Link href="/plans" className="block rounded-lg px-3 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]">
             Тарифы
           </Link>
           {mounted && authed ? (
             <>
-              <Link href="/dashboard" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+              <Link href="/dashboard" className="block rounded-lg px-3 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]">
                 Дашборд
               </Link>
               <button
-                className="block w-full text-left rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]"
+                className="block w-full text-left rounded-lg px-3 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]"
                 onClick={async () => {
                   try {
                     await api("/auth/logout", { method: "POST", body: JSON.stringify({}) });
@@ -132,10 +132,10 @@ export function Navbar() {
             </>
           ) : (
             <>
-              <Link href="/login" className="block rounded-lg px-3 py-2.5 text-sm text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/[0.06]">
+              <Link href="/login" className="block rounded-lg px-3 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]">
                 Войти
               </Link>
-              <Link href="/register" className="block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-slate-100 dark:hover:bg-white/[0.06]">
+              <Link href="/register" className="block rounded-lg px-3 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.06]">
                 Попробовать
               </Link>
             </>

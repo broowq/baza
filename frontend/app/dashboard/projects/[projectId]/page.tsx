@@ -49,13 +49,14 @@ export default function ProjectDetailsPage() {
   const [perPage] = useState(25);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [stats, setStats] = useState({ total: 0, enriched: 0, withEmail: 0, avgScore: 0 });
   const [activeTab, setActiveTab] = useState<string>("leads");
 
   const debouncedSearch = useDebounce(search, 400);
-  const leadsTableRef = useRef<HTMLElement>(null);
+  const leadsTableRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = useCallback(async () => {
     try {
@@ -94,7 +95,7 @@ export default function ProjectDetailsPage() {
         window.location.href = "/login";
         return;
       }
-      toast.error(msg || "Не удалось загрузить проект");
+      setError(msg || "Не удалось загрузить проект");
     } finally {
       setLoading(false);
     }
@@ -208,6 +209,22 @@ export default function ProjectDetailsPage() {
 
   if (loading) {
     return <main className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 lg:px-10"><Loader /></main>;
+  }
+
+  if (error) {
+    return (
+      <main className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 lg:px-10">
+        <div className="panel p-8 text-center space-y-4">
+          <p className="t-72 text-sm">{error}</p>
+          <button
+            className="btn btn-brand"
+            onClick={() => { setError(null); setLoading(true); void fetchAll(); }}
+          >
+            Повторить
+          </button>
+        </div>
+      </main>
+    );
   }
 
   const canManage = orgRole === "owner" || orgRole === "admin";
@@ -385,7 +402,7 @@ export default function ProjectDetailsPage() {
         </div>
 
         <TabsContent value="leads" className="overflow-hidden">
-          <div ref={leadsTableRef as React.RefObject<HTMLDivElement>} className="space-y-4 min-w-0">
+          <div ref={leadsTableRef} className="space-y-4 min-w-0">
             {/* Filters bar */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 p-3 [&>*]:w-full [&>*]:sm:w-auto">
               <Input

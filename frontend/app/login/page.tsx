@@ -115,7 +115,7 @@ function LoginContent() {
 
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label htmlFor="password" className="eyebrow" style={{ fontSize: 10 }}>пароль</label>
+                <label htmlFor="password" className="eyebrow" style={{ fontSize: 10, display: "block" }}>пароль</label>
                 <Link href="/forgot-password" className="mono-cap t-56 hover:text-white" style={{ fontSize: "10.5px" }}>
                   забыли пароль?
                 </Link>
@@ -137,7 +137,6 @@ function LoginContent() {
                   onClick={() => setShowPassword((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
                   aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
-                  tabIndex={-1}
                 >
                   <EyeIcon open={showPassword} />
                 </button>
