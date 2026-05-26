@@ -150,8 +150,13 @@ function useCountUp<T extends HTMLElement>(target: number, opts?: { thin?: boole
 
 /** Live ticking clock in the corner-meta. */
 function useLiveClock() {
-  const [s, setS] = useState(() => formatClock(new Date()));
+  // Start null so SSR and the first client render produce identical markup.
+  // Rendering a live `new Date()` during SSR caused a document-level hydration
+  // mismatch (server time ≠ client time) → React threw away the server HTML and
+  // re-rendered the whole page = the load-time flash. Fill in only after mount.
+  const [s, setS] = useState<string | null>(null);
   useEffect(() => {
+    setS(formatClock(new Date()));
     const id = setInterval(() => setS(formatClock(new Date())), 1000);
     return () => clearInterval(id);
   }, []);
@@ -1018,7 +1023,12 @@ function Heatmap({ src }: { src: { name: string; curve: number[] }; row?: boolea
     <>
       <div className="hm-label">{src.name}</div>
       {src.curve.map((v, i) => {
-        const a = Math.max(0.04, Math.min(0.92, v + (Math.random() - 0.5) * 0.08)).toFixed(3);
+        // Deterministic jitter seeded by (i, v) so SSR and client compute the
+        // SAME value — kills the hydration mismatch + repaint flicker that
+        // Math.random() caused on every re-render.
+        const seed = Math.sin((i + 1) * 12.9898 + v * 78.233) * 43758.5453;
+        const rnd = seed - Math.floor(seed);
+        const a = Math.max(0.04, Math.min(0.92, v + (rnd - 0.5) * 0.08)).toFixed(3);
         return <div key={i} className="hm-cell" style={{ ["--a" as never]: a }} />;
       })}
     </>

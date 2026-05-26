@@ -1,9 +1,11 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { ReactNode } from "react";
 
 export function PageTransition({ children, className }: { children: ReactNode; className?: string }) {
+  const shouldReduce = useReducedMotion();
+  if (shouldReduce) return <div className={className}>{children}</div>;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -30,6 +32,8 @@ export function StaggerContainer({ children, className }: { children: ReactNode;
 }
 
 export function StaggerItem({ children, className }: { children: ReactNode; className?: string }) {
+  const shouldReduce = useReducedMotion();
+  if (shouldReduce) return <div className={className}>{children}</div>;
   return (
     <motion.div
       variants={{

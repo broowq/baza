@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { motion, useInView } from "framer-motion";
+import { motion, useInView, useReducedMotion } from "framer-motion";
 
 interface ScrollRevealProps {
   children: React.ReactNode;
@@ -18,11 +18,16 @@ export function ScrollReveal({
   direction = "up",
   duration = 0.6
 }: ScrollRevealProps) {
-  const ref = useRef(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const shouldReduce = useReducedMotion();
   const isInView = useInView(ref, { once: true, margin: "-80px" });
 
   const axis = direction === "left" || direction === "right" ? "x" : "y";
   const value = direction === "right" || direction === "down" ? 40 : -40;
+
+  if (shouldReduce) {
+    return <div ref={ref} className={className}>{children}</div>;
+  }
 
   return (
     <motion.div
@@ -66,6 +71,8 @@ export function StaggerContainer({
 }
 
 export function StaggerItem({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const shouldReduce = useReducedMotion();
+  if (shouldReduce) return <div className={className}>{children}</div>;
   return (
     <motion.div
       variants={{

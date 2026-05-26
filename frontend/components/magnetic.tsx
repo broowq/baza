@@ -37,6 +37,9 @@ export function Magnetic({
     let targetY = 0;
     let currentX = 0;
     let currentY = 0;
+    // Cache geometry — reading getBoundingClientRect on every pointermove forces
+    // a synchronous layout flush ~60×/s. Refresh only on enter and resize.
+    let rect = el.getBoundingClientRect();
 
     const lerp = (a: number, b: number, n: number) => a + (b - a) * n;
 
@@ -49,8 +52,9 @@ export function Magnetic({
       }
     };
 
+    const onEnter = () => { rect = el.getBoundingClientRect(); };
+
     const onMove = (e: PointerEvent) => {
-      const rect = el.getBoundingClientRect();
       const cx = rect.left + rect.width / 2;
       const cy = rect.top + rect.height / 2;
       // Normalise to [-1..1] relative to center, then clamp to ±strength px.
@@ -69,11 +73,17 @@ export function Magnetic({
       frame = requestAnimationFrame(animate);
     };
 
+    const onResize = () => { rect = el.getBoundingClientRect(); };
+
+    el.addEventListener("pointerenter", onEnter);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerleave", onLeave);
+    window.addEventListener("resize", onResize, { passive: true });
     return () => {
+      el.removeEventListener("pointerenter", onEnter);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerleave", onLeave);
+      window.removeEventListener("resize", onResize);
       cancelAnimationFrame(frame);
     };
   }, [strength]);
