@@ -499,8 +499,21 @@ def delete_my_account(
         if len(owners) == 1 and owners[0].user_id == user.id:
             orgs_to_delete.append(org)
 
+    # Non-cascaded children: action_logs + subscriptions have a FK to
+    # organizations but no ORM cascade, so deleting the org raised a
+    # ForeignKeyViolation. (leads + collection_jobs DO cascade via Project.)
+    # Also clear this user's action_logs so deleting the user row can't violate
+    # action_logs.user_id FK in any organization that survives (multi-org case).
+    from sqlalchemy import delete as _sa_delete
+    from app.models.entities import ActionLog as _ActionLog, Subscription as _Subscription
+
     for org in orgs_to_delete:
-        db.delete(org)  # cascade: memberships, projects, leads, invites
+        db.execute(_sa_delete(_ActionLog).where(_ActionLog.organization_id == org.id))
+        db.execute(_sa_delete(_Subscription).where(_Subscription.organization_id == org.id))
+    db.execute(_sa_delete(_ActionLog).where(_ActionLog.user_id == user.id))
+
+    for org in orgs_to_delete:
+        db.delete(org)  # cascade: memberships, projects, leads, jobs, invites
 
     db.delete(user)
     db.commit()
