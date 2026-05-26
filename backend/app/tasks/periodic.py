@@ -222,7 +222,7 @@ def purge_old_leads() -> None:
             result = db.execute(
                 delete(Lead)
                 .where(Lead.organization_id == org.id)
-                .where(Lead.updated_at < cutoff)
+                .where(Lead.created_at < cutoff)
             )
             if result.rowcount:
                 logger.info(

@@ -342,7 +342,7 @@ def export_my_data(
     Throttle: 1 запрос / 60 секунд (Redis SETNX). Защита от использования
     эндпойнта как утечкоканала компрометированного токена.
     """
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timezone
 
     # Throttle
     throttle_key = f"sar_export:{user.id}"
