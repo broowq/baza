@@ -53,7 +53,11 @@ export default function PrivacyPage() {
             юридический адрес: 630007, г. Новосибирск, ул. Коммунистическая,
             влд. 6, оф. 205. Оператор осуществляет деятельность по адресу
             usebaza.ru. Контактный адрес оператора по вопросам обработки
-            ПД:{" "}
+            ПД (зарегистрирован в реестре операторов Роскомнадзора):{" "}
+            <a href="mailto:altay-gost@mail.ru" className="text-white underline underline-offset-2">
+              altay-gost@mail.ru
+            </a>
+            . Для оперативной связи и технической поддержки:{" "}
             <a href="mailto:support@usebaza.ru" className="text-white underline underline-offset-2">
               support@usebaza.ru
             </a>.
@@ -239,6 +243,10 @@ export default function PrivacyPage() {
               «Настройки» → «Конфиденциальность»
             </Link>
             . Также субъект может направить письменное обращение по адресу{" "}
+            <a href="mailto:altay-gost@mail.ru" className="text-white underline underline-offset-2">
+              altay-gost@mail.ru
+            </a>{" "}
+            (адрес оператора в реестре Роскомнадзора) или{" "}
             <a href="mailto:support@usebaza.ru" className="text-white underline underline-offset-2">
               support@usebaza.ru
             </a>{" "}
