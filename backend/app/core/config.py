@@ -37,6 +37,23 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_public_key: str = ""
     stripe_webhook_secret: str = ""
+    # ── ЮKassa (РФ-провайдер платежей) ─────────────────────────────────
+    # shop_id и секретный ключ из ЛК ЮKassa → Настройки → API.
+    # Секретный ключ — в .env на сервере, в репо НЕ коммитим.
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
+    # Чек 54-ФЗ (фискализация). По умолчанию включены, конфигурируется под
+    # систему налогообложения ООО «ПРО ЛЕС»:
+    #   tax_system_code = 2  → УСН доходы
+    #   vat_code        = 7  → НДС 5% (специальная ставка УСН по ФЗ-176/2024,
+    #                                  действует с 01.01.2025)
+    yookassa_receipts_enabled: bool = True
+    yookassa_tax_system_code: int = 2
+    yookassa_vat_code: int = 7
+    # Проверка IP вебхука по списку ЮKassa (docs.yookassa.ru/developers/
+    # using-api/webhooks). Дополнительно к этому, обработчик в любом случае
+    # перезапрашивает платёж по id → подделать webhook нельзя.
+    yookassa_verify_ip: bool = True
     scoring_weights_json: str = (
         '{"base":35,"domain":10,"email":20,"phone":10,"address":8,'
         '"no_contacts_penalty":-12,"demo_penalty":-20,"aggregator_penalty":-25,"keyword_bonus":12}'

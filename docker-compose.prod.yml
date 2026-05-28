@@ -91,6 +91,15 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      # ── ЮKassa (РФ-провайдер платежей) ───────────────────────────
+      # Значения берутся из /opt/baza/.env на сервере. shop_id — публичный,
+      # secret_key — НЕ КОММИТИТЬ. Получить в ЛК ЮKassa → API.
+      YOOKASSA_SHOP_ID: ${YOOKASSA_SHOP_ID:-}
+      YOOKASSA_SECRET_KEY: ${YOOKASSA_SECRET_KEY:-}
+      YOOKASSA_RECEIPTS_ENABLED: ${YOOKASSA_RECEIPTS_ENABLED:-true}
+      YOOKASSA_TAX_SYSTEM_CODE: ${YOOKASSA_TAX_SYSTEM_CODE:-2}
+      YOOKASSA_VAT_CODE: ${YOOKASSA_VAT_CODE:-7}
+      YOOKASSA_VERIFY_IP: ${YOOKASSA_VERIFY_IP:-true}
       LOG_LEVEL: INFO
       LOG_FILE: logs/app.log
     command: >

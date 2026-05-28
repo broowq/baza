@@ -68,17 +68,21 @@ export default function PlansPage() {
   }, []);
 
   const startCheckout = async (plan: string) => {
+    if (!isLoggedIn) {
+      toast.info("Войдите в аккаунт, чтобы оплатить тариф");
+      return;
+    }
     try {
       setRunningPlan(plan);
       const response = await api<{ checkout_url: string; message: string }>("/billing/checkout", {
         method: "POST",
         body: JSON.stringify({ plan }),
       });
-      toast.success(response.message);
-      window.open(response.checkout_url, "_blank", "noopener,noreferrer");
+      if (response.message) toast.success(response.message);
+      // Same-tab redirect → ЮKassa возвращает на /billing/return после оплаты.
+      window.location.assign(response.checkout_url);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось создать checkout");
-    } finally {
       setRunningPlan(null);
     }
   };
@@ -231,7 +235,7 @@ export default function PlansPage() {
           <p className="text-[13px] t-72">
             Нужен индивидуальный тариф?{" "}
             <Link
-              href="mailto:hello@usebaza.ru"
+              href="mailto:support@usebaza.ru"
               className="text-white underline underline-offset-4 hover:t-72 transition-colors"
             >
               Напишите нам

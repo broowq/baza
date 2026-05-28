@@ -33,7 +33,10 @@ def list_plans():
             "searches_per_month": PLAN_LIMITS[plan]["searches"],
             "can_invite_members": PLAN_LIMITS[plan]["can_invite"],
             "price_monthly_rub": PLAN_PRICES_RUB.get(plan.value, 0),
-            "payment_provider": "stripe_stub" if settings.app_env == "development" else "unconfigured",
+            "payment_provider": (
+                "yookassa" if settings.yookassa_shop_id and settings.yookassa_secret_key
+                else ("stripe_stub" if settings.app_env == "development" else "unconfigured")
+            ),
         }
         for plan in [PlanType.starter, PlanType.pro, PlanType.team]
     ]
