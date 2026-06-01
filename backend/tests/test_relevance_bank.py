@@ -278,8 +278,8 @@ CASES: list[RelevanceCase] = [
         category="geo",
     ),
     RelevanceCase(
-        case_id="geo_wrong_city_searxng_minus30",
-        description="SearXNG, город не совпадает — -30",
+        case_id="geo_wrong_city_searxng_dropped",
+        description="SearXNG, город из другого региона (Владивосток vs Москва) — дисквалификация",
         item=_item(
             source="searxng", domain="vladivostok-ferma.ru",
             company="Ферма Владивосток",
@@ -289,12 +289,15 @@ CASES: list[RelevanceCase] = [
             city="Владивосток",
         ),
         niche="сельское хозяйство", geography="Москва",
-        min_expected=-60, max_expected=30,
+        # Владивосток→Приморский край ≠ Москва→Московская область. Hard geo
+        # guard drops it: a wrong-region company has no business in a
+        # region-scoped project, however complete its contact card.
+        min_expected=-1000, max_expected=-999,
         category="geo",
     ),
     RelevanceCase(
-        case_id="geo_wrong_city_maps_minus3_only",
-        description="Maps, wrong city — только -3 (bbox уже ограничил географию)",
+        case_id="geo_wrong_city_maps_dropped",
+        description="Maps, город из другого региона — тоже дисквалификация (bbox не гарантия)",
         item=_item(
             source="yandex_maps", company="Ферма Владивосток",
             address="Владивосток, ул. Морская, 5",
@@ -302,7 +305,11 @@ CASES: list[RelevanceCase] = [
             city="Владивосток",
         ),
         niche="сельское хозяйство", geography="Москва",
-        min_expected=50, max_expected=130,
+        # Previously softened to -3 on the assumption that a maps bbox already
+        # constrained geography. But the nationwide fan-out fed Владивосток
+        # results into Москва projects through that exact gap, so a confident
+        # city→region mismatch is now dropped for maps sources too.
+        min_expected=-1000, max_expected=-999,
         category="geo",
     ),
 
@@ -780,13 +787,13 @@ CASES: list[RelevanceCase] = [
     ),
 
     # 20. Duplicate/near-miss geo names. Niche "строительство", geography
-    # "Новая Москва", company in Новосибирск. No overlap — geo penalty -30
-    # should fire on searxng. Tests that partial stem match doesn't falsely
-    # rescue: "новосибирск" vs "новая"/"москва" share... actually "нов" is
-    # too short (3 chars, dropped). Should behave like wrong-city.
+    # "Новая Москва" (resolves to Московская область), company in Новосибирск
+    # (Новосибирская область). Confident region mismatch → hard drop. Verifies
+    # the guard reads "Новая Москва" as the Moscow subject (whole-word "москва")
+    # and doesn't let a Novosibirsk firm through into a Moscow-area project.
     RelevanceCase(
         case_id="adv_geo_near_miss_novosibirsk_vs_nova_moscow",
-        description="Новосибирск vs 'Новая Москва' — geo mismatch, no partial rescue",
+        description="Новосибирск vs 'Новая Москва' — разные субъекты, дисквалификация",
         item=_item(
             source="searxng", domain="stroy-nsk.ru",
             company="СтройНовосибирск ООО",
@@ -796,9 +803,7 @@ CASES: list[RelevanceCase] = [
             city="Новосибирск",
         ),
         niche="строительство", geography="Новая Москва",
-        # Expect wrong-city -30 to fire. Niche matches strongly so still
-        # somewhat positive, but noticeably under the perfect-geo version.
-        min_expected=-30, max_expected=70,
+        min_expected=-1000, max_expected=-999,
         category="geo",
     ),
 

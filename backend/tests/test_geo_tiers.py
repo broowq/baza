@@ -14,12 +14,17 @@ from app.services.lead_collection import _geo_tiers, _maps_geo_targets, _MAJOR_R
 @pytest.mark.parametrize(
     "geo, expected",
     [
-        ("Томск", ["Томск", "Томская область", "Россия"]),
-        ("томск", ["томск", "Томская область", "Россия"]),
-        ("Москва", ["Москва", "Московская область", "Россия"]),
-        ("Санкт-Петербург", ["Санкт-Петербург", "Ленинградская область", "Россия"]),
-        ("СПб", ["СПб", "Ленинградская область", "Россия"]),
-        ("Екатеринбург", ["Екатеринбург", "Свердловская область", "Россия"]),
+        # A city expands to its federal subject — but NOT to 'Россия'. Escalating
+        # a specific geography nationwide used to fan out across Москва/СПб/16
+        # major cities and merge those leads with no geo filter, flooding a
+        # regional project with Moscow results. City → region is now the widest
+        # a specific search goes; only an explicit 'Россия' fans out.
+        ("Томск", ["Томск", "Томская область"]),
+        ("томск", ["томск", "Томская область"]),
+        ("Москва", ["Москва", "Московская область"]),
+        ("Санкт-Петербург", ["Санкт-Петербург", "Ленинградская область"]),
+        ("СПб", ["СПб", "Ленинградская область"]),
+        ("Екатеринбург", ["Екатеринбург", "Свердловская область"]),
         ("Россия", ["Россия"]),
         ("россия", ["Россия"]),
         ("", [""]),
@@ -30,17 +35,17 @@ def test_known_city_expands(geo: str, expected: list[str]) -> None:
     assert _geo_tiers(geo) == expected
 
 
-def test_unknown_city_falls_through_to_russia() -> None:
-    """Cities not in the table still get a Russia fallback."""
+def test_unknown_city_does_not_escalate_to_russia() -> None:
+    """A city not in the region table has no broader tier — it stays scoped to
+    itself rather than escalating nationwide. Better few on-target leads than a
+    flood of Moscow ones."""
     tiers = _geo_tiers("Урюпинск")
-    assert tiers[0] == "Урюпинск"
-    assert tiers[-1] == "Россия"
-    # No region tier available — should be just 2 entries.
-    assert len(tiers) == 2
+    assert tiers == ["Урюпинск"]
+    assert "Россия" not in tiers
 
 
 def test_strips_whitespace() -> None:
-    assert _geo_tiers("  Томск  ") == ["Томск", "Томская область", "Россия"]
+    assert _geo_tiers("  Томск  ") == ["Томск", "Томская область"]
 
 
 # ── _maps_geo_targets: city fan-out for nationwide searches ──────────────

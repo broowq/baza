@@ -493,6 +493,18 @@ def _candidate_relevance_score(
     elif competitor_score >= 1:
         score -= 12  # possible seller — 1 marker, leave room for false positives
 
+    # Hard geo guard: when the project targets a SPECIFIC region and the
+    # candidate's city resolves to a DIFFERENT federal subject, disqualify it.
+    # This is what keeps a Москва / СПб / Благовещенск company out of a
+    # 'Томская область' project even if it has a complete contact card. Only
+    # fires on a confident city→region mismatch; blank/unknown cities fall
+    # through to the soft scoring below (we don't drop what we can't classify).
+    if geography and (geography or "").strip().lower() not in _NATIONWIDE_GEOS:
+        requested_region = _region_of(geography)
+        candidate_region = _region_of(item.get("city", ""))
+        if requested_region and candidate_region and candidate_region != requested_region:
+            return -999
+
     geo_terms = _build_match_terms(geography)
     city_text = _normalize_match_text(item.get("city", ""))
     geo_search_text = f"{company} {snippet} {address} {city_text}"
@@ -1835,11 +1847,45 @@ _CITY_TO_REGION: dict[str, str] = {
 }
 
 
+def _region_of(place: str) -> str:
+    """Normalize a city OR region string to its federal-subject name (lowercased).
+
+    'Москва' → 'московская область'; 'г. Санкт-Петербург' → 'ленинградская
+    область'; 'Томская область' → 'томская область'.
+
+    Returns '' when it cannot classify the string (empty, or an unknown city).
+    Callers MUST treat '' as "don't know" — never as a mismatch — so leads with
+    a blank/unfamiliar city are kept, not dropped.
+    """
+    p = _normalize_match_text(place or "")
+    if not p:
+        return ""
+    # Already a federal subject (область / край / республика / округ).
+    if any(tok in p for tok in ("област", "край", "республик", "округ", "автономн")):
+        return p
+    # A known major city → its region. Whole-word match so 'москва' doesn't
+    # fire inside 'московская' and 'ростов' doesn't swallow unrelated tokens.
+    for city, region in _CITY_TO_REGION.items():
+        if re.search(rf"\b{re.escape(city)}\b", p):
+            return region.lower()
+    return ""
+
+
 def _geo_tiers(geo: str) -> list[str]:
     """Return geographic fallback tiers from narrow to broad.
-    'Томск' → ['Томск', 'Томская область', 'Россия']
+    'Томск' → ['Томск', 'Томская область']   (city → its federal subject)
+    'Томская область' → ['Томская область']  (already a region — no broader tier)
     'Россия' → ['Россия']
     Empty → ['']
+
+    We deliberately DO NOT escalate a specific geography up to 'Россия'.
+    That used to fan the map search out across Москва/СПб/16 major cities and
+    merge those leads back WITHOUT any geo filter — so a project scoped to
+    'Томская область' ended up with its top filled by Moscow/SPb meat-combines
+    (high contact-completeness scores beat sparse on-region farms). Returning
+    fewer, on-region leads is correct for a geo-targeted search. A user who
+    truly wants the whole country sets geography='Россия' explicitly, which
+    still fans out as before.
     """
     geo_clean = (geo or "").strip()
     if not geo_clean:
@@ -1850,8 +1896,6 @@ def _geo_tiers(geo: str) -> list[str]:
     region = _CITY_TO_REGION.get(geo_clean.lower())
     if region and region not in tiers:
         tiers.append(region)
-    if "Россия" not in tiers:
-        tiers.append("Россия")
     return tiers
 
 
