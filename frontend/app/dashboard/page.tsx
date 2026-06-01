@@ -635,6 +635,7 @@ export default function DashboardPage() {
 
       {/* ── Empty state / Onboarding ── */}
       {projects.length === 0 && (
+        <>
         <div className="panel p-10 text-center">
           <div className="mx-auto mb-6 inline-flex h-14 w-14 items-center justify-center rounded-full panel-flat">
             <Sparkles className="h-7 w-7" style={{ color: "var(--mint)" }} />
@@ -663,6 +664,60 @@ export default function DashboardPage() {
             </button>
           )}
         </div>
+
+        {/* Sample-results preview — static demo data, zero API cost. Shows a new
+            user exactly what a collected project looks like before they pay. */}
+        <div className="panel-flat p-6 mt-4">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="eyebrow">пример результата</div>
+            <span className="mono-cap rounded-full px-2.5 py-1 text-[10px]"
+              style={{ background: "rgba(168,197,192,0.10)", color: "var(--mint)", border: "1px solid rgba(168,197,192,0.22)" }}>
+              демо-данные
+            </span>
+          </div>
+          <p className="t-56 text-[13px] mb-5">
+            Так выглядит собранная база. Создайте проект — и БАЗА найдёт реальные компании по вашей нише.
+          </p>
+          <div className="overflow-x-auto -mx-1 px-1">
+            <table className="w-full text-left" style={{ borderCollapse: "collapse", minWidth: 560 }}>
+              <thead>
+                <tr className="mono-cap text-[10px] t-40">
+                  <th className="pb-2 pr-3 font-normal">Компания</th>
+                  <th className="pb-2 pr-3 font-normal">Город</th>
+                  <th className="pb-2 pr-3 font-normal">Телефон</th>
+                  <th className="pb-2 pr-3 font-normal">Email</th>
+                  <th className="pb-2 font-normal text-right">Score</th>
+                </tr>
+              </thead>
+              <tbody className="text-[12.5px]">
+                {[
+                  ["Пятое колесо, автосервис", "Томск", "+7 3822 55-12-40", "info@5koleso.ru", 78],
+                  ["Гибрид-Сервис", "Томск", "+7 3822 48-09-11", "zakaz@gibrid70.ru", 74],
+                  ["Ремавто, СТО", "Томск", "+7 3822 90-33-72", "remavto@mail.ru", 71],
+                  ["ПроКар, автотехцентр", "Томск", "+7 3822 21-55-08", "prokar.tomsk@bk.ru", 69],
+                  ["Хонда-Сан, автосервис", "Новосибирск", "+7 383 209-44-17", "service@honda-san.ru", 66],
+                  ["Резиновая подкова", "Новосибирск", "+7 383 311-78-90", "—", 61],
+                ].map(([co, city, phone, email, score]) => (
+                  <tr key={co as string} className="border-t border-white/[0.06]">
+                    <td className="py-2.5 pr-3 text-white/[0.88]">{co}</td>
+                    <td className="py-2.5 pr-3 t-56">{city}</td>
+                    <td className="py-2.5 pr-3 t-72 mono text-[11.5px]">{phone}</td>
+                    <td className="py-2.5 pr-3 t-72">{email}</td>
+                    <td className="py-2.5 text-right">
+                      <span className="mono tnum" style={{ color: (score as number) >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
+                        {score}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mono-cap mt-4 t-40 text-[10px]">
+            компании и контакты на примере — сгенерированы для демонстрации
+          </p>
+        </div>
+        </>
       )}
 
       {/* ── Project cards (v3 row layout) ── */}

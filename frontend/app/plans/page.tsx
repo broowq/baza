@@ -167,8 +167,8 @@ export default function PlansPage() {
                     )}
                   </div>
                   <div className="mono-cap mt-2">
-                    {isStarter ? "навсегда · без карты"
-                      : isPro ? "первые 14 дней — бесплатно"
+                    {isStarter ? "для старта"
+                      : isPro ? "для растущих команд"
                       : "от 5 рабочих мест"}
                   </div>
                 </div>
