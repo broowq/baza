@@ -322,11 +322,16 @@ def get_current_subscription(
     _membership=Depends(require_org_roles("owner", "admin", "member")),
     db: Session = Depends(get_db),
 ):
+    # An org legitimately accumulates multiple Subscription rows over time
+    # (each checkout creates one: pending → active/canceled). Take the most
+    # recent. scalar_one_or_none() was wrong — it raises MultipleResultsFound
+    # the moment a second subscription exists.
     subscription = db.execute(
         select(Subscription)
         .where(Subscription.organization_id == organization.id)
         .order_by(Subscription.created_at.desc())
-    ).scalar_one_or_none()
+        .limit(1)
+    ).scalars().first()
     if not subscription:
         return {"status": "none"}
     return {

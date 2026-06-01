@@ -8,12 +8,9 @@ router = APIRouter(prefix="/plans", tags=["plans"])
 settings = get_settings()
 
 # Prices in rubles per month.
-# NOTE: pro temporarily set to ₽1 for end-to-end live-payment test through
-# YooKassa. Revert to 12900 after webhook + activation verified. See commit
-# "feat(billing): real YooKassa integration" for the original value.
 PLAN_PRICES_RUB = {
     "starter": 3900,
-    "pro": 1,
+    "pro": 12900,
     "team": 34900,
 }
 
