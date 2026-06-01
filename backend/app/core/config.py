@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_password: str = ""
+    # ── RuSender (РФ transactional email via HTTP API) ────────────────────
+    # Preferred over SMTP on prod: Timeweb blocks outbound SMTP ports, but
+    # RuSender sends over HTTPS (443). Free up to 100 emails/month. API key
+    # from https://beta.rusender.ru/api/ — goes in server .env, NOT committed.
+    rusender_api_key: str = ""
+    rusender_from_email: str = "support@usebaza.ru"
+    rusender_from_name: str = "БАЗА"
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""
     anthropic_api_key: str = ""

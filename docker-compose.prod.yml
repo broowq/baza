@@ -89,6 +89,9 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      RUSENDER_API_KEY: ${RUSENDER_API_KEY:-}
+      RUSENDER_FROM_EMAIL: ${RUSENDER_FROM_EMAIL:-support@usebaza.ru}
+      RUSENDER_FROM_NAME: ${RUSENDER_FROM_NAME:-БАЗА}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       # ── ЮKassa (РФ-провайдер платежей) ───────────────────────────
@@ -181,6 +184,9 @@ services:
       SMTP_PORT: ${SMTP_PORT:-587}
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      RUSENDER_API_KEY: ${RUSENDER_API_KEY:-}
+      RUSENDER_FROM_EMAIL: ${RUSENDER_FROM_EMAIL:-support@usebaza.ru}
+      RUSENDER_FROM_NAME: ${RUSENDER_FROM_NAME:-БАЗА}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       LOG_LEVEL: INFO
