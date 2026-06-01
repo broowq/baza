@@ -51,6 +51,10 @@ export default function PlansPage() {
   const [loading, setLoading] = useState(true);
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // null = anonymous (no current plan); "free"/"starter"/"pro"/"team" when logged in.
+  // Used to honestly mark the user's actual plan as "Текущий тариф" instead of
+  // hardcoding Starter — which was wrong for anyone on Pro/Business.
+  const [currentPlan, setCurrentPlan] = useState<string | null>(null);
 
   const fetchPlans = () => {
     setLoading(true);
@@ -60,9 +64,17 @@ export default function PlansPage() {
       .finally(() => setLoading(false));
   };
 
+  const fetchCurrentPlan = () => {
+    api<{ plan?: string }>("/organizations/me")
+      .then((org) => setCurrentPlan(org?.plan ?? null))
+      .catch(() => setCurrentPlan(null)); // anon/no-org → no current plan, all clickable
+  };
+
   useEffect(() => {
     if (typeof window !== "undefined") {
-      setIsLoggedIn(!!getToken());
+      const loggedIn = !!getToken();
+      setIsLoggedIn(loggedIn);
+      if (loggedIn) fetchCurrentPlan();
     }
     fetchPlans();
   }, []);
@@ -129,6 +141,7 @@ export default function PlansPage() {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";
             const isStarter = key === "starter";
+            const isCurrent = currentPlan !== null && key === currentPlan.toLowerCase();
             const rublePrice = getRublePrice(plan);
             const extras = EXTRA_FEATURES[key] ?? [];
 
@@ -202,8 +215,8 @@ export default function PlansPage() {
                 </div>
 
                 <button
-                  onClick={() => !isStarter && startCheckout(plan.id)}
-                  disabled={isStarter || runningPlan === plan.id}
+                  onClick={() => !isCurrent && startCheckout(plan.id)}
+                  disabled={isCurrent || runningPlan === plan.id}
                   className={
                     isPro
                       ? "btn btn-brand w-full mt-7"
@@ -216,7 +229,7 @@ export default function PlansPage() {
                       <span className="h-4 w-4 animate-spin rounded-full border border-current border-t-transparent" />
                       Создаём…
                     </>
-                  ) : isStarter ? (
+                  ) : isCurrent ? (
                     <>Текущий тариф</>
                   ) : (
                     <>
