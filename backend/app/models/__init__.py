@@ -1,5 +1,6 @@
 from app.models.entities import (
     CollectionJob,
+    Company,
     Invite,
     JobStatus,
     Lead,
@@ -20,6 +21,7 @@ __all__ = [
     "Project",
     "Lead",
     "CollectionJob",
+    "Company",
     "Invite",
     "PlanType",
     "JobStatus",

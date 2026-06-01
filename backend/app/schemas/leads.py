@@ -46,6 +46,40 @@ class LeadOut(BaseModel):
         from_attributes = True
 
 
+class LeadWarehouseRef(BaseModel):
+    """Cross-reference into the shared company warehouse for a lead.
+
+    Present (found=True) when a matching Company row exists (same dedup_key).
+    Lets the lead-detail drawer show "seen N times across M niches" enrichment.
+    """
+
+    found: bool = False
+    company_id: UUID | None = None
+    times_seen: int = 0
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    # Niches this company surfaced under in OTHER searches (across all orgs).
+    other_niches: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+    categories: list[str] = Field(default_factory=list)
+    best_score: int = 0
+    inn: str = ""
+    twogis_firm_id: str = ""
+
+
+class LeadDetailOut(LeadOut):
+    """Full Lead plus a computed description and warehouse cross-reference.
+
+    Extends LeadOut (all lead fields) with:
+      * description — a human-readable summary composed from the lead's own
+        contacts/categories when the lead has no description of its own,
+      * warehouse — the cross-org Company registry block (or found=False).
+    """
+
+    description: str = ""
+    warehouse: LeadWarehouseRef = Field(default_factory=LeadWarehouseRef)
+
+
 class CollectionJobOut(BaseModel):
     id: UUID
     organization_id: UUID

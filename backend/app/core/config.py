@@ -90,6 +90,15 @@ class Settings(BaseSettings):
     # through the others on transient failure.
     llm_provider: str = "yandex"  # yandex | gigachat | anthropic
 
+    # ── Company warehouse (cross-org registry) ───────────────────────────
+    # When True, lead-collection jobs (1) write every finalized candidate
+    # through to the shared `companies` table, and (2) seed each search with
+    # warehouse hits for the same niche+geography — reusing previously
+    # discovered companies for free (no 2GIS/Yandex/rusprofile API cost) and
+    # improving recall on repeat searches. Best-effort: a warehouse failure
+    # never blocks or alters normal collection. Set False to disable both.
+    warehouse_search_enabled: bool = True
+
     # ── 152-ФЗ compliance guard ──────────────────────────────────────
     # When False (default), the LLM client REFUSES to call any provider
     # whose data plane is outside the Russian Federation (currently:

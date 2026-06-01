@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 import { JobHistory } from "@/components/dashboard/job-history";
+import { LeadCards } from "@/components/dashboard/lead-cards";
 import { LeadsTable } from "@/components/dashboard/leads-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,7 @@ export default function ProjectDetailsPage() {
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [stats, setStats] = useState({ total: 0, enriched: 0, withEmail: 0, avgScore: 0 });
   const [activeTab, setActiveTab] = useState<string>("leads");
+  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
@@ -379,7 +381,7 @@ export default function ProjectDetailsPage() {
 
         <TabsContent value="leads" className="overflow-hidden">
           <div ref={leadsTableRef} className="space-y-4 min-w-0">
-            {/* Filters bar */}
+            {/* Filters + view toggle bar */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 p-3 [&>*]:w-full [&>*]:sm:w-auto">
               <Input
                 className="w-full sm:w-48"
@@ -459,22 +461,56 @@ export default function ProjectDetailsPage() {
                   <SelectItem value="false">Без телефона</SelectItem>
                 </SelectContent>
               </Select>
+
+              {/* View toggle — Cards | Table */}
+              <div className="seg ml-auto shrink-0" role="group" aria-label="Вид отображения">
+                <button
+                  type="button"
+                  className={`seg-btn${viewMode === "cards" ? " active" : ""}`}
+                  aria-pressed={viewMode === "cards"}
+                  onClick={() => setViewMode("cards")}
+                >
+                  Карточки
+                </button>
+                <button
+                  type="button"
+                  className={`seg-btn${viewMode === "table" ? " active" : ""}`}
+                  aria-pressed={viewMode === "table"}
+                  onClick={() => setViewMode("table")}
+                >
+                  Таблица
+                </button>
+              </div>
             </div>
 
-            <LeadsTable
-              leads={leads}
-              loading={tableLoading}
-              onBulkEnrich={handleBulkEnrich}
-              canBulkEnrich={canManage && !enrichBusy}
-              hideInternalFilters
-              onLeadUpdate={(leadId, patch) => {
-                setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
-              }}
-              onLeadDelete={(leadId) => {
-                setLeads((prev) => prev.filter((l) => l.id !== leadId));
-                setTotal((prev) => Math.max(0, prev - 1));
-              }}
-            />
+            {/* Cards view */}
+            {viewMode === "cards" && (
+              <LeadCards
+                leads={leads}
+                loading={tableLoading}
+                onLeadUpdate={(leadId, patch) => {
+                  setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
+                }}
+              />
+            )}
+
+            {/* Table view */}
+            {viewMode === "table" && (
+              <LeadsTable
+                leads={leads}
+                loading={tableLoading}
+                onBulkEnrich={handleBulkEnrich}
+                canBulkEnrich={canManage && !enrichBusy}
+                hideInternalFilters
+                onLeadUpdate={(leadId, patch) => {
+                  setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
+                }}
+                onLeadDelete={(leadId) => {
+                  setLeads((prev) => prev.filter((l) => l.id !== leadId));
+                  setTotal((prev) => Math.max(0, prev - 1));
+                }}
+              />
+            )}
 
             {/* Pagination */}
             <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground sm:flex-row sm:justify-between">

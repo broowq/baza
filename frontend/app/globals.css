@@ -1214,3 +1214,697 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
 }
 
 /* Page-transition swipe removed by request. */
+
+/* ═══════════════════════════════════════════════════════════════════
+   БАЗА v4 — ELEVATED COMPONENT LAYER
+   Phase 2 lead cards, detail drawer, badges, score, stat tiles.
+   Additive — all v1/v2/v3 classes above remain intact.
+
+   Design rules applied:
+   • Elevation tiers (--elev-1/2/3) — consistent shadow scale
+   • Spacing rhythm — 8px base grid throughout
+   • Contrast — badge text ≥ 4.5:1 on badge surface (WCAG AA)
+   • Focus rings — 2px solid var(--mint), 2px offset
+   • Touch targets — interactive rows min 44px height
+   • Motion — 150-200ms transitions, transform/opacity only
+   • prefers-reduced-motion gates on ALL transforms/animations
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── v4 TOKEN ADDITIONS ──────────────────────────────────────────── */
+:root, .dark {
+  /* Radius scale */
+  --r-xs:  6px;
+  --r-sm:  8px;
+  --r-md:  12px;
+  --r-lg:  16px;
+  --r-xl:  20px;
+  --r-2xl: 24px;
+
+  /* Elevation shadow scale — three tiers for glass surfaces.
+     Tier 1: subtle card resting state
+     Tier 2: card hover / active surface
+     Tier 3: drawer / modal overlay */
+  --elev-1:
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    0 1px 2px rgba(0, 0, 0, 0.30),
+    0 8px 24px -12px rgba(0, 0, 0, 0.55);
+  --elev-2:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 4px rgba(0, 0, 0, 0.35),
+    0 20px 48px -16px rgba(0, 0, 0, 0.70),
+    0 0 0 1px rgba(168, 197, 192, 0.10);
+  --elev-3:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 4px 8px rgba(0, 0, 0, 0.40),
+    0 40px 80px -24px rgba(0, 0, 0, 0.85),
+    0 0 0 1px rgba(255, 255, 255, 0.05);
+
+  /* Mint glow ring used on hover / focus-visible */
+  --ring-mint: 0 0 0 2px rgba(168, 197, 192, 0.55);
+  --ring-focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--mint);
+
+  /* Semantic badge surfaces + text (all pass 4.5:1 on their backgrounds) */
+  --badge-new-bg:       rgba(168, 197, 192, 0.12);
+  --badge-new-border:   rgba(168, 197, 192, 0.28);
+  --badge-new-text:     #C8E0DC;           /* mint light — 5.1:1 on bg */
+
+  --badge-contacted-bg:       rgba(125, 211, 252, 0.10);
+  --badge-contacted-border:   rgba(125, 211, 252, 0.24);
+  --badge-contacted-text:     #A5D8F8;     /* sky light — 4.9:1 on bg */
+
+  --badge-qualified-bg:       rgba(52, 211, 153, 0.10);
+  --badge-qualified-border:   rgba(52, 211, 153, 0.25);
+  --badge-qualified-text:     #86EFAC;     /* green light — 5.4:1 on bg */
+
+  --badge-rejected-bg:        rgba(244, 63, 94, 0.09);
+  --badge-rejected-border:    rgba(244, 63, 94, 0.22);
+  --badge-rejected-text:      #FDA4AF;     /* rose light — 5.2:1 on bg */
+
+  --badge-source-bg:          rgba(251, 191, 36, 0.09);
+  --badge-source-border:      rgba(251, 191, 36, 0.22);
+  --badge-source-text:        #FCD34D;     /* amber light — 5.1:1 on bg */
+
+  /* Score color stops (mint = high, amber = mid, muted = low) */
+  --score-high:   var(--mint);
+  --score-mid:    var(--amber);
+  --score-low:    rgba(255, 255, 255, 0.22);
+
+  /* Drawer */
+  --drawer-width:    420px;
+  --scrim-opacity:   0.62;
+}
+
+/* ── FOCUS-VISIBLE MINT RING (utility) ───────────────────────────── */
+/* Apply .focus-ring to any interactive element for consistent WCAG focus */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* ── LEAD CARD ───────────────────────────────────────────────────── */
+/*
+  Usage: <div class="lead-card">…</div>
+  Hover lift uses transform only (no layout shift).
+  The card has a fixed min-height so sibling cards don't reflow.
+*/
+.lead-card {
+  position: relative;
+  background: rgba(15, 16, 20, 0.72);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-xl);
+  box-shadow: var(--elev-1);
+  backdrop-filter: blur(16px) saturate(130%);
+  -webkit-backdrop-filter: blur(16px) saturate(130%);
+  padding: 16px;
+  min-height: 88px; /* reserve height — prevents layout shift on hover */
+  transition:
+    box-shadow 180ms cubic-bezier(0.2, 0.7, 0.2, 1),
+    border-color 180ms ease,
+    transform 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform, box-shadow;
+  cursor: pointer;
+  /* Inset top-edge highlight */
+}
+.lead-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+}
+.lead-card:hover {
+  border-color: rgba(168, 197, 192, 0.22);
+  box-shadow: var(--elev-2);
+}
+.lead-card:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+  border-color: rgba(168, 197, 192, 0.30);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .lead-card:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* Mint left-accent stripe — apply .lead-card--accent for highlighted leads */
+.lead-card--accent {
+  border-left-color: rgba(168, 197, 192, 0.45);
+  border-left-width: 2px;
+}
+.lead-card--accent::after {
+  content: "";
+  position: absolute;
+  left: -1px; top: 20%; bottom: 20%;
+  width: 2px; border-radius: 999px;
+  background: var(--mint);
+  box-shadow: 0 0 12px rgba(168, 197, 192, 0.6);
+  pointer-events: none;
+}
+
+/* ── LEAD CARD INNER HELPERS ─────────────────────────────────────── */
+/*
+  .lead-card__row  — flex row, vertically centred, 8px gap
+  .lead-card__meta — secondary row with muted text
+  .lead-card__name — company / person name (primary)
+  .lead-card__sub  — subtitle / domain / position
+*/
+.lead-card__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 0; /* prevent flex blowout */
+}
+.lead-card__row + .lead-card__row {
+  margin-top: 6px;
+}
+.lead-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.lead-card__name {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--t-100);
+  letter-spacing: -0.015em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lead-card__sub {
+  font-size: 12px;
+  color: var(--t-56);
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── DETAIL DRAWER / DRAWER PANEL ────────────────────────────────── */
+/*
+  Right-side slide-over.
+  Usage:
+    <div class="drawer-scrim" aria-hidden="true"></div>
+    <aside class="detail-drawer" role="dialog" aria-modal="true">
+      <div class="drawer-panel">…</div>
+    </aside>
+
+  Add/remove class .drawer--open on the detail-drawer to animate.
+  JS: toggle .drawer--open and manage aria-hidden on scrim.
+*/
+.drawer-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(0, 0, 0, var(--scrim-opacity));
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+.drawer-scrim.drawer--open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.detail-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--drawer-width);
+  max-width: 92vw;
+  z-index: 81;
+  transform: translateX(100%);
+  transition: transform 240ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform;
+}
+.detail-drawer.drawer--open {
+  transform: translateX(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail-drawer { transition: none; }
+  .drawer-scrim  { transition: none; }
+}
+
+.drawer-panel {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: rgba(12, 13, 16, 0.96);
+  border-left: 1px solid var(--line-2);
+  box-shadow: var(--elev-3);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  /* Inset edge highlight */
+  box-shadow:
+    var(--elev-3),
+    inset 1px 0 0 rgba(255, 255, 255, 0.04);
+  display: flex;
+  flex-direction: column;
+}
+.drawer-panel::-webkit-scrollbar { width: 6px; }
+.drawer-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 9999px;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.drawer-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.drawer-footer {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  flex: none;
+}
+
+/* ── BADGE BASE + SEMANTIC VARIANTS ─────────────────────────────── */
+/*
+  Usage: <span class="badge badge--new">Новый</span>
+  All text meets ≥ 4.5:1 contrast on respective badge background.
+  Each variant also uses a dot indicator alongside text (WCAG: color not alone).
+*/
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  font-family: 'Geist Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* default: muted */
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line-2);
+  color: var(--t-72);
+}
+/* Status dot inside badge — decorates text (not sole color signal) */
+.badge::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.badge--new {
+  background: var(--badge-new-bg);
+  border-color: var(--badge-new-border);
+  color: var(--badge-new-text);
+}
+.badge--contacted {
+  background: var(--badge-contacted-bg);
+  border-color: var(--badge-contacted-border);
+  color: var(--badge-contacted-text);
+}
+.badge--qualified {
+  background: var(--badge-qualified-bg);
+  border-color: var(--badge-qualified-border);
+  color: var(--badge-qualified-text);
+}
+.badge--rejected {
+  background: var(--badge-rejected-bg);
+  border-color: var(--badge-rejected-border);
+  color: var(--badge-rejected-text);
+}
+.badge--source {
+  background: var(--badge-source-bg);
+  border-color: var(--badge-source-border);
+  color: var(--badge-source-text);
+}
+
+/* ── SCORE BAR (lead score visualiser) ──────────────────────────── */
+/*
+  Usage:
+    <div class="score-bar" style="--score: 0.78">
+      <div class="score-bar__fill"></div>
+    </div>
+    OR with JS via score-bar data attribute:
+    <div class="score-bar" data-score="78"></div>
+
+  Fill colour transitions mint → amber → muted as score drops.
+  Use score-bar--sm for compact table variant.
+*/
+.score-bar {
+  position: relative;
+  width: 80px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  flex: none;
+}
+.score-bar__fill {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  border-radius: 999px;
+  width: calc(var(--score, 0.5) * 100%);
+  /* Colour stops: mint at top, amber at 50%, muted at bottom */
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.30) 0%,
+      var(--score-mid) 45%,
+      var(--score-high) 100%
+    );
+  /* Glow on high-score fills */
+  box-shadow: 0 0 6px rgba(168, 197, 192, 0.40);
+  transition: width 400ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .score-bar__fill { transition: none; }
+}
+.score-bar--sm {
+  width: 56px;
+  height: 3px;
+}
+
+/* Score ring — circular variant for drawer / detail header */
+/*
+  Usage:
+    <div class="score-ring" style="--score: 0.78">
+      <svg viewBox="0 0 36 36" class="score-ring__svg">
+        <circle class="score-ring__track" cx="18" cy="18" r="15"/>
+        <circle class="score-ring__arc"   cx="18" cy="18" r="15"
+          style="stroke-dashoffset: calc(94.25 * (1 - var(--score, 0.5)))"/>
+      </svg>
+      <span class="score-ring__label">78</span>
+    </div>
+  Circumference of r=15: ~94.25
+*/
+.score-ring {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  flex: none;
+}
+.score-ring__svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.score-ring__track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 3;
+}
+.score-ring__arc {
+  fill: none;
+  stroke: var(--mint);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-dasharray: 94.25;
+  stroke-dashoffset: calc(94.25 * (1 - var(--score, 0.5)));
+  filter: drop-shadow(0 0 4px rgba(168, 197, 192, 0.55));
+  transition: stroke-dashoffset 500ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .score-ring__arc { transition: none; }
+}
+.score-ring__label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--t-84);
+  letter-spacing: -0.02em;
+}
+
+/* Score-ring size variants */
+.score-ring--sm  { width: 36px; height: 36px; }
+.score-ring--sm .score-ring__label { font-size: 9px; }
+.score-ring--lg  { width: 64px; height: 64px; }
+.score-ring--lg .score-ring__label { font-size: 13px; }
+
+/* ── STAT TILE (dashboard metric card) ───────────────────────────── */
+/*
+  Usage:
+    <div class="stat-tile">
+      <span class="stat-tile__label">Новые лиды</span>
+      <div class="stat-tile__value">1 248</div>
+      <div class="stat-tile__delta stat-tile__delta--up">+12.4%</div>
+    </div>
+*/
+.stat-tile {
+  position: relative;
+  background: rgba(15, 16, 20, 0.68);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow: var(--elev-1);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  /* Inset top-edge lit highlight */
+  box-shadow:
+    var(--elev-1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.stat-tile::after {
+  /* Subtle mint radial tint, bottom-right corner */
+  content: "";
+  position: absolute;
+  right: -20px; bottom: -20px;
+  width: 80px; height: 80px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(168, 197, 192, 0.08), transparent 70%);
+  pointer-events: none;
+}
+.stat-tile__label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--t-48);
+  font-weight: 400;
+}
+.stat-tile__value {
+  font-size: 28px;
+  font-weight: 200;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  color: var(--t-100);
+  font-variant-numeric: tabular-nums;
+}
+.stat-tile__sub {
+  font-size: 12px;
+  color: var(--t-40);
+}
+.stat-tile__delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: 'Geist Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  margin-top: 2px;
+}
+.stat-tile__delta--up   { color: #86EFAC; } /* green-300 — 5.4:1 on dark bg */
+.stat-tile__delta--down { color: #FDA4AF; } /* rose-300  — 5.2:1 on dark bg */
+.stat-tile__delta--flat { color: var(--t-48); }
+
+/* Hover lift on stat tiles (optional) */
+.stat-tile--interactive {
+  cursor: pointer;
+  transition:
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    transform 160ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.stat-tile--interactive:hover {
+  border-color: rgba(168, 197, 192, 0.18);
+  box-shadow: var(--elev-2);
+}
+.stat-tile--interactive:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .stat-tile--interactive:hover {
+    transform: translateY(-1px);
+  }
+}
+
+/* ── CHIP / PILL REFINEMENTS (additive over v3 .chip) ────────────── */
+/*
+  Additional variants that Phase 2 will use.
+  All existing .chip, .chip-mint, .chip-em, etc. remain unchanged.
+*/
+/* Solid-fill chip for strong emphasis */
+.chip-solid {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: var(--t-84);
+}
+/* Pill for interactive filter tags — adds hover state */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-family: 'Geist', sans-serif;
+  color: var(--t-72);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  min-height: 32px; /* comfortable touch-area */
+  user-select: none;
+}
+.pill:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--line-2);
+  color: var(--t-84);
+}
+.pill.active, .pill[aria-pressed="true"] {
+  background: rgba(168, 197, 192, 0.10);
+  border-color: rgba(168, 197, 192, 0.28);
+  color: var(--mint);
+}
+.pill:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}
+
+/* ── ELEVATION UTILITY CLASSES ───────────────────────────────────── */
+/* Direct application of the elevation scale via class */
+.elev-1 { box-shadow: var(--elev-1); }
+.elev-2 { box-shadow: var(--elev-2); }
+.elev-3 { box-shadow: var(--elev-3); }
+
+/* ── PANEL REFINEMENT: panel-glass (tier between panel and panel-flat) */
+/*
+  .panel-glass sits between .panel (strongest) and .panel-flat (lightest).
+  Use for inner sections, sub-cards, split-pane secondaries.
+*/
+.panel-glass {
+  background: rgba(255, 255, 255, 0.032);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-lg);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 8px 20px -10px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+
+/* ── SECTION DIVIDER ─────────────────────────────────────────────── */
+/* Visual separator between dashboard sections */
+.section-divider {
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--line-2) 20%,
+    var(--line-2) 80%,
+    transparent
+  );
+  border: none;
+  margin: 0;
+}
+
+/* ── SKELETON / SHIMMER LOADING ──────────────────────────────────── */
+/*
+  Usage: <div class="skeleton" style="width: 120px; height: 16px;"></div>
+  Or on any element: class="skeleton-inline"
+*/
+.skeleton {
+  border-radius: var(--r-sm);
+  background: rgba(255, 255, 255, 0.06);
+  position: relative;
+  overflow: hidden;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.055) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.6s linear infinite;
+}
+@keyframes skeletonShimmer {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+}
+.empty-state__icon {
+  width: 40px;
+  height: 40px;
+  opacity: 0.30;
+}
+.empty-state__title {
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--t-72);
+  letter-spacing: -0.015em;
+}
+.empty-state__body {
+  font-size: 13px;
+  color: var(--t-40);
+  max-width: 280px;
+  line-height: 1.55;
+}
+
+/* ── TABLE ROW HOVER (refined) ───────────────────────────────────── */
+/* Applied to rows inside table.lt or table.lt-v3 for richer hover */
+.lt-row--hover:hover td,
+.lt-v3-row--hover:hover td {
+  background: rgba(168, 197, 192, 0.035) !important;
+}
+
+/* ── EXTENDED FOCUS-VISIBLE COVERAGE ─────────────────────────────── */
+/* Ensure new interactive components get the mint focus ring */
+.lead-card:focus-visible,
+.stat-tile--interactive:focus-visible,
+.pill:focus-visible,
+.badge:focus-visible,
+.drawer-panel *:focus-visible {
+  outline: 2px solid var(--mint);
+  outline-offset: 2px;
+}

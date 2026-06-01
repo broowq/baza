@@ -222,6 +222,54 @@ class ActionLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
+class Company(Base):
+    """Cross-organization registry of every company ever discovered.
+
+    Acts as a warehouse: each search across any org upserts its candidates here
+    keyed by `dedup_key` (lowercased domain, or `{normalized_name}|{city}`).
+    Future searches reuse stored companies (cut 2GIS/API cost, improve recall),
+    and lead cards can show rich company info (times seen, niches, sources).
+
+    This table is NOT org-scoped — it's a shared, global registry. It holds no
+    private workflow data (status/tags/notes live on Lead). Contact fields here
+    come exclusively from public sources (2GIS API, Yandex Maps, rusprofile,
+    web search), so cross-org sharing carries no 152-ФЗ subject-data concern
+    beyond what each org already collected independently.
+    """
+
+    __tablename__ = "companies"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # The identity key used for upsert dedupe: lowercased domain when present,
+    # else f"{normalized_name}|{city_lower}". UNIQUE so ON CONFLICT can merge.
+    dedup_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    domain: Mapped[str] = mapped_column(String(255), default="", nullable=False, index=True)
+    # Lowercased, trimmed company name — used for ILIKE niche/name search.
+    normalized_name: Mapped[str] = mapped_column(String(255), default="", nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    website: Mapped[str] = mapped_column(String(400), default="", nullable=False)
+    email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    phone: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    address: Mapped[str] = mapped_column(String(400), default="", nullable=False)
+    city: Mapped[str] = mapped_column(String(120), default="", nullable=False, index=True)
+    region: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    categories: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    # Distinct niche strings this company surfaced under (across all orgs).
+    niches: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    # Distinct source strings: '2gis','yandex_maps','rusprofile','searxng','bing'.
+    sources: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    twogis_firm_id: Mapped[str] = mapped_column(String(80), default="", nullable=False, index=True)
+    rusprofile_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    inn: Mapped[str] = mapped_column(String(20), default="", nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    contacts_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    best_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    times_seen: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    raw_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 

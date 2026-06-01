@@ -407,7 +407,7 @@ function HeroLiveCard() {
 
   return (
     <div ref={sectionRef} className="col-span-1 lg:col-span-4 lg:pl-6 reveal" style={{ animationDelay: "0.34s" }}>
-      <div className="panel p-6">
+      <div className="panel elev-2 p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="dot dot-em" />
@@ -698,7 +698,7 @@ function PromptDemo() {
           </div>
 
           <div ref={wrapRef} className="col-span-1 lg:col-span-7">
-            <div className="panel p-5">
+            <div className="panel elev-1 p-5">
               <div className="flex items-center gap-2 mb-4 px-1">
                 <span className="dot dot-em" />
                 <span className="text-[12px] t-72">собирает</span>
@@ -721,19 +721,12 @@ function PromptDemo() {
                   ["03 · дедуп", "→ 217", 100, "var(--mint)"],
                   ["04 · обогащение", "SMTP+MX", 78, "var(--mint)"],
                   ["05 · готово", `${phase === "parsed" ? 134 : 0} лидов`, 100, "var(--green)"],
-                ].map(([label, val, w, color], i) => (
-                  <div key={i} className="panel-flat px-3 py-3">
+                ].map(([label, val, w], i) => (
+                  <div key={i} className={`panel-flat elev-1 px-3 py-3${i === 4 && phase === "parsed" ? " ring-1 ring-[var(--mint)]/20" : ""}`}>
                     <div className="t-40 mono text-[10px]">{label as string}</div>
                     <div className="text-white tnum mt-1">{val as string}</div>
-                    <div className="h-[2px] mt-2 rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${w}%`,
-                          background: color as string,
-                          boxShadow: i === 4 ? "0 0 8px rgba(52,211,153,0.5)" : undefined,
-                        }}
-                      />
+                    <div className="score-bar score-bar--sm mt-2" style={{ "--score": (w as number) / 100 } as React.CSSProperties}>
+                      <div className="score-bar__fill" />
                     </div>
                   </div>
                 ))}
@@ -811,7 +804,7 @@ function ProductFrame() {
             horizontally inside this container, instead of crushing the rail +
             dashboards into 320px. .frame-scroll handles the overflow + min-width. */}
         <div className="frame-scroll">
-        <div className="frame">
+        <div className="frame elev-2">
           <div className="frame-bar">
             <div className="flex items-center gap-1.5">
               <span className="tlight" style={{ background: "#3a3a3e" }} />
@@ -986,9 +979,9 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
             ["с email", emailRef],
             ["средний score", scoreRef],
           ].map(([label, ref], i) => (
-            <div key={i} className="panel-flat p-3">
-              <div className="eyebrow">{label as string}</div>
-              <div className="h2 tnum mt-2" style={{ fontSize: 28 }}>
+            <div key={i} className="stat-tile elev-1">
+              <div className="stat-tile__label">{label as string}</div>
+              <div className="stat-tile__value tnum">
                 <span ref={ref as React.RefObject<HTMLSpanElement>} className="count-num">0</span>
               </div>
             </div>
@@ -1158,9 +1151,9 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
             ["с email", emailedRef],
             ["qualified", qualRef],
           ].map(([label, ref], i) => (
-            <div key={i} className="panel-flat p-3">
-              <div className="eyebrow">{label as string}</div>
-              <div className="h2 tnum mt-2" style={{ fontSize: 28 }}>
+            <div key={i} className="stat-tile elev-1">
+              <div className="stat-tile__label">{label as string}</div>
+              <div className="stat-tile__value tnum">
                 <span ref={ref as React.RefObject<HTMLSpanElement>} className="count-num">0</span>
               </div>
             </div>
@@ -1237,7 +1230,9 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
                   <td className="t-72">{row.city}</td>
                   <td className="text-right">
                     <div className="flex items-center gap-2 justify-end">
-                      <div className="scorebar"><div style={{ width: `${row.score}%` }} /></div>
+                      <div className="score-bar score-bar--sm" style={{ "--score": row.score / 100 } as React.CSSProperties}>
+                        <div className="score-bar__fill" />
+                      </div>
                       <span className="mono">{row.score}</span>
                     </div>
                   </td>
@@ -1561,34 +1556,41 @@ function FeaturesSection() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-          <div className="col-span-1 md:col-span-4 panel-flat p-6">
+          <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">обогащение</div><span className="mono t-40 text-[10px]">01</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>Email, телефон, ЛПР, выручка — для каждой компании.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">SMTP+MX-проверка, валидация по ФНС, сопоставление ЛПР с открытыми профилями.</p>
-            <div className="mt-5 hairline pt-4 grid grid-cols-3 text-[11px]">
-              <div><div className="t-40">deliver</div><div className="mono mt-0.5 tnum">94%</div></div>
-              <div><div className="t-40">match</div><div className="mono mt-0.5 tnum">88%</div></div>
-              <div><div className="t-40">ЛПР</div><div className="mono mt-0.5 tnum">71%</div></div>
+            <div className="mt-5 hairline pt-4 grid grid-cols-3 gap-2">
+              {[
+                ["deliver", "94%"],
+                ["match", "88%"],
+                ["ЛПР", "71%"],
+              ].map(([label, val]) => (
+                <div key={label} className="stat-tile" style={{ padding: "8px 10px" }}>
+                  <div className="stat-tile__label">{label}</div>
+                  <div className="stat-tile__value tnum" style={{ fontSize: 16 }}>{val}</div>
+                </div>
+              ))}
             </div>
           </div>
-          <div className="col-span-1 md:col-span-4 panel-flat p-6">
+          <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">scoring</div><span className="mono t-40 text-[10px]">02</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>100-балльный скоринг под ваш промпт.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">Соответствие, контактность, платёжеспособность — три оси, прозрачные веса, объяснение для каждого балла.</p>
             <div className="mt-5 hairline pt-4">
-              <div className="flex items-center justify-between text-[11px] t-48 mb-1.5"><span>средний</span><span className="mono">72 / 100</span></div>
-              <div className="h-[3px] rounded-full" style={{ background: "rgba(255,255,255,0.08)" }}>
-                <div className="h-full rounded-full" style={{ width: "72%", background: "var(--mint)" }} />
+              <div className="flex items-center justify-between text-[11px] t-48 mb-2"><span>средний</span><span className="mono">72 / 100</span></div>
+              <div className="score-bar" style={{ "--score": 0.72 } as React.CSSProperties}>
+                <div className="score-bar__fill" />
               </div>
             </div>
           </div>
-          <div className="col-span-1 md:col-span-4 panel-flat p-6">
+          <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">экспорт</div><span className="mono t-40 text-[10px]">03</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>CSV, API, webhook прямо в CRM.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">Bitrix24, amoCRM, Pipedrive — нативные коннекторы. По API — 50 запросов в секунду.</p>
             <div className="mt-5 hairline pt-4 flex flex-wrap gap-2 text-[11px]">
               {["Bitrix24", "amoCRM", "Pipedrive", "webhook"].map((c) => (
-                <span key={c} className="panel-thin px-2.5 py-0.5">{c}</span>
+                <span key={c} className="badge badge--source">{c}</span>
               ))}
             </div>
           </div>
@@ -1604,7 +1606,7 @@ function CtaSection() {
   return (
     <section className="relative">
       <div className="max-w-[1320px] mx-auto px-6 py-24">
-        <div className="panel p-10 lg:p-14 text-center">
+        <div className="panel elev-3 p-10 lg:p-14 text-center">
           <div className="eyebrow mb-5">раннее открытие</div>
           <h2 className="h2 max-w-[820px] mx-auto" style={{ fontSize: "clamp(30px,4.8vw,72px)" }}>
             Покажите, кого вы ищете —

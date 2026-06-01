@@ -194,17 +194,6 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Mid: beta chip */}
-      <div className="px-4 mt-6">
-        <span className="chip chip-mint" style={{ padding: "3px 10px", gap: 7 }}>
-          <span
-            className="dot dot-mt dot-pulse"
-            style={{ width: 5, height: 5 }}
-          />
-          бета v0.9
-        </span>
-      </div>
-
       {/* Bottom sticky */}
       <div className="mt-auto px-4 pb-5">
         <div className="hairline mb-4" />

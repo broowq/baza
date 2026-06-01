@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from uuid import UUID
@@ -17,11 +18,14 @@ from app.models.entities import LeadStatus
 from app.schemas.leads import (
     CollectionJobOut,
     EnrichSelectedRequest,
+    LeadDetailOut,
     LeadOut,
     LeadUpdate,
+    LeadWarehouseRef,
     PaginatedLeadsOut,
     RunCollectionRequest,
 )
+from app.services import company_warehouse
 from app.services.quota import ensure_lead_quota
 from app.services.audit import log_action
 from app.tasks.jobs import collect_leads_task, enrich_leads_task
@@ -483,6 +487,112 @@ def export_project_xlsx(
 
 
 VALID_STATUSES = {"new", "contacted", "qualified", "rejected"}
+
+
+# Russian labels for the data source, used in the composed description.
+_SOURCE_LABELS_RU = {
+    "2gis": "2ГИС",
+    "yandex_maps": "Яндекс.Карты",
+    "rusprofile": "Rusprofile",
+    "searxng": "веб-поиск",
+    "bing": "Bing",
+    "maps_searxng": "картам",
+    "warehouse": "базе компаний",
+}
+
+
+def _compose_lead_description(lead: Lead, company) -> str:
+    """Build a human-readable description for a lead that has none of its own.
+
+    Composes from categories (warehouse) + city + source + contact availability.
+    Returns "" only when there is genuinely nothing to say. If the lead's notes
+    carry a real description (after stripping the internal "relevance=…;" /
+    "demo=…;" prefixes the collector stores there), prefer that instead.
+    """
+    # The collector stores machine prefixes in notes ("relevance=NN; demo=true; ")
+    # followed by the real snippet. Strip the prefixes to recover the snippet.
+    note = (lead.notes or "")
+    note = re.sub(r"^(?:relevance=\d+;\s*)?(?:demo=true;\s*)?", "", note).strip()
+    if note:
+        return note[:600]
+
+    parts: list[str] = []
+    categories = list(getattr(company, "categories", []) or []) if company else []
+    if categories:
+        parts.append(", ".join(categories[:5]))
+    if lead.city:
+        parts.append(f"г. {lead.city}" if not lead.city.lower().startswith("г.") else lead.city)
+    if lead.source:
+        label = _SOURCE_LABELS_RU.get(lead.source, lead.source)
+        parts.append(f"источник: {label}")
+
+    have = []
+    if lead.phone:
+        have.append("телефон")
+    if lead.email:
+        have.append("email")
+    if lead.address:
+        have.append("адрес")
+    if lead.website and not lead.website.startswith("maps://"):
+        have.append("сайт")
+    if have:
+        parts.append("есть " + ", ".join(have))
+    else:
+        parts.append("контакты не найдены")
+
+    return ". ".join(p for p in parts if p).strip()
+
+
+@router.get("/{lead_id}", response_model=LeadDetailOut)
+def get_lead_detail(
+    lead_id: uuid.UUID,
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Full lead detail + computed description + warehouse cross-reference.
+
+    Org-scoped: the lead (and its project) must belong to the caller's org,
+    otherwise 404 (same opacity as the other lead routes — we don't leak
+    existence across orgs).
+    """
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.organization_id != organization.id:
+        raise HTTPException(status_code=404, detail="Лид не найден")
+    project = db.get(Project, lead.project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Лид не найден")
+
+    # Cross-reference the shared company warehouse by the same dedup_key rule.
+    # Best-effort — a warehouse miss/error just yields found=False.
+    company = company_warehouse.find_company_for_lead(
+        db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
+    )
+    warehouse_ref = LeadWarehouseRef()
+    if company is not None:
+        # "other niches" = niches this company surfaced under, minus this
+        # project's own niche (so the drawer shows cross-niche discovery).
+        own_niche = (project.niche or "").strip().lower()
+        other_niches = [n for n in (company.niches or []) if n.strip().lower() != own_niche]
+        warehouse_ref = LeadWarehouseRef(
+            found=True,
+            company_id=company.id,
+            times_seen=company.times_seen,
+            first_seen_at=company.first_seen_at,
+            last_seen_at=company.last_seen_at,
+            other_niches=other_niches,
+            sources=list(company.sources or []),
+            categories=list(company.categories or []),
+            best_score=company.best_score,
+            inn=company.inn or "",
+            twogis_firm_id=company.twogis_firm_id or "",
+        )
+
+    description = _compose_lead_description(lead, company)
+
+    detail = LeadDetailOut.model_validate(lead)
+    detail.description = description
+    detail.warehouse = warehouse_ref
+    return detail
 
 
 @router.patch("/{lead_id}", response_model=LeadOut)

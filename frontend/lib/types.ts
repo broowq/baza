@@ -71,6 +71,25 @@ export type Lead = {
   demo?: boolean;
 };
 
+export type LeadWarehouse = {
+  found: boolean;
+  company_id?: string | null;
+  times_seen?: number | null;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
+  other_niches?: string[];
+  sources?: string[];
+  categories?: string[];
+  best_score?: number | null;
+  inn?: string | null;
+  twogis_firm_id?: string | null;
+};
+
+export type LeadDetail = Lead & {
+  description?: string | null;
+  warehouse?: LeadWarehouse | null;
+};
+
 export type CollectionJob = {
   id: string;
   status: "queued" | "running" | "done" | "failed";

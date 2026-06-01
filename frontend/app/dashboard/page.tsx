@@ -283,6 +283,11 @@ export default function DashboardPage() {
     member: "Участник",
   };
 
+  // Derive aggregate metrics from already-fetched data — no new API calls
+  const totalLeads = Object.values(latestJobs).reduce((acc, job) => acc + (job?.added_count ?? 0), 0);
+  const totalEnriched = Object.values(latestJobs).reduce((acc, job) => acc + (job?.enriched_count ?? 0), 0);
+  const activeJobs = Object.values(latestJobs).filter((j) => j?.status === "running").length;
+
   return (
     <motion.main
       initial={{ opacity: 0, y: 12 }}
@@ -290,8 +295,8 @@ export default function DashboardPage() {
       transition={{ duration: 0.3 }}
       className="mx-auto max-w-[1180px] space-y-8 px-4 py-8 sm:px-6 lg:px-10 lg:py-10"
     >
-      {/* ── Workspace card (v3) ── */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="panel" style={{ padding: 32 }}>
+      {/* ── Workspace card (v4 elevated) ── */}
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="panel elev-2" style={{ padding: 32 }}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           {/* Left: org + chips */}
           <div className="lg:col-span-7">
@@ -364,6 +369,37 @@ export default function DashboardPage() {
           </div>
         </div>
       </motion.div>
+
+      {/* ── Org-level stat tiles ── */}
+      {projects.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.08 }}
+          className="grid grid-cols-2 sm:grid-cols-4 gap-3"
+        >
+          <div className="stat-tile elev-1">
+            <div className="stat-tile__label">Проектов</div>
+            <div className="stat-tile__value tnum">{projects.length}</div>
+            <div className="stat-tile__sub">из {org?.projects_limit ?? "?"}</div>
+          </div>
+          <div className="stat-tile elev-1">
+            <div className="stat-tile__label">Лидов собрано</div>
+            <div className="stat-tile__value tnum">{totalLeads.toLocaleString("ru-RU")}</div>
+            <div className="stat-tile__sub">по всем проектам</div>
+          </div>
+          <div className="stat-tile elev-1">
+            <div className="stat-tile__label">Обогащено</div>
+            <div className="stat-tile__value tnum">{totalEnriched.toLocaleString("ru-RU")}</div>
+            <div className="stat-tile__sub">с email / телефон</div>
+          </div>
+          <div className="stat-tile elev-1">
+            <div className="stat-tile__label">Активных сборов</div>
+            <div className="stat-tile__value tnum">{activeJobs}</div>
+            <div className="stat-tile__sub">прямо сейчас</div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Quota warning */}
       {usagePercent >= 80 && (
@@ -635,24 +671,30 @@ export default function DashboardPage() {
 
       {/* ── Empty state / Onboarding ── */}
       {projects.length === 0 && (
-        <>
-        <div className="panel p-10 text-center">
-          <div className="mx-auto mb-6 inline-flex h-14 w-14 items-center justify-center rounded-full panel-flat">
-            <Sparkles className="h-7 w-7" style={{ color: "var(--mint)" }} />
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="space-y-4"
+        >
+        {/* Onboarding card */}
+        <div className="empty-state panel-glass elev-2">
+          <div className="empty-state__icon">
+            <Sparkles style={{ color: "var(--mint)", width: 28, height: 28 }} />
           </div>
           <div className="eyebrow mb-3">добро пожаловать</div>
-          <h3 className="h2 mb-3" style={{ fontSize: 28 }}>Найдите клиентов за&nbsp;3&nbsp;шага.</h3>
-          <p className="t-72 text-[14px] mb-8 max-w-md mx-auto leading-relaxed">
+          <h3 className="empty-state__title">Найдите клиентов за 3 шага.</h3>
+          <p className="empty-state__body">
             Опишите ваш бизнес одной фразой — мы соберём базу компаний с проверенными контактами.
           </p>
-          <div className="grid gap-2.5 max-w-md w-full mx-auto mb-7 text-left">
+          <div className="grid gap-2.5 max-w-md w-full mx-auto mb-7 text-left mt-2">
             {[
               ["01", "Опишите бизнес — что продаёте или какие услуги оказываете"],
               ["02", "AI определит целевых клиентов и найдёт их в ЕГРЮЛ, 2ГИС, Яндекс.Картах"],
               ["03", "Получите контакты с email/MX-проверкой и экспортируйте в CRM"],
             ].map(([n, t]) => (
-              <div key={n} className="panel-flat px-4 py-3 flex items-center gap-3 text-[13px] t-72">
-                <span className="mono t-40 text-[11px]">{n}</span>
+              <div key={n} className="panel-flat px-4 py-3 flex items-center gap-3 text-[13px] t-72 rounded-xl">
+                <span className="mono t-40 text-[11px] shrink-0">{n}</span>
                 <span>{t}</span>
               </div>
             ))}
@@ -667,13 +709,10 @@ export default function DashboardPage() {
 
         {/* Sample-results preview — static demo data, zero API cost. Shows a new
             user exactly what a collected project looks like before they pay. */}
-        <div className="panel-flat p-6 mt-4">
+        <div className="panel-glass elev-1 p-6">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="eyebrow">пример результата</div>
-            <span className="mono-cap rounded-full px-2.5 py-1 text-[10px]"
-              style={{ background: "rgba(168,197,192,0.10)", color: "var(--mint)", border: "1px solid rgba(168,197,192,0.22)" }}>
-              демо-данные
-            </span>
+            <span className="badge badge--source">демо-данные</span>
           </div>
           <p className="t-56 text-[13px] mb-5">
             Так выглядит собранная база. Создайте проект — и БАЗА найдёт реальные компании по вашей нише.
@@ -704,9 +743,14 @@ export default function DashboardPage() {
                     <td className="py-2.5 pr-3 t-72 mono text-[11.5px]">{phone}</td>
                     <td className="py-2.5 pr-3 t-72">{email}</td>
                     <td className="py-2.5 text-right">
-                      <span className="mono tnum" style={{ color: (score as number) >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
-                        {score}
-                      </span>
+                      <div className="flex items-center justify-end gap-2">
+                        <div className="score-bar score-bar--sm" style={{ "--score": `${(score as number) / 100}` } as React.CSSProperties}>
+                          <div className="score-bar__fill" />
+                        </div>
+                        <span className="mono tnum text-[11.5px]" style={{ color: (score as number) >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
+                          {score}
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -717,12 +761,12 @@ export default function DashboardPage() {
             компании и контакты на примере — сгенерированы для демонстрации
           </p>
         </div>
-        </>
+        </motion.div>
       )}
 
-      {/* ── Project cards (v3 row layout) ── */}
+      {/* ── Project cards (v4 lead-card layout) ── */}
       <div className="flex flex-col gap-3">
-        {projects.map((project) => {
+        {projects.map((project, idx) => {
           const latestJob = latestJobs[project.id];
           const segmentText = project.segments.length > 0 ? project.segments.join(", ") : null;
           const okvedText = (project.okved_codes ?? [])
@@ -736,63 +780,101 @@ export default function DashboardPage() {
             status === "running" ? "dot-am dot-pulse" :
             status === "failed" ? "dot-rs" :
             "dot-mt";
-          const chipClass =
-            status === "done" ? "chip-em" :
-            status === "running" ? "chip-am" :
-            status === "failed" ? "chip-rs" :
-            "chip-mint";
+
+          // Map job status to v4 badge modifier
+          const badgeClass =
+            status === "done" ? "badge badge--qualified" :
+            status === "running" ? "badge badge--new" :
+            status === "failed" ? "badge badge--rejected" :
+            "badge badge--source";
+
           const statusLabel =
             status ? (JOB_STATUS_MAP[status]?.label ?? status) :
             "новый";
 
           const sourceList = ["2ГИС", "Яндекс", "SearXNG"];
 
+          // Score-bar value: enriched / added ratio, capped 0–1
+          const addedCount = latestJob?.added_count ?? 0;
+          const enrichedCount = latestJob?.enriched_count ?? 0;
+          const enrichScore = addedCount > 0 ? Math.min(1, enrichedCount / addedCount) : 0;
+
           return (
-            <div
+            <motion.div
               key={project.id}
-              className="panel-flat group relative transition-colors duration-200 hover:bg-white/[0.045]"
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.28, delay: 0.05 + idx * 0.04 }}
+              className="lead-card group"
             >
               <Link
                 href={`/dashboard/projects/${project.id}`}
-                className="flex items-center gap-4 px-5 py-4"
+                className="lead-card__row"
+                style={{ textDecoration: "none" }}
               >
-                <span className={`dot ${dotClass}`} />
+                {/* Status dot */}
+                <span className={`dot ${dotClass} shrink-0`} />
+
+                {/* Main content */}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="text-[15px] truncate" style={{ fontWeight: 500 }}>
-                      {project.name}
-                    </span>
-                    <span className={`chip ${chipClass}`}>{statusLabel}</span>
+                  <div className="lead-card__row" style={{ gap: 8, marginBottom: 4 }}>
+                    <span className="lead-card__name truncate">{project.name}</span>
+                    <span className={badgeClass}>{statusLabel}</span>
                   </div>
-                  <div className="mono-cap mt-1.5 truncate">
-                    {project.niche} · {project.geography}
+
+                  <div className="lead-card__meta truncate">
+                    <span>{project.niche}</span>
+                    <span className="mx-1.5 t-28">·</span>
+                    <span>{project.geography}</span>
                     {okvedText && (
                       <>
-                        {" · "}
-                        <span className="t-72">ОКВЭД {okvedText}</span>
+                        <span className="mx-1.5 t-28">·</span>
+                        <span className="t-48">ОКВЭД {okvedText}</span>
                       </>
                     )}
                     {!okvedText && segmentText && (
                       <>
-                        {" · "}
-                        <span className="t-72">{segmentText}</span>
+                        <span className="mx-1.5 t-28">·</span>
+                        <span className="t-48">{segmentText}</span>
                       </>
                     )}
                   </div>
-                  <div className="mono-cap t-48 mt-0.5 truncate">
+
+                  <div className="lead-card__sub truncate">
                     {latestJob ? (
-                      <>
-                        <span className="t-72 tnum">{latestJob.added_count ?? 0}</span> добавлено
-                        {" · "}
-                        <span className="t-72 tnum">{latestJob.enriched_count ?? 0}</span> обогащено
-                        {" · источники: "}
-                        {sourceList.join(" · ")}
-                      </>
+                      <span className="flex items-center gap-3 flex-wrap">
+                        <span>
+                          <span className="tnum text-white/80">{addedCount.toLocaleString("ru-RU")}</span>
+                          <span className="ml-1 t-40">добавлено</span>
+                        </span>
+                        <span className="t-28">·</span>
+                        <span>
+                          <span className="tnum text-white/80">{enrichedCount.toLocaleString("ru-RU")}</span>
+                          <span className="ml-1 t-40">обогащено</span>
+                        </span>
+                        {addedCount > 0 && (
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <div className="score-bar score-bar--sm" style={{ "--score": enrichScore } as React.CSSProperties}>
+                              <div className="score-bar__fill" />
+                            </div>
+                          </span>
+                        )}
+                        <span className="t-28">·</span>
+                        <span className="t-40 flex items-center gap-1">
+                          {sourceList.map((s) => (
+                            <span key={s} className="badge badge--source" style={{ padding: "1px 6px", fontSize: 10 }}>{s}</span>
+                          ))}
+                        </span>
+                      </span>
                     ) : (
-                      <span className="italic">ещё не запускали сбор · источники: {sourceList.join(" · ")}</span>
+                      <span className="italic t-40">
+                        ещё не запускали сбор · источники: {sourceList.join(", ")}
+                      </span>
                     )}
                   </div>
                 </div>
+
+                {/* Action buttons */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   {canManage && (
                     <>
@@ -819,16 +901,16 @@ export default function DashboardPage() {
                   </span>
                 </div>
               </Link>
-            </div>
+            </motion.div>
           );
         })}
 
-        {/* ── "+ Создать ещё проект" dashed placeholder (matches v3) ── */}
+        {/* ── "+ Создать ещё проект" dashed placeholder ── */}
         {canManage && projects.length > 0 && (
           <button
             type="button"
             onClick={() => setShowForm(true)}
-            className="px-5 py-4 flex items-center gap-3 t-56 hover:t-72 transition-colors"
+            className="px-5 py-4 flex items-center gap-3 t-56 hover:t-72 transition-colors animate-fade-in"
             style={{ border: "1px dashed var(--line-2)", borderRadius: 14 }}
           >
             <Plus className="h-3.5 w-3.5" />

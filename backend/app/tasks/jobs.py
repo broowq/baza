@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.session import SessionLocal
 from app.core.config import get_settings
 from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
+from app.services import company_warehouse
 from app.services.lead_collection import enrich_2gis_lead, enrich_website_contacts, search_leads
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
@@ -182,6 +183,68 @@ def collect_leads_task(job_id: str) -> None:
             use_yandex=use_yandex,
             organization_id=str(job.organization_id),
         )
+        live_count = len(candidates)
+
+        # ─── Company warehouse: write-through + warehouse-first reuse ───
+        # lead_collection has no DB session of its own, so the warehouse hooks
+        # live here (collect_leads_task owns `db`). Both steps are best-effort:
+        # a warehouse failure logs a warning and NEVER alters normal collection.
+        settings = get_settings()
+        if getattr(settings, "warehouse_search_enabled", True):
+            # 1) Write-through: persist every freshly-discovered candidate into
+            #    the shared registry so future searches (any org) can reuse it.
+            try:
+                stored = company_warehouse.upsert_companies(
+                    db, candidates, niche=effective_niche
+                )
+                logger.info("warehouse: wrote through %d/%d candidates", stored, live_count)
+            except Exception:
+                logger.warning("warehouse write-through failed", exc_info=True)
+                db.rollback()
+
+            # 2) Warehouse-first reuse: pull previously-stored companies matching
+            #    this niche+geography and merge in any not already present (dedupe
+            #    by domain, else company+city). These cost NO external API call.
+            try:
+                reused = company_warehouse.search_warehouse(
+                    db,
+                    niche=effective_niche,
+                    geography=effective_geo,
+                    segments=effective_segments,
+                    limit=job.requested_limit,
+                )
+                if reused:
+                    seen_domains = {
+                        (c.get("domain") or "").lower()
+                        for c in candidates
+                        if c.get("domain")
+                    }
+                    seen_companies = {
+                        f"{(c.get('company') or '').strip().lower()}|{(c.get('city') or '').strip().lower()}"
+                        for c in candidates
+                        if c.get("company")
+                    }
+                    added_from_wh = 0
+                    for r in reused:
+                        d = (r.get("domain") or "").lower()
+                        ck = f"{(r.get('company') or '').strip().lower()}|{(r.get('city') or '').strip().lower()}"
+                        if d and d in seen_domains:
+                            continue
+                        if not d and ck in seen_companies:
+                            continue
+                        if d:
+                            seen_domains.add(d)
+                        seen_companies.add(ck)
+                        candidates.append(r)
+                        added_from_wh += 1
+                    logger.info(
+                        "warehouse: %d reused, %d from live search (%d new from warehouse)",
+                        len(reused), live_count, added_from_wh,
+                    )
+            except Exception:
+                logger.warning("warehouse-first reuse failed", exc_info=True)
+                db.rollback()
+
         job.found_count = len(candidates)
         db.commit()
 
