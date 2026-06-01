@@ -90,7 +90,17 @@ def _ai_filter(
     *,
     organization_id: str | None = None,
 ) -> list[dict] | None:
-    """AI-based filtering. Returns None on failure."""
+    """AI-based filtering. Returns None on complete failure (all batches failed
+    before producing any results, or cost-cap hit on the very first batch).
+
+    FIX (Bug #5): Previously a single batch failure caused the entire result set
+    to be discarded (return None), throwing away all candidates approved by
+    earlier batches.  Now: on a batch failure we keep whatever was approved so
+    far and fall back to rule-based filtering only for the failed batch.
+    We still return None (signal full failure) if the *first* batch fails and no
+    results have been accumulated yet, preserving the cost-cap short-circuit
+    behaviour — the caller's rule-based path then handles all candidates.
+    """
     BATCH_SIZE = 30
     all_kept = []
 
@@ -99,7 +109,22 @@ def _ai_filter(
         kept = _ai_filter_batch(batch, niche, geography, segments, prompt,
                                 organization_id=organization_id)
         if kept is None:
-            return None  # Signal failure to caller — incl. cap exhaustion
+            if batch_start == 0:
+                # No prior results yet — signal full failure so the caller can
+                # run its own rule-based path over the complete candidate list.
+                # This also preserves the cost-cap abort behaviour (chat() returns
+                # None on cap-exhaustion, _ai_filter_batch propagates it as None).
+                return None
+            # At least one earlier batch succeeded: fall back to rule-based for
+            # this batch only, keeping accumulated approvals from earlier batches.
+            logger.warning(
+                "AI filter batch starting at %d failed; applying rule-based "
+                "fallback for this batch (%d candidates), keeping %d already approved",
+                batch_start, len(batch), len(all_kept),
+            )
+            rule_kept = _rule_based_competitor_filter(batch, prompt, niche, segments)
+            all_kept.extend(rule_kept)
+            continue
         all_kept.extend(kept)
 
     logger.info(
@@ -171,7 +196,22 @@ def _ai_filter_batch(batch, niche, geography, segments, prompt, *, organization_
             return None
         answer = answer.strip()
 
-        if answer == "0":
+        # FIX (Bug #2): YandexGPT sometimes prepends a preamble before the digit,
+        # so the previous exact `== "0"` check missed "all-rejected" responses
+        # like "Ни один из кандидатов не подходит. 0" or "Подходящих: 0".
+        # Robustly detect an "all rejected" response by checking whether the
+        # answer (a) is literally "0", (b) contains no digits at all (e.g. "нет"
+        # / "none"), or (c) starts/ends with a lone "0" after stripping preamble.
+        _digits_in_answer = re.findall(r"\d+", answer)
+        _answer_lower = answer.lower()
+        _is_all_rejected = (
+            answer == "0"
+            or (not _digits_in_answer and any(
+                tok in _answer_lower for tok in ("нет", "none", "отсутствуют", "не подход")
+            ))
+            or (_digits_in_answer == ["0"])   # lone zero anywhere in the response
+        )
+        if _is_all_rejected:
             return []
 
         kept_indices: set[int] = set()
@@ -342,10 +382,23 @@ def _rule_based_competitor_filter(
         categories = " ".join(c.get("categories") or []).lower()
         combined = f"{company} {snippet} {domain} {categories}"
 
-        # Step 1: Direct competitor — company NAME contains product core terms
-        #   "Куб2б, компания бухгалтерских услуг" → contains "бухгал" → competitor
+        # Step 1: Direct competitor — company NAME contains product core terms.
+        #
+        # FIX (Bug #1): A single product-root match is not enough to call a company
+        # a competitor in LLM-unavailable mode — e.g. an accounting *firm looking
+        # to buy* accounting software legitimately has "бухгалтер" in its own name.
+        # We now require EITHER:
+        #   (a) 2+ core-term matches in the name (strong indicator of a direct peer), OR
+        #   (b) 1 core-term match AND at least one explicit seller marker (ТД, магазин,
+        #       опт, etc.) in the combined text — those signal the company actually SELLS.
+        # This preserves false-positive rejection of obvious competitors while stopping
+        # legitimate buyers from being silently dropped.
         name_core_matches = sum(1 for t in core_terms if t and t in company)
-        if name_core_matches >= 1 and len(core_terms) > 0:
+        has_seller_marker_in_combined = any(sig in combined for sig in _SELLER_SIGNALS)
+        if len(core_terms) > 0 and (
+            name_core_matches >= 2
+            or (name_core_matches >= 1 and has_seller_marker_in_combined)
+        ):
             rejected_competitors += 1
             continue
 

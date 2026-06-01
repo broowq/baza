@@ -42,7 +42,20 @@ def _count_active_org_jobs(db: Session, organization_id) -> int:
     ) or 0
 
 
-def _active_job_for_kind(db: Session, project_id, kind: str) -> CollectionJob | None:
+def _lock_project_and_check_active_job(db: Session, project_id, kind: str) -> CollectionJob | None:
+    """Acquire a row-level lock on the Project row, then check for an active job of the given kind.
+
+    Using SELECT … FOR UPDATE serialises concurrent requests against the same project:
+    the second transaction blocks until the first commits (inserting the new job), then
+    re-reads — finding the job — and returns it.  Without the lock, two simultaneous
+    POSTs could both pass the check before either committed and spawn duplicate jobs.
+    """
+    # Lock the project row for the duration of this transaction.
+    db.execute(
+        select(Project).where(Project.id == project_id).with_for_update()
+    )
+    # Now safely check for an existing active job — no concurrent transaction can
+    # insert a competing job for this project while we hold the lock.
     return db.execute(
         select(CollectionJob).where(
             CollectionJob.project_id == project_id,
@@ -155,7 +168,7 @@ def run_collection(
     project = db.get(Project, project_id)
     if not project or project.organization_id != organization.id or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Проект не найден")
-    if _active_job_for_kind(db, project.id, "collect"):
+    if _lock_project_and_check_active_job(db, project.id, "collect"):
         raise HTTPException(status_code=409, detail="Сбор уже запущен для этого проекта")
     if _count_active_org_jobs(db, organization.id) >= MAX_CONCURRENT_JOBS_PER_ORG:
         raise HTTPException(
@@ -197,7 +210,7 @@ def run_enrichment(
     project = db.get(Project, project_id)
     if not project or project.organization_id != organization.id or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Проект не найден")
-    if _active_job_for_kind(db, project.id, "enrich"):
+    if _lock_project_and_check_active_job(db, project.id, "enrich"):
         raise HTTPException(status_code=409, detail="Обогащение уже запущено для этого проекта")
     if _count_active_org_jobs(db, organization.id) >= MAX_CONCURRENT_JOBS_PER_ORG:
         raise HTTPException(
@@ -248,7 +261,7 @@ def run_selected_enrichment(
     project = db.get(Project, project_id)
     if not project or project.organization_id != organization.id or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Проект не найден")
-    if _active_job_for_kind(db, project.id, "enrich"):
+    if _lock_project_and_check_active_job(db, project.id, "enrich"):
         raise HTTPException(status_code=409, detail="Обогащение уже запущено для этого проекта")
     if _count_active_org_jobs(db, organization.id) >= MAX_CONCURRENT_JOBS_PER_ORG:
         raise HTTPException(

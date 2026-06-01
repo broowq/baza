@@ -329,9 +329,13 @@ def _call_anthropic(
     if not client:
         return None, 0, 0
 
+    # FIX (Bug #4): temperature was previously omitted, making Anthropic calls
+    # non-deterministic (API default = 1.0).  Pass it through so the filter
+    # gets the same low-temperature (0.1) behaviour as YandexGPT/GigaChat.
     kwargs = {
         "model": "claude-sonnet-4-20250514",
         "max_tokens": max_tokens,
+        "temperature": float(temperature),
         "messages": [{"role": "user", "content": user_message}],
     }
     if system:
@@ -428,10 +432,58 @@ def _charge(organization_id: str, provider: str, input_tokens: int, output_token
 
 
 def is_configured() -> bool:
-    """Check if at least one LLM provider is configured."""
+    """Check if at least one LLM provider is ACTUALLY usable at runtime.
+
+    FIX (Bug #3): The previous implementation returned True whenever any API
+    key was set — including Anthropic-only configurations. However, the 152-FZ
+    guard in chat() strips Anthropic from the provider list at runtime unless
+    LLM_ALLOW_FOREIGN_PROVIDERS=true, so the filter would attempt an AI call,
+    receive None back for every batch, and silently fall through to rule-based
+    without the caller (or the log) making it obvious why.
+
+    Now: we check the same filtering logic that chat() uses, so is_configured()
+    returns True only when at least one provider that will actually be tried at
+    runtime has its credentials set.  A clear WARNING is emitted when keys are
+    present but all effective providers are blocked so ops can diagnose it.
+    """
     settings = get_settings()
-    return bool(
-        (settings.yandex_gpt_api_key and settings.yandex_gpt_folder_id)
-        or settings.gigachat_credentials
-        or settings.anthropic_api_key
-    )
+    allow_foreign = getattr(settings, "llm_allow_foreign_providers", False)
+    foreign_providers = {"anthropic"}
+
+    has_yandex    = bool(settings.yandex_gpt_api_key and settings.yandex_gpt_folder_id)
+    has_gigachat  = bool(settings.gigachat_credentials)
+    has_anthropic = bool(settings.anthropic_api_key)
+
+    # Build the set of providers that chat() will actually attempt.
+    effective: list[str] = []
+    if has_yandex:
+        effective.append("yandex")
+    if has_gigachat:
+        effective.append("gigachat")
+    if has_anthropic:
+        effective.append("anthropic")
+
+    if not allow_foreign:
+        effective = [p for p in effective if p not in foreign_providers]
+
+    if effective:
+        return True
+
+    # No usable provider at runtime — emit a diagnostic warning so the silence
+    # is visible in logs/Sentry rather than looking like a normal rule-based run.
+    configured_keys = []
+    if has_yandex:
+        configured_keys.append("yandex")
+    if has_gigachat:
+        configured_keys.append("gigachat")
+    if has_anthropic:
+        configured_keys.append("anthropic (blocked by 152-FZ guard)")
+    if configured_keys:
+        logger.warning(
+            "LLM is_configured()=False: keys are set for [%s] but none are "
+            "permitted at runtime (LLM_ALLOW_FOREIGN_PROVIDERS=%s). "
+            "AI filtering is DISABLED — running rule-based only.",
+            ", ".join(configured_keys),
+            allow_foreign,
+        )
+    return False

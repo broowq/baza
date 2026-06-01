@@ -177,7 +177,31 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
     # Merge: mailto first (priority), then text-extracted
     all_emails = mailto_emails + [e for e in text_emails if e not in mailto_emails]
 
-    # Filter junk: technical placeholders, tracking domains, image extensions
+    # Filter junk: technical placeholders, tracking domains, image extensions.
+    #
+    # Two classes of false-email from retina/sprite filenames:
+    #   (a) extension BEFORE @: "logo.png@2x"  — caught by ".png@" etc. below
+    #   (b) extension AFTER @:  "sprite@2x.png" / "logo@2x.jpg"
+    #       — domain part ends in an image/asset extension, or matches the
+    #         @<digits>x.<ext> retina-multiplier pattern.
+    _ASSET_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".css", ".js")
+    _RETINA_RE = re.compile(r'@\d+x\.[a-zA-Z]{2,5}$')
+
+    def _is_junk_email(addr: str) -> bool:
+        """Return True if addr looks like a filename artifact rather than a real email."""
+        # Domain is the part after the last @
+        at_idx = addr.rfind("@")
+        if at_idx == -1:
+            return True
+        domain_part = addr[at_idx:]  # includes the @ so patterns work uniformly
+        # (b1) domain ends in an image/asset file extension
+        if any(domain_part.endswith(ext) for ext in _ASSET_EXTS):
+            return True
+        # (b2) retina multiplier pattern: @2x.png / @3x.jpg etc.
+        if _RETINA_RE.search(addr):
+            return True
+        return False
+
     blocked = {"example@example.com", "test@test.com", "noreply@noreply.com"}
     emails = [
         e for e in all_emails
@@ -185,8 +209,9 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
         and not any(pat in e for pat in (
             "example.", "test.", "localhost", "placeholder", "yoursite.", "domain.",
             "sentry.io", "@sentry", "@noreply", "no-reply",
-            ".png@", ".jpg@", ".gif@", ".svg@", ".webp@",  # filename-as-email
+            ".png@", ".jpg@", ".gif@", ".svg@", ".webp@",  # filename-as-email (ext before @)
         ))
+        and not _is_junk_email(e)   # filename-as-email (ext after @, retina pattern)
         and len(e) <= 254  # RFC 5321 max
     ]
     # Boost B2B contact-style emails to top (info@, sales@, office@, etc.)

@@ -150,10 +150,45 @@ def _get_niche_keywords(niche: str) -> list[str]:
     niche_lower = niche.strip().lower()
     # Ключевые слова из названия самой ниши (слова длиннее 3 символов)
     base_keywords = [part.strip().lower() for part in niche_lower.split() if len(part.strip()) > 3]
-    # Дополнительные ключевые слова из словаря
+    # Дополнительные ключевые слова из словаря.
+    # BUG FIX 1: Use stem/prefix matching instead of exact equality so inflected
+    # Russian niche names ('строительные работы', 'мебельное производство',
+    # 'логистические услуги') still resolve their keyword set.  Two tokens are
+    # considered a stem-match when they share a common prefix of ≥5 characters
+    # (long enough to identify a Russian root, short enough to cover inflections).
+    # This covers cases like 'мебель'↔'мебельн', 'строительств'↔'строительн',
+    # 'логистик'↔'логистическ'.
+    #
+    # BUG FIX 2: Require whole-word / token-level match for short dict keys (≤2 chars,
+    # e.g. 'it') instead of substring-in-string, which caused 'digital', 'visit',
+    # 'security' to wrongly match and receive IT keyword_bonus.
+    _STEM_PREFIX_LEN = 5  # min shared-prefix length for a stem match
+
+    def _tokens_stem_match(a: str, b: str) -> bool:
+        """True when a and b share a common prefix of at least _STEM_PREFIX_LEN chars."""
+        min_len = min(len(a), len(b))
+        return min_len >= _STEM_PREFIX_LEN and a[:_STEM_PREFIX_LEN] == b[:_STEM_PREFIX_LEN]
+
+    niche_tokens = niche_lower.split()
     dict_keywords: list[str] = []
     for dict_niche, keywords in NICHE_KEYWORDS.items():
-        if any(word in niche_lower for word in dict_niche.split()):
+        matched = False
+        for dict_word in dict_niche.split():
+            if len(dict_word) <= 2:
+                # Short keys (e.g. 'it'): require exact token match, not substring.
+                if dict_word in niche_tokens:
+                    matched = True
+                    break
+            else:
+                # Longer keys: exact substring match OR stem/prefix match to handle
+                # Russian inflections.
+                for tok in niche_tokens:
+                    if dict_word in tok or tok in dict_word or _tokens_stem_match(dict_word, tok):
+                        matched = True
+                        break
+            if matched:
+                break
+        if matched:
             dict_keywords.extend(keywords)
     return list(set(base_keywords + dict_keywords))
 
@@ -175,12 +210,25 @@ def score_lead(
     global_weights = settings.scoring_weights
     niche_weights = settings.scoring_niche_weights.get(niche_key, {})
 
+    # Keys that must always remain negative (penalties).
+    # BUG FIX 4: If a niche-weight override supplies a positive value for a penalty
+    # key (e.g. "demo_penalty": 20 instead of -20), the sign would be inverted and
+    # the penalty would become a bonus.  Force the value negative so overrides never
+    # silently flip a penalty into a reward.
+    _PENALTY_KEYS = frozenset({"demo_penalty", "aggregator_penalty", "no_contacts_penalty"})
+
     def w(key: str, default: int) -> int:
+        raw: int
         if key in niche_weights:
-            return int(niche_weights[key])
-        if key in global_weights:
-            return int(global_weights[key])
-        return default
+            raw = int(niche_weights[key])
+        elif key in global_weights:
+            raw = int(global_weights[key])
+        else:
+            return default
+        # Preserve sign for penalty keys: the stored value must be negative.
+        if key in _PENALTY_KEYS:
+            return -abs(raw)
+        return raw
 
     score = w("base", 35)
 
@@ -230,7 +278,12 @@ def score_lead(
                 if term in lowered_domain or term in lowered_company
             )
             if seg_hits:
-                score += w("segment_bonus", min(16, seg_hits * 8))
+                # BUG FIX 3: w() returned a flat override value, so a 1-term match
+                # and a 5-term match got the same bonus.  Treat segment_bonus as a
+                # per-hit weight and multiply by seg_hits (capped at 16), consistent
+                # with the default formula.
+                per_hit = w("segment_bonus", 8)
+                score += min(16, seg_hits * per_hit)
 
     # Бонус за качество домена: .ru/.рф для российских ниш — признак местного бизнеса
     ru_niches = {"деревообработка", "строительство", "медицина", "юридические услуги", "бухгалтерия"}

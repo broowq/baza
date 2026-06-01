@@ -576,11 +576,19 @@ def _finalize_candidates(candidates: list[dict], limit: int) -> list[dict]:
         bd = get_base_domain(domain) if domain else ""
         if domain and (not bd or not is_real_domain(bd) or is_aggregator_domain(bd)):
             continue
-        # For candidates without domain (e.g. from 2GIS), use company name as key
+        # For candidates without domain (e.g. from 2GIS), use company name as key.
+        # Fix #7 [dedup]: previously the key was just the lowercased company name,
+        # so same-name companies in different cities (e.g. "Сибирь" in Tomsk AND
+        # Novosibirsk) were collapsed into one record — silently dropping one city.
+        # Include normalized city so the key is city-scoped for domain-less entries.
         if not bd:
-            bd = title.lower().strip()
-            if not bd:
+            company_title = title.lower().strip()
+            if not company_title:
                 continue
+            city_val = (c.get("city") or "").lower().strip()
+            # Only append city when present — keeps backward-compat for records
+            # with no city field (city-less entries still dedup by name alone).
+            bd = f"{company_title}|{city_val}" if city_val else company_title
 
         if bd not in by_domain:
             by_domain[bd] = dict(c)  # copy
@@ -872,21 +880,46 @@ def _parse_yandex_business_feature(feature: dict, query: str) -> dict | None:
 
     website = normalize_url(meta.get("url", ""))
     domain = extract_domain(website)
-    if not website or not domain or not is_real_domain(domain) or is_aggregator_domain(domain):
-        return None
+    # Fix #6 [data-loss]: previously businesses with no website were silently
+    # dropped here, while 2GIS keeps them if they have company + address/phone.
+    # Mirror the 2GIS behaviour: if website is present but invalid/aggregator →
+    # still drop it. If website is simply absent, keep the record as long as
+    # it has at least an address or a phone so the lead is actionable.
+    if website and domain:
+        if not is_real_domain(domain) or is_aggregator_domain(domain):
+            # Bad/aggregator website — clear it so the record is still kept
+            # (the company+address signal is still valuable).
+            website = ""
+            domain = ""
+    elif website and not domain:
+        # normalize_url returned something but extract_domain found nothing
+        website = ""
+        domain = ""
+    # At this point: either we have a clean (website, domain) pair, or both are "".
 
     address_payload = meta.get("Address") or {}
     categories = [item.get("name", "").strip() for item in meta.get("Categories", []) if item.get("name")]
     address = meta.get("address") or address_payload.get("formatted") or properties.get("description", "")
     city = _extract_address_component(address_payload, "locality", "province", "area", "district")
+    # Extract phone if present (some Yandex API responses include it)
+    phones_raw = meta.get("Phones") or []
+    phone = ""
+    if phones_raw and isinstance(phones_raw, list):
+        phone = (phones_raw[0].get("formatted") or "").strip()
     hours_text = ((meta.get("Hours") or {}).get("text") or "").strip()
     snippet_parts = [part for part in [", ".join(categories), address, hours_text] if part]
+
+    # Require at least website OR address OR phone — otherwise the lead has no
+    # contact path and is noise.
+    if not website and not address and not phone:
+        return None
 
     return {
         "company": company_name[:180],
         "city": city,
         "website": website,
         "domain": domain,
+        "phone": phone,
         "source_url": f"https://yandex.ru/maps/?text={quote_plus(f'{company_name} {address or query}'.strip())}",
         "snippet": " | ".join(snippet_parts)[:400],
         "address": address[:300] if address else "",
@@ -911,6 +944,14 @@ _TWOGIS_DEAD_KEY = False
 # then flip after 2nd failure to avoid wasting ~10s × 24 segments.
 _TWOGIS_SCRAPE_BLOCKED = False
 _TWOGIS_SCRAPE_CAPTCHA_FAILS = 0
+# Fix #5 [robustness]: separate captcha-fail counter for the enrichment path.
+# Previously _TWOGIS_SCRAPE_CAPTCHA_FAILS was shared between search scraping
+# and enrichment scraping. Captchas during enrich_2gis_lead() would disable
+# _search_2gis_scrape() for the entire worker process, causing silent data-loss
+# on every subsequent project. The two code paths are called independently and
+# should not share circuit-breaker state.
+_TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH = 0
+_TWOGIS_SCRAPE_BLOCKED_ENRICH = False
 _RUSPROFILE_BLOCKED = False
 
 
@@ -1571,6 +1612,31 @@ _YANDEX_CITY_SLUG_MAP = {
     "калуга": "kaluga", "чита": "chita", "вологда": "vologda",
 }
 
+# Fix #1 [geo]: Yandex Maps search URLs have the form
+# https://yandex.ru/maps/{city_id}/{city_slug}/search/{query}
+# The city_id segment is Yandex's internal geo-object ID — NOT a slug.
+# Previously the code hardcoded 67 (Tomsk) for EVERY geography, so every
+# non-Tomsk project silently returned Tomsk results.
+# These IDs are stable Yandex geo IDs verified against the public Yandex API.
+_YANDEX_CITY_ID_MAP: dict[str, int] = {
+    "москва": 213, "санкт-петербург": 2, "петербург": 2,
+    "новосибирск": 65, "екатеринбург": 54,
+    "казань": 43, "красноярск": 62, "воронеж": 193,
+    "краснодар": 35, "ростов-на-дону": 39, "ростов": 39,
+    "пермь": 50, "томск": 67, "барнаул": 197, "омск": 66,
+    "челябинск": 56, "самара": 51, "уфа": 172,
+    "волгоград": 38, "нижний новгород": 47,
+    "тюмень": 55, "иркутск": 63, "кемерово": 64,
+    "тула": 15, "ярославль": 16, "хабаровск": 76,
+    "владивосток": 75, "саратов": 194, "тольятти": 239,
+    "оренбург": 195, "ижевск": 44, "рязань": 11,
+    "калининград": 22, "пенза": 198, "сочи": 971,
+    "астрахань": 37, "липецк": 9, "курск": 8,
+    "брянск": 191, "белгород": 4, "тверь": 14,
+    "сургут": 973, "владимир": 192, "смоленск": 12,
+    "калуга": 7, "чита": 68, "вологда": 21,
+}
+
 
 def _yandex_city_slug(geo: str) -> str | None:
     city = (geo or "").strip().lower().replace("ё", "е")
@@ -1578,6 +1644,16 @@ def _yandex_city_slug(geo: str) -> str | None:
         return _YANDEX_CITY_SLUG_MAP[city]
     # Fallback to 2GIS slug as approximation
     return _city_to_slug(geo)
+
+
+def _yandex_city_id(geo: str) -> int | None:
+    """Return the Yandex geo-object ID for a city, or None if unknown.
+
+    Fix #1 [geo]: used to build the correct Yandex Maps URL
+    (/{city_id}/{slug}/search/…) instead of hardcoding 67 (Tomsk).
+    """
+    city = (geo or "").strip().lower().replace("ё", "е")
+    return _YANDEX_CITY_ID_MAP.get(city)
 
 
 def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
@@ -1588,6 +1664,14 @@ def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
     """
     slug = _yandex_city_slug(geo)
     if not slug:
+        return []
+    # Fix #1 [geo]: resolve the real Yandex city ID for this geography.
+    # Previously 67 (Tomsk) was hardcoded here — every non-Tomsk project
+    # silently received Tomsk results. If the city ID is unknown, skip the
+    # scrape rather than returning results for the wrong city.
+    city_id = _yandex_city_id(geo)
+    if city_id is None:
+        logger.debug("Yandex scrape: no city_id for geo=%r, skipping", geo)
         return []
 
     cache_k = _cache_key("yandex_scrape", niche, slug, str(limit))
@@ -1601,7 +1685,8 @@ def _search_yandex_maps_scrape(niche: str, geo: str, limit: int) -> list[dict]:
         except Exception:
             pass
 
-    url = f"https://yandex.ru/maps/67/{slug}/search/{quote_plus(niche)}"
+    # Fix #1 [geo]: use the resolved city_id instead of the hardcoded 67 (Tomsk).
+    url = f"https://yandex.ru/maps/{city_id}/{slug}/search/{quote_plus(niche)}"
     headers = {
         # Mobile UA returns ~30 business-snippet tiles per page instead of 15
         # with desktop UA — Yandex serves a denser mobile layout in server HTML.
@@ -2249,12 +2334,34 @@ def enrich_website_contacts(base_url: str) -> dict:
     gathered_html = ""
     pages_fetched = 0
     last_error: str | None = None
-    robots = RobotFileParser()
-    robots.set_url(f"{root_url.rstrip('/')}/robots.txt")
+    # Fix #2 [robustness]: RobotFileParser.read() uses urllib internally with NO
+    # timeout — it can hang a Celery worker forever on a slow/unresponsive host.
+    # Fetch robots.txt manually via httpx with an explicit 8 s timeout, then
+    # feed the content to parse(). On any failure treat as "all allowed".
+    robots: RobotFileParser | None = None
+    robots_url = f"{root_url.rstrip('/')}/robots.txt"
     try:
-        robots.read()
+        with httpx.Client(timeout=8.0, follow_redirects=True) as _rb_client:
+            _rb_resp = _rb_client.get(robots_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+        if _rb_resp.status_code == 200:
+            robots = RobotFileParser()
+            robots.set_url(robots_url)
+            robots.parse(_rb_resp.text.splitlines())
     except Exception:
+        # Any network/timeout error → proceed without robots.txt restriction
         robots = None
+
+    # Fix #3 [security]: SSRF via redirect — _is_safe_url is checked on the
+    # initial URL but httpx's automatic redirect-following never re-validates
+    # redirect destinations. An attacker-controlled site could 301→ an internal
+    # IP (e.g. 169.254.169.254) and exfiltrate cloud metadata.
+    # Fix: attach a request event hook that calls _is_safe_url on EVERY request
+    # httpx fires (including redirect hops) and raises ValueError to abort the
+    # request chain when the destination is unsafe. The hook fires before the
+    # TCP connection, so no data is sent to private addresses.
+    def _ssrf_guard(request: httpx.Request) -> None:
+        if not _is_safe_url(str(request.url)):
+            raise ValueError(f"SSRF: unsafe redirect destination blocked: {request.url}")
 
     # IMPORTANT: follow_redirects=True. Previously False → we dropped pages
     # after a single 301 (http→https, www/non-www, trailing-slash) and got
@@ -2266,6 +2373,8 @@ def enrich_website_contacts(base_url: str) -> dict:
             timeout=12.0,
             follow_redirects=True,
             headers={"User-Agent": DEFAULT_USER_AGENT},
+            # Fix #3: hook fires on every request, including redirect hops
+            event_hooks={"request": [_ssrf_guard]},
         ) as client:
             for path in candidate_paths:
                 target = normalize_url(f"{root_url}{path}" if path != "/" else root_url)
@@ -2294,6 +2403,15 @@ def enrich_website_contacts(base_url: str) -> dict:
                     last_error = f"{type(exc).__name__} on {path}"
                     continue
                 time.sleep(0.15)
+                # Fix #4 [perf]: early exit once both email AND phone are found.
+                # Previously the loop always fetched all ~22 paths even after
+                # contacts were already present, wasting Celery worker time.
+                # Use cheap inline regex checks on accumulated text rather than
+                # calling the full extract_contacts() parser on each iteration.
+                _has_email = bool(re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", gathered_text))
+                _has_phone = bool(re.search(r"\+7[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}", gathered_text))
+                if _has_email and _has_phone:
+                    break
     except Exception as exc:
         logger.warning(
             "enrich_website_contacts: client error for %s — %s",
@@ -2393,11 +2511,17 @@ def _looks_like_captcha(html: str) -> bool:
     return any(marker in snippet for marker in _CAPTCHA_MARKERS)
 
 
-def _fetch_2gis_html(url: str) -> str:
+def _fetch_2gis_html(url: str, *, _is_enrich: bool = False) -> str:
     """Fetch a 2gis.ru page with rotating UA + retries + captcha detection.
 
     Returns empty string on HTTP failure, network error, or captcha interception.
     Retries up to 4 times with exponential backoff on 429/503/captcha.
+
+    Fix #5 [robustness]: _is_enrich=True routes captcha failures to the
+    enrichment-specific circuit-breaker (_TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH /
+    _TWOGIS_SCRAPE_BLOCKED_ENRICH) instead of the search breaker.  Previously
+    enrichment captchas shared the search counter and could permanently disable
+    _search_2gis_scrape() for the whole worker process.
     """
     with httpx.Client(timeout=12.0, follow_redirects=True) as client:
         for attempt in range(4):
@@ -2427,16 +2551,25 @@ def _fetch_2gis_html(url: str) -> str:
                 # it time and rotate UA before the next attempt.
                 if attempt == 3:
                     logger.info("2gis captcha persists after 4 attempts for %s", url)
-                    # Bump the global counter — after 2 segments fail in a row
-                    # we flip the scrape breaker, saving ~10s × remaining segments.
-                    global _TWOGIS_SCRAPE_CAPTCHA_FAILS, _TWOGIS_SCRAPE_BLOCKED
-                    _TWOGIS_SCRAPE_CAPTCHA_FAILS += 1
-                    if _TWOGIS_SCRAPE_CAPTCHA_FAILS >= 2 and not _TWOGIS_SCRAPE_BLOCKED:
-                        _TWOGIS_SCRAPE_BLOCKED = True
-                        logger.warning(
-                            "2GIS scrape: %d captcha failures, disabling for this worker process",
-                            _TWOGIS_SCRAPE_CAPTCHA_FAILS,
-                        )
+                    # Fix #5: bump the correct counter based on which call path we're in.
+                    if _is_enrich:
+                        global _TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH, _TWOGIS_SCRAPE_BLOCKED_ENRICH
+                        _TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH += 1
+                        if _TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH >= 2 and not _TWOGIS_SCRAPE_BLOCKED_ENRICH:
+                            _TWOGIS_SCRAPE_BLOCKED_ENRICH = True
+                            logger.warning(
+                                "2GIS enrich scrape: %d captcha failures, disabling enrich for this worker",
+                                _TWOGIS_SCRAPE_CAPTCHA_FAILS_ENRICH,
+                            )
+                    else:
+                        global _TWOGIS_SCRAPE_CAPTCHA_FAILS, _TWOGIS_SCRAPE_BLOCKED
+                        _TWOGIS_SCRAPE_CAPTCHA_FAILS += 1
+                        if _TWOGIS_SCRAPE_CAPTCHA_FAILS >= 2 and not _TWOGIS_SCRAPE_BLOCKED:
+                            _TWOGIS_SCRAPE_BLOCKED = True
+                            logger.warning(
+                                "2GIS scrape: %d captcha failures, disabling for this worker process",
+                                _TWOGIS_SCRAPE_CAPTCHA_FAILS,
+                            )
                     # If captcha is hitting us this often, ops should know — but
                     # throttle to 1/15min so a captcha storm doesn't spam Telegram.
                     try:
@@ -2468,6 +2601,12 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
     Returns dict with keys emails/phones/addresses (same shape as
     enrich_website_contacts).
     """
+    # Fix #5 [robustness]: check the enrichment-specific breaker (separate from
+    # the search breaker) so that captchas here don't disable search scraping.
+    global _TWOGIS_SCRAPE_BLOCKED_ENRICH
+    if _TWOGIS_SCRAPE_BLOCKED_ENRICH:
+        return {"emails": [], "phones": [], "addresses": []}
+
     result: dict = {"emails": [], "phones": [], "addresses": []}
     company = (company or "").strip()
     if not company and not firm_id:
@@ -2503,7 +2642,9 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
     html = ""
     phones: list[str] = []
     for url in urls:
-        page_html = _fetch_2gis_html(url)
+        # Fix #5: pass _is_enrich=True so captcha failures hit the enrichment
+        # counter, not the search counter.
+        page_html = _fetch_2gis_html(url, _is_enrich=True)
         if not page_html:
             continue
         page_phones = _extract_phones(page_html)

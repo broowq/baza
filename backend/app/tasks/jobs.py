@@ -1,7 +1,9 @@
 import logging
+import re as _re
 from datetime import datetime, timezone
 from uuid import UUID
 
+from celery.exceptions import SoftTimeLimitExceeded
 from croniter import croniter
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +16,10 @@ from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
 from app.tasks.celery_app import celery
 from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_domain, is_real_domain, normalize_url
+
+# Maximum concurrent queued/running jobs per organisation (mirrors the API guard).
+# Used by the auto-enrich step so it doesn't bypass the same cap the API enforces.
+_MAX_CONCURRENT_JOBS_PER_ORG = 3
 
 logger = logging.getLogger(__name__)
 
@@ -194,7 +200,6 @@ def collect_leads_task(job_id: str) -> None:
             # For maps leads without website — generate stable placeholder URL so unique constraint works.
             # For 2GIS, prefer the firm_id (if provided) — lets enrichment hit the firm page directly.
             if not website and company_name:
-                import re as _re
                 firm_id = (c.get("firm_id") or "").strip()
                 if source == "2gis" and firm_id:
                     website = f"maps://2gis/{firm_id}"
@@ -257,6 +262,12 @@ def collect_leads_task(job_id: str) -> None:
                 str(c.get("firm_id") or "").strip()
                 or str(c.get("rusprofile_id") or "").strip()
             )[:80]
+            # Bug #3 fix: store the relevance_score in notes so enrich can recover
+            # it when re-scoring (the Lead model has no dedicated column for it).
+            # Format: "relevance=NN; " prefix so it can be parsed back reliably.
+            raw_relevance = int(c.get("relevance_score", 0))
+            notes_prefix = f"relevance={raw_relevance}; " if raw_relevance else ""
+            notes_prefix += "demo=true; " if c.get("demo") else ""
             lead = Lead(
                 organization_id=job.organization_id,
                 project_id=project.id,
@@ -271,14 +282,21 @@ def collect_leads_task(job_id: str) -> None:
                 source=_clip(str(c.get("source") or ""), 24),
                 external_id=ext_id,
                 score=base_score,
-                notes=("demo=true; " if c.get("demo") else "") + c.get("snippet", ""),
+                notes=notes_prefix + c.get("snippet", ""),
                 demo=bool(c.get("demo", False)),
             )
             db.add(lead)
+            # Bug #1 fix: use a SAVEPOINT for each lead so an IntegrityError
+            # (duplicate key) only rolls back *this one lead*, not all leads
+            # flushed since the last commit.  Without this, db.rollback() on a
+            # dupe undoes up to 9 already-flushed leads while 'added' was already
+            # incremented for them — causing lost leads and inflated quota usage.
             try:
-                db.flush()
+                with db.begin_nested():  # issues SAVEPOINT / RELEASE SAVEPOINT
+                    db.flush()
             except IntegrityError:
-                db.rollback()
+                # Only the savepoint is rolled back; previously flushed leads
+                # in this transaction are still intact.  Do NOT increment 'added'.
                 continue
             added += 1
             if added % 10 == 0:
@@ -312,36 +330,65 @@ def collect_leads_task(job_id: str) -> None:
         # queueing a 2nd auto-enrich job when the first retry already queued one.
         if added > 0 and not quota_stopped:
             try:
-                existing_auto_enrich = db.execute(
-                    select(CollectionJob)
-                    .where(
-                        CollectionJob.project_id == job.project_id,
-                        CollectionJob.kind == "enrich",
+                # Bug #4 fix: check org-level concurrency before auto-queuing so
+                # auto-enrich doesn't bypass the same MAX_CONCURRENT_JOBS_PER_ORG
+                # cap enforced by the API.  If the org is already at the limit the
+                # user can trigger enrich manually once a running job finishes.
+                active_jobs = db.scalar(
+                    select(func.count(CollectionJob.id)).where(
+                        CollectionJob.organization_id == job.organization_id,
                         CollectionJob.status.in_([JobStatus.queued, JobStatus.running]),
-                        CollectionJob.created_at >= job.created_at,
                     )
-                    .with_for_update(skip_locked=True)
-                ).scalar_one_or_none()
-                if existing_auto_enrich:
+                ) or 0
+                if active_jobs >= _MAX_CONCURRENT_JOBS_PER_ORG:
                     logger.info(
-                        "Auto-enrich already queued (job=%s), skipping duplicate",
-                        existing_auto_enrich.id,
+                        "Auto-enrich skipped: org=%s already at concurrent job limit (%d/%d). "
+                        "User can trigger enrich manually.",
+                        job.organization_id, active_jobs, _MAX_CONCURRENT_JOBS_PER_ORG,
                     )
                 else:
-                    enrich_job = CollectionJob(
-                        organization_id=job.organization_id,
-                        project_id=job.project_id,
-                        status=JobStatus.queued,
-                        kind="enrich",
-                        requested_limit=added,
-                    )
-                    db.add(enrich_job)
-                    db.commit()
-                    enrich_leads_task.delay(str(enrich_job.id))
-                    logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
-                                job.project_id, enrich_job.id)
+                    existing_auto_enrich = db.execute(
+                        select(CollectionJob)
+                        .where(
+                            CollectionJob.project_id == job.project_id,
+                            CollectionJob.kind == "enrich",
+                            CollectionJob.status.in_([JobStatus.queued, JobStatus.running]),
+                            CollectionJob.created_at >= job.created_at,
+                        )
+                        .with_for_update(skip_locked=True)
+                    ).scalar_one_or_none()
+                    if existing_auto_enrich:
+                        logger.info(
+                            "Auto-enrich already queued (job=%s), skipping duplicate",
+                            existing_auto_enrich.id,
+                        )
+                    else:
+                        enrich_job = CollectionJob(
+                            organization_id=job.organization_id,
+                            project_id=job.project_id,
+                            status=JobStatus.queued,
+                            kind="enrich",
+                            requested_limit=added,
+                        )
+                        db.add(enrich_job)
+                        db.commit()
+                        enrich_leads_task.delay(str(enrich_job.id))
+                        logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
+                                    job.project_id, enrich_job.id)
             except Exception:
                 logger.warning("Failed to auto-queue enrich after collect", exc_info=True)
+    except SoftTimeLimitExceeded:
+        # Bug #2 fix: task hit the soft time limit (1500s). Mark the job failed
+        # so it doesn't stay 'running' forever and block subsequent API calls
+        # with a 409.  We do NOT raise so Celery won't attempt a retry — the
+        # job simply timed out and the user should re-trigger manually.
+        logger.warning("collect_leads_task soft time limit exceeded for job_id=%s", job_id)
+        db.rollback()
+        job = db.get(CollectionJob, UUID(job_id))
+        if job:
+            job.status = JobStatus.failed
+            job.error = "Задача прервана: превышен лимит времени выполнения (1500 сек)"
+            db.commit()
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(
             "collect_leads_task transient error for job_id=%s (retry %s/%s): %s",
@@ -398,6 +445,11 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         job.status = JobStatus.running
         db.commit()
 
+        # Bug #5 fix: when specific lead_ids are requested, track which leads
+        # were skipped (already enriched + have contacts) so the caller can see
+        # why enriched_count is lower than the number of requested IDs.
+        skipped_already_enriched: list[str] = []
+
         query = select(Lead).where(
             Lead.project_id == job.project_id,
             or_(
@@ -414,6 +466,18 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                     continue
             if safe_ids:
                 query = query.where(Lead.id.in_(safe_ids))
+                # Bug #5 fix: find the leads that WILL be skipped (already
+                # enriched with contacts) so we can report them in job.error.
+                all_requested = db.execute(
+                    select(Lead).where(Lead.id.in_(safe_ids))
+                ).scalars().all()
+                enrichable_ids = {
+                    lead.id for lead in all_requested
+                    if not lead.enriched or not (lead.email or lead.phone or lead.address)
+                }
+                for lead in all_requested:
+                    if lead.id not in enrichable_ids:
+                        skipped_already_enriched.append(str(lead.id))
         query = query.limit(job.requested_limit)
         leads = db.execute(query).scalars().all()
         project = db.get(Project, job.project_id)
@@ -505,6 +569,18 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             # Treat no_mx / syntax as no-email for scoring: a bouncy address
             # is worse than no address at all (it wastes sales-rep time).
             usable_email = bool(lead.email) and lead.email_status in ("valid", "skipped", "")
+
+            # Bug #3 fix: recover the original relevance_score stored in notes
+            # at collect time (format: "relevance=NN; ...").  Without this, every
+            # enrich pass called score_lead with relevance_score=0, silently
+            # dropping up to 15 pts for map-source leads and causing visible
+            # score regressions (e.g. 70 → 55).
+            stored_relevance = 0
+            if lead.notes:
+                _rel_match = _re.match(r"relevance=(\d+);", lead.notes)
+                if _rel_match:
+                    stored_relevance = int(_rel_match.group(1))
+
             lead.score = score_lead(
                 domain=lead.domain,
                 company=lead.company,
@@ -513,6 +589,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 has_phone=bool(lead.phone),
                 has_address=bool(lead.address),
                 demo=lead.demo,
+                relevance_score=stored_relevance,
                 segments=project_segments,
             )
             enriched += 1
@@ -547,6 +624,16 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         job.enriched_count = enriched
         job.status = JobStatus.done
         job.updated_at = datetime.now(timezone.utc)
+        # Bug #5 fix: record skipped (already-enriched) leads in job.error so
+        # the user can see why enriched_count may be lower than requested.
+        # We use job.error for non-fatal informational messages when status=done
+        # (consistent with quota_stopped pattern in collect_leads_task).
+        if skipped_already_enriched:
+            job.error = (
+                f"Пропущено уже обогащённых: {len(skipped_already_enriched)} лид(ов). "
+                f"IDs: {', '.join(skipped_already_enriched[:20])}"
+                + (" …" if len(skipped_already_enriched) > 20 else "")
+            )
         db.commit()
         send_telegram(f"Lead enrichment finished. Job={job.id} Enriched={job.enriched_count}")
 
@@ -558,6 +645,16 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 _notify_owner_project_ready(db, project, enriched)
             except Exception:
                 logger.warning("project-ready notification failed", exc_info=True)
+    except SoftTimeLimitExceeded:
+        # Bug #2 fix: task hit the soft time limit (1500s). Mark failed so the
+        # job doesn't stay 'running' and block the project with 409 errors.
+        logger.warning("enrich_leads_task soft time limit exceeded for job_id=%s", job_id)
+        db.rollback()
+        job = db.get(CollectionJob, UUID(job_id))
+        if job:
+            job.status = JobStatus.failed
+            job.error = "Задача прервана: превышен лимит времени выполнения (1500 сек)"
+            db.commit()
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(
             "enrich_leads_task transient error for job_id=%s (retry %s/%s): %s",
