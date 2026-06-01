@@ -19,6 +19,7 @@ function VerifyEmailContent() {
       setErrorMsg("Токен подтверждения отсутствует.");
       return;
     }
+    let timerId: ReturnType<typeof setTimeout>;
     api<{ message: string }>("/auth/verify-email", {
       method: "POST",
       body: JSON.stringify({ token }),
@@ -26,13 +27,14 @@ function VerifyEmailContent() {
       .then(() => {
         setStatus("success");
         toast.success("Email подтверждён. Перенаправляем на вход...");
-        setTimeout(() => router.push("/login"), 2000);
+        timerId = setTimeout(() => router.push("/login"), 2000);
       })
       .catch((error: Error) => {
         setStatus("error");
         setErrorMsg(error.message);
         toast.error(error.message);
       });
+    return () => clearTimeout(timerId);
   }, [token, router]);
 
   return (
@@ -55,9 +57,18 @@ function VerifyEmailContent() {
               <p className="caption">Проверяем токен подтверждения…</p>
             )}
             {status === "success" && (
-              <p className="caption" style={{ color: "var(--mint)" }}>
-                Email подтверждён! Перенаправляем на вход…
-              </p>
+              <div className="flex flex-col gap-4">
+                <p className="caption" style={{ color: "var(--mint)" }}>
+                  Email подтверждён! Перенаправляем на вход…
+                </p>
+                <Link
+                  href="/login"
+                  className="btn btn-ghost w-full text-center"
+                  style={{ height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  Перейти ко входу
+                </Link>
+              </div>
             )}
             {status === "error" && (
               <div className="flex flex-col gap-4">

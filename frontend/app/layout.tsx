@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Instrument_Serif } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import { Toaster } from "sonner";
@@ -10,9 +10,6 @@ import { CookieConsent } from "@/components/cookie-consent";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Navbar } from "@/components/layout/navbar";
 import { SmoothScrollProvider } from "@/components/smooth-scroll-provider";
-
-// Inter kept as Cyrillic fallback; Geist is the primary display + body face.
-const inter = Inter({ subsets: ["latin", "cyrillic"], variable: "--font-inter" });
 
 // Instrument Serif italic — used for one decorative emphasis on the hero ("созревают").
 const instrument = Instrument_Serif({
@@ -49,7 +46,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={`dark ${GeistSans.variable} ${GeistMono.variable} ${inter.variable} ${instrument.variable}`}>
+    <html lang="ru" className={`dark ${GeistSans.variable} ${GeistMono.variable} ${instrument.variable}`}>
       <body className={`${GeistSans.className} font-sans overflow-x-hidden antialiased`}>
         {/* Top hairline that fills mint-to-white as the user scrolls.
             Driven by --scroll-progress emitted by SmoothScrollProvider. */}

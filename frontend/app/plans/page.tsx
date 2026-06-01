@@ -100,7 +100,7 @@ export default function PlansPage() {
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden px-4 py-16 sm:px-6">
+    <div className="relative min-h-screen overflow-hidden px-4 py-16 sm:px-6">
       <div className="field" />
       <div className="grid-lines" />
       <div className="grain" />
@@ -260,7 +260,7 @@ export default function PlansPage() {
           © 2026 База · usebaza.ru
         </p>
       </div>
-    </main>
+    </div>
   );
 }
 

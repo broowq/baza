@@ -10,22 +10,24 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [formError, setFormError] = useState("");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    setFormError("");
     setLoading(true);
     try {
-      const response = await api<{ message: string; preview_url?: string | null }>("/auth/forgot-password", {
+      const response = await api<{ message: string }>("/auth/forgot-password", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
       toast.success(response.message);
-      setPreviewUrl(response.preview_url ?? "");
       setSent(true);
       setEmail("");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось отправить ссылку");
+      const msg = error instanceof Error ? error.message : "Не удалось отправить ссылку";
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -68,14 +70,11 @@ export default function ForgotPasswordPage() {
               </div>
             )}
 
-            {process.env.NODE_ENV === "development" && previewUrl && previewUrl.startsWith("/reset-password") ? (
-              <div className="panel-flat px-3 py-2.5 text-[12px]" style={{ color: "var(--mint)" }}>
-                Тестовая ссылка для dev:{" "}
-                <a href={previewUrl} className="underline underline-offset-2">
-                  открыть сброс пароля
-                </a>
+            {formError && (
+              <div role="alert" aria-live="assertive" className="panel-flat px-3 py-2.5 text-[12px]" style={{ color: "var(--rose)" }}>
+                {formError}
               </div>
-            ) : null}
+            )}
 
             <button
               type="submit"
@@ -83,8 +82,8 @@ export default function ForgotPasswordPage() {
               className="btn btn-brand w-full mt-2"
               style={{ height: 44 }}
             >
-              {loading ? "Отправляем…" : "Отправить ссылку"}
-              {!loading && (
+              {loading ? "Отправляем…" : sent ? "Письмо отправлено" : "Отправить ссылку"}
+              {!loading && !sent && (
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M5 12h14M13 5l7 7-7 7" />
                 </svg>

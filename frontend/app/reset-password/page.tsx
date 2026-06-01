@@ -1,26 +1,12 @@
 "use client";
 
-import { FormEvent, Suspense, useState } from "react";
+import { FormEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
-      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
+import { EyeIcon } from "@/components/ui/eye-icon";
 
 function ResetPasswordContent() {
   const search = useSearchParams();
@@ -30,6 +16,12 @@ function ResetPasswordContent() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!done) return;
+    const id = setTimeout(() => router.push("/login"), 2000);
+    return () => clearTimeout(id);
+  }, [done, router]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -42,7 +34,6 @@ function ResetPasswordContent() {
       toast.success("Пароль обновлён, войдите с новым паролем");
       setDone(true);
       setPassword("");
-      setTimeout(() => router.push("/login"), 2000);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось обновить пароль");
     } finally {

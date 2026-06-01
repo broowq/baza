@@ -1,5 +1,4 @@
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import type { CollectionJob } from "@/lib/types";
 
 type Props = {
@@ -18,23 +17,23 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | 
 
 const BAR_COLORS: Record<string, string> = {
   failed: "bg-destructive",
-  running: "bg-primary",
+  running: "bg-white/[0.56]",
   done: "bg-emerald-500",
-  queued: "bg-muted-foreground",
+  queued: "bg-white/[0.24]",
 };
 
 export function JobHistory({ jobs, loading = false }: Props) {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
 
   if (loading) {
-    return <div className="h-48 animate-pulse rounded-xl bg-muted" />;
+    return <div className="h-48 animate-pulse rounded-xl bg-white/[0.03] border border-white/[0.08]" />;
   }
 
   if (safeJobs.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed p-8 text-center">
-        <h3 className="text-base font-semibold">История задач пуста</h3>
-        <p className="mt-1 text-sm text-muted-foreground">Запустите сбор или обогащение, чтобы увидеть прогресс.</p>
+      <div className="panel-flat p-8 text-center" style={{ borderStyle: "dashed" }}>
+        <h3 className="t-56 text-base font-semibold">История задач пуста</h3>
+        <p className="mt-1 text-sm t-40">Запустите сбор или обогащение, чтобы увидеть прогресс.</p>
       </div>
     );
   }
@@ -53,50 +52,48 @@ export function JobHistory({ jobs, loading = false }: Props) {
               : 0;
 
         return (
-          <Card key={job.id} size="sm">
-            <CardContent className="space-y-2 px-3 py-2 sm:px-4 sm:py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">{KIND_LABELS[job.kind] ?? job.kind}</span>
-                <Badge variant={STATUS_VARIANTS[job.status] ?? "secondary"}>
-                  {STATUS_LABELS[job.status] ?? job.status}
-                </Badge>
-                {job.status !== "queued" && (
-                  <span className="text-xs text-muted-foreground tabular-nums">{progress}%</span>
-                )}
-              </div>
-
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-full rounded-full transition-[width] duration-700 ease-out ${BAR_COLORS[job.status] ?? BAR_COLORS.queued}`}
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-
-              <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                {job.kind === "collect" && (
-                  <>
-                    <span>Найдено: <strong className="text-foreground">{job.found_count}</strong></span>
-                    <span>Добавлено: <strong className="text-foreground">{job.added_count}</strong></span>
-                  </>
-                )}
-                {job.kind === "enrich" && (
-                  <span>Обогащено: <strong className="text-foreground">{job.enriched_count}</strong></span>
-                )}
-                {requested > 0 && (
-                  <span>Лимит: <strong className="text-foreground">{requested}</strong></span>
-                )}
-              </div>
-
-              {job.error && (
-                <p
-                  className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive"
-                  title={job.error}
-                >
-                  {job.error.length > 200 ? `${job.error.slice(0, 200)}…` : job.error}
-                </p>
+          <div key={job.id} className="panel-flat bg-white/[0.03] space-y-2 px-3 py-2 sm:px-4 sm:py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="t-56 text-sm font-medium">{KIND_LABELS[job.kind] ?? job.kind}</span>
+              <Badge variant={STATUS_VARIANTS[job.status] ?? "secondary"}>
+                {STATUS_LABELS[job.status] ?? job.status}
+              </Badge>
+              {job.status !== "queued" && (
+                <span className="text-xs t-40 tabular-nums">{progress}%</span>
               )}
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+              <div
+                className={`h-full rounded-full transition-[width] duration-700 ease-out ${BAR_COLORS[job.status] ?? BAR_COLORS.queued}`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-3 text-xs t-40">
+              {job.kind === "collect" && (
+                <>
+                  <span>Найдено: <strong className="text-white">{job.found_count}</strong></span>
+                  <span>Добавлено: <strong className="text-white">{job.added_count}</strong></span>
+                </>
+              )}
+              {job.kind === "enrich" && (
+                <span>Обогащено: <strong className="text-white">{job.enriched_count}</strong></span>
+              )}
+              {requested > 0 && (
+                <span>Лимит: <strong className="text-white">{requested}</strong></span>
+              )}
+            </div>
+
+            {job.error && (
+              <p
+                className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive"
+                title={job.error}
+              >
+                {job.error.length > 200 ? `${job.error.slice(0, 200)}…` : job.error}
+              </p>
+            )}
+          </div>
         );
       })}
     </div>

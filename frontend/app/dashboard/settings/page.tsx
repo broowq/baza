@@ -86,17 +86,6 @@ function getInitials(name: string | undefined): string {
     .slice(0, 2);
 }
 
-function GlassInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={
-        "w-full h-10 rounded-xl border border-[var(--line-2)] bg-white/[0.04] px-3 text-[13px] text-white placeholder:text-white/40 outline-none focus:border-white/[0.24] focus:bg-white/[0.07] transition-colors " +
-        (props.className ?? "")
-      }
-    />
-  );
-}
 
 function CopyButton({ onClick }: { onClick: () => Promise<void> }) {
   const [copied, setCopied] = useState(false);
@@ -142,7 +131,9 @@ export default function SettingsPage() {
   const [inviteToken, setInviteToken] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [appOrigin, setAppOrigin] = useState("");
+  const [appOrigin, setAppOrigin] = useState(() =>
+    typeof window !== "undefined" ? window.location.origin : ""
+  );
   const [savingPassword, setSavingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<TabValue>("profile");
 
@@ -184,9 +175,6 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setAppOrigin(window.location.origin);
-    }
     if (authed) void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
@@ -268,7 +256,7 @@ export default function SettingsPage() {
       invite_token: invite.token,
       email: invite.email,
     });
-    const base = appOrigin || "http://localhost:3000";
+    const base = appOrigin;
     return `${base}/login?${params.toString()}`;
   };
 
@@ -402,7 +390,8 @@ export default function SettingsPage() {
                         <label htmlFor="current-password" className="eyebrow">
                           текущий пароль
                         </label>
-                        <GlassInput
+                        <input
+                          className="input"
                           id="current-password"
                           type="password"
                           value={currentPassword}
@@ -416,7 +405,8 @@ export default function SettingsPage() {
                         <label htmlFor="new-password" className="eyebrow">
                           новый пароль
                         </label>
-                        <GlassInput
+                        <input
+                          className="input"
                           id="new-password"
                           type="password"
                           value={newPassword}
@@ -695,7 +685,8 @@ export default function SettingsPage() {
                               <label htmlFor="invite-email" className="eyebrow">
                                 email
                               </label>
-                              <GlassInput
+                              <input
+                                className="input"
                                 id="invite-email"
                                 type="email"
                                 value={inviteEmail}
@@ -789,12 +780,12 @@ export default function SettingsPage() {
                     onSubmit={acceptInvite}
                     className="flex flex-col gap-3 sm:flex-row"
                   >
-                    <GlassInput
+                    <input
+                      className="input sm:flex-1"
                       placeholder="Токен приглашения"
                       value={inviteToken}
                       onChange={(e) => setInviteToken(e.target.value)}
                       required
-                      className="sm:flex-1"
                     />
                     <button
                       type="submit"
@@ -907,12 +898,12 @@ function WebhookEditor({
 
   return (
     <div className="flex flex-col gap-2 sm:flex-row">
-      <GlassInput
+      <input
+        className="input sm:flex-1"
         type="url"
         placeholder="https://your-domain.bitrix24.ru/rest/1/xxx..."
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        className="sm:flex-1"
       />
       <button
         type="button"
@@ -1063,7 +1054,7 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
       <section className="panel p-6">
         <div className="eyebrow mb-1">контакты оператора ПД</div>
         <p className="text-[12px] t-56 mb-4">
-          Оператор: <span className="t-84">ИП / ООО (наименование уточняется при регистрации)</span>,
+          Оператор: <span className="t-84">ООО «ПРО ЛЕС», ОГРН 1215400050117, ИНН 5406817586</span>,
           usebaza.ru. Полный текст Политики обработки персональных данных —{" "}
           <Link href={"/privacy" as never} className="text-white underline underline-offset-2">
             на странице /privacy
@@ -1076,7 +1067,7 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
           </span>
           <span className="t-84">
             <span className="t-48 mono">общие вопросы:</span>{" "}
-            <a href="mailto:hello@usebaza.ru" className="text-white">hello@usebaza.ru</a>
+            <a href="mailto:support@usebaza.ru" className="text-white">support@usebaza.ru</a>
           </span>
         </div>
       </section>

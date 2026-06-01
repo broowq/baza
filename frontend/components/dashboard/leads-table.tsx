@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
@@ -416,17 +417,18 @@ export function LeadsTable({
             placeholder="Поиск по компании, домену, email..."
             className="w-full sm:w-64"
           />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as "all" | Lead["status"])}
-            className="h-9 rounded-xl border border-white/[0.10] bg-white/[0.05] px-3 text-sm text-white outline-none backdrop-blur-xl transition-colors focus:border-white/[0.24] focus:bg-white/[0.08]"
-          >
-            <option value="all">Все статусы</option>
-            <option value="new">Новый</option>
-            <option value="contacted">Связались</option>
-            <option value="qualified">Квалифицирован</option>
-            <option value="rejected">Отклонён</option>
-          </select>
+          <Select value={statusFilter} onValueChange={(val) => setStatusFilter(val as "all" | Lead["status"])}>
+            <SelectTrigger>
+              <SelectValue placeholder="Все статусы" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Все статусы</SelectItem>
+              <SelectItem value="new">Новый</SelectItem>
+              <SelectItem value="contacted">Связались</SelectItem>
+              <SelectItem value="qualified">Квалифицирован</SelectItem>
+              <SelectItem value="rejected">Отклонён</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             variant="secondary"
             size="sm"

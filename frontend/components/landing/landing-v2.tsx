@@ -175,8 +175,6 @@ function CornerMeta() {
   const clock = useLiveClock();
   return (
     <div className="corner-meta">
-      № 0042 / Tomsk
-      <br />
       <span>{clock}</span>
     </div>
   );
@@ -184,6 +182,7 @@ function CornerMeta() {
 
 function TopNav() {
   const [authed, setAuthed] = useState<boolean | null>(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setAuthed(Boolean(getToken()));
@@ -202,7 +201,6 @@ function TopNav() {
             </svg>
           </span>
           <span className="text-[15px]" style={{ fontWeight: 500 }}>база</span>
-          <span className="t-40 text-[11px] mono">v0.42</span>
         </Link>
         <nav className="hidden md:flex items-center gap-1 ml-4">
           <a href="#product" className="nav-link">Продукт</a>
@@ -217,18 +215,104 @@ function TopNav() {
           {authed === null ? null : authed ? (
             <Link
               href="/dashboard"
-              className="brand rounded-full px-4 py-1.5 text-[12.5px]"
+              className="hidden md:inline-flex brand rounded-full px-4 py-1.5 text-[12.5px]"
             >
               Открыть дашборд →
             </Link>
           ) : (
             <>
-              <Link href="/login" className="ghost rounded-full px-3.5 py-1.5 text-[12.5px]">Войти</Link>
-              <Link href="/register" className="brand rounded-full px-4 py-1.5 text-[12.5px]">Получить доступ</Link>
+              <Link href="/login" className="hidden md:inline-flex ghost rounded-full px-3.5 py-1.5 text-[12.5px]">Войти</Link>
+              <Link href="/register" className="hidden md:inline-flex brand rounded-full px-4 py-1.5 text-[12.5px]">Получить доступ</Link>
             </>
           )}
+          {/* Hamburger — visible only on mobile */}
+          <button
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 gap-[5px] rounded-lg"
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--line)" }}
+            onClick={() => setMobileOpen((o) => !o)}
+            aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"}
+            aria-expanded={mobileOpen}
+          >
+            {mobileOpen ? (
+              <>
+                <span className="block w-4 h-[1.5px] bg-white" style={{ transform: "rotate(45deg) translate(3.5px,3.5px)" }} />
+                <span className="block w-4 h-[1.5px] bg-white" style={{ transform: "rotate(-45deg) translate(3.5px,-3.5px)" }} />
+              </>
+            ) : (
+              <>
+                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
+              </>
+            )}
+          </button>
         </div>
       </div>
+
+      {/* Mobile drawer */}
+      {mobileOpen && (
+        <div
+          className="md:hidden"
+          style={{
+            background: "rgba(10,12,14,0.97)",
+            backdropFilter: "blur(20px)",
+            borderTop: "1px solid var(--line)",
+            borderBottom: "1px solid var(--line)",
+          }}
+        >
+          <nav className="max-w-[1320px] mx-auto px-6 py-4 flex flex-col gap-1">
+            <a
+              href="#product"
+              className="nav-link py-2.5 text-[14px]"
+              onClick={() => setMobileOpen(false)}
+            >
+              Продукт
+            </a>
+            <a
+              href="#sources"
+              className="nav-link py-2.5 text-[14px]"
+              onClick={() => setMobileOpen(false)}
+            >
+              Возможности
+            </a>
+            <Link
+              href="/plans"
+              className="nav-link py-2.5 text-[14px]"
+              onClick={() => setMobileOpen(false)}
+            >
+              Цены
+            </Link>
+            <div className="hairline mt-2 pt-3 flex flex-col gap-2">
+              {authed === null ? null : authed ? (
+                <Link
+                  href="/dashboard"
+                  className="brand rounded-full px-4 py-2.5 text-[13px] text-center"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Открыть дашборд →
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="ghost rounded-full px-4 py-2.5 text-[13px] text-center"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Войти
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="brand rounded-full px-4 py-2.5 text-[13px] text-center"
+                    onClick={() => setMobileOpen(false)}
+                  >
+                    Получить доступ
+                  </Link>
+                </>
+              )}
+            </div>
+          </nav>
+        </div>
+      )}
     </header>
   );
 }
@@ -426,7 +510,7 @@ function HeroSection() {
             <div className="flex flex-wrap items-center gap-3 mb-7 reveal" style={{ animationDelay: "0.05s" }}>
               <span className="panel-thin px-3 py-1 text-[11px] flex items-center gap-2">
                 <span className="dot dot-em" />
-                раннее открытие · апрель 2026
+                раннее открытие
               </span>
               <span className="t-48 text-[12px]">для B2B-команд продаж в РФ</span>
             </div>
@@ -659,12 +743,12 @@ function PromptDemo() {
                 <span className="mono">9 регионов · ОКВЭД 01.4*</span>
                 <span className="mx-2">·</span>
                 <span>отбор по выручке &gt; 60M ₽</span>
-                <span className="ml-auto text-[12px] flex items-center gap-2">
+                <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-white transition-colors">
                   смотреть результат
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path d="M5 12h14M13 6l6 6-6 6" />
                   </svg>
-                </span>
+                </Link>
               </div>
             </div>
           </div>
@@ -702,7 +786,7 @@ function ProductFrame() {
               до карточки лида.
             </h2>
           </div>
-          <div className="seg self-start sm:self-auto">
+          <div className="seg self-start sm:self-auto" role="tablist" aria-label="Вид дашборда">
             {[
               { k: "overview", label: "Обзор" },
               { k: "project", label: "Проект" },
@@ -710,7 +794,11 @@ function ProductFrame() {
             ].map((v) => (
               <button
                 key={v.k}
+                id={`tab-${v.k}`}
                 className={"seg-btn" + (view === v.k ? " active" : "")}
+                role="tab"
+                aria-selected={view === v.k}
+                aria-controls={`panel-${v.k}`}
                 onClick={() => setView(v.k as typeof view)}
               >
                 {v.label}
@@ -754,9 +842,9 @@ function ProductFrame() {
               className="p-7 min-h-[640px]"
               style={{ background: "linear-gradient(180deg,rgba(255,255,255,0.012),transparent)" }}
             >
-              <ViewOverview active={view === "overview"} />
-              <ViewProject active={view === "project"} />
-              <ViewLead active={view === "lead"} />
+              <ViewOverview active={view === "overview"} tabId="tab-overview" panelId="panel-overview" />
+              <ViewProject active={view === "project"} tabId="tab-project" panelId="panel-project" />
+              <ViewLead active={view === "lead"} tabId="tab-lead" panelId="panel-lead" />
             </main>
           </div>
         </div>
@@ -865,7 +953,7 @@ function RailItem({
 
 /* ── View: Overview ──────────────────────────────────────── */
 
-function ViewOverview({ active }: { active: boolean }) {
+function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
   // counters
   const liveRef = useCountUp<HTMLSpanElement>(142580, { thin: true });
   const totalRef = useCountUp<HTMLSpanElement>(2847, { thin: true });
@@ -879,7 +967,7 @@ function ViewOverview({ active }: { active: boolean }) {
   const fnReadyRef = useCountUp<HTMLSpanElement>(29942, { thin: true });
 
   return (
-    <section className={"view" + (active ? " active" : "")}>
+    <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-6">
         <div>
           <div className="eyebrow">live · последние 24ч</div>
@@ -985,7 +1073,7 @@ function ViewOverview({ active }: { active: boolean }) {
             <span className="t-40 mono text-[10px]">all projects</span>
           </div>
           <div className="src-list">
-            <SourceRow name="Реестр ННО" pct={42} num="59 884" path="M0 12 L10 11 L20 8 L30 9 L40 6 L50 7 L60 4 L70 5 L80 3" />
+            <SourceRow name="ЕГРЮЛ / ФНС" pct={42} num="59 884" path="M0 12 L10 11 L20 8 L30 9 L40 6 L50 7 L60 4 L70 5 L80 3" />
             <SourceRow name="СПАРК / API" pct={26} num="37 070" path="M0 8 L10 10 L20 7 L30 9 L40 8 L50 6 L60 7 L70 5 L80 6" />
             <SourceRow name="Отраслевые" pct={18} num="25 664" path="M0 6 L10 8 L20 7 L30 11 L40 9 L50 12 L60 10 L70 13 L80 11" />
             <SourceRow name="Парс сайтов" pct={9} num="12 832" path="M0 14 L10 12 L20 13 L30 10 L40 11 L50 9 L60 10 L70 8 L80 9" />
@@ -1051,13 +1139,13 @@ function SourceRow({ name, pct, num, path }: { name: string; pct: number; num: s
 
 /* ── View: Project ─────────────────────────────────────── */
 
-function ViewProject({ active }: { active: boolean }) {
+function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
   const collectedRef = useCountUp<HTMLSpanElement>(134);
   const emailedRef = useCountUp<HTMLSpanElement>(71);
   const qualRef = useCountUp<HTMLSpanElement>(17);
 
   return (
-    <section className={"view" + (active ? " active" : "")}>
+    <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-6">
         <div>
           <div className="eyebrow">проект · 0042</div>
@@ -1115,7 +1203,11 @@ function ViewProject({ active }: { active: boolean }) {
 
         <div className="col-span-12 lg:col-span-5 panel-flat overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 hairline" style={{ borderTop: 0 }}>
-            <div className="text-[12px]"><span className="text-white">Лиды</span> <span className="t-40 ml-1 mono">134</span></div>
+            <div className="flex items-center gap-2 text-[12px]">
+              <span className="text-white">Лиды</span>
+              <span className="t-40 ml-1 mono">134</span>
+              <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
+            </div>
             <div className="seg" style={{ padding: 2 }}>
               <button className="seg-btn active" style={{ padding: "4px 10px", fontSize: 11 }}>Все</button>
               <button className="seg-btn" style={{ padding: "4px 10px", fontSize: 11 }}>Q · 17</button>
@@ -1155,12 +1247,12 @@ function ViewProject({ active }: { active: boolean }) {
           </table>
           <div className="px-5 py-3 hairline flex items-center text-[11px]">
             <span className="t-40">показано 6 из 134</span>
-            <a className="ml-auto text-white flex items-center gap-1.5 cursor-pointer">
+            <Link href="/register" className="ml-auto text-white flex items-center gap-1.5 hover:opacity-80 transition-opacity">
               смотреть все
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>
-            </a>
+            </Link>
           </div>
         </div>
       </div>
@@ -1304,22 +1396,37 @@ function BubbleChart() {
 
 /* ── View: Lead ──────────────────────────────────────── */
 
-function ViewLead({ active }: { active: boolean }) {
+function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
   const scoreRef = useCountUp<HTMLSpanElement>(92);
   return (
-    <section className={"view" + (active ? " active" : "")}>
+    <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-6">
         <div>
-          <div className="eyebrow">лид № 0042 · 2GIS+ЕГРЮЛ</div>
+          <div className="eyebrow">лид · 2GIS+ЕГРЮЛ</div>
           <div className="h1 mt-2" style={{ fontSize: 56 }}>Птицефабрика «Юг»</div>
           <div className="text-[13px] t-72 mt-1">
             ООО «Птицефабрика Юг» <span className="t-28">·</span>{" "}
             <span className="mono">ИНН 7017234567</span> <span className="t-28">·</span> Томск
+            {" "}<span className="panel-thin px-2 py-0.5 text-[10px] mono align-middle ml-1">демо-данные</span>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-none">
-          <button className="ghost rounded-full px-3.5 py-2 text-[12.5px]">В кампанию</button>
-          <button className="brand rounded-full px-4 py-2 text-[12.5px]">Связаться</button>
+          <button
+            className="ghost rounded-full px-3.5 py-2 text-[12.5px] opacity-50 cursor-not-allowed"
+            disabled
+            title="доступно в приложении"
+            style={{ pointerEvents: "none" }}
+          >
+            В кампанию
+          </button>
+          <button
+            className="brand rounded-full px-4 py-2 text-[12.5px] opacity-50 cursor-not-allowed"
+            disabled
+            title="доступно в приложении"
+            style={{ pointerEvents: "none" }}
+          >
+            Связаться
+          </button>
         </div>
       </div>
 
@@ -1542,10 +1649,8 @@ function FooterSection() {
             { label: "Цены", href: "/plans" },
           ] },
           { title: "Документы", items: [
-            { label: "Условия", href: "/terms" },
-            { label: "Конфиденциальность", href: "/privacy" },
-            { label: "Обработка ПДн", href: "/privacy" },
-            { label: "152-ФЗ", href: "/privacy" },
+            { label: "Политика конфиденциальности", href: "/privacy" },
+            { label: "Оферта", href: "/terms" },
           ] },
           { title: "Контакты", items: [
             { label: "support@usebaza.ru", href: "mailto:support@usebaza.ru" },
@@ -1573,8 +1678,8 @@ function FooterSection() {
       </div>
       <div className="hairline">
         <div className="max-w-[1320px] mx-auto px-6 py-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 t-40 text-[11px]">
-          <div>© 2026 База · usebaza.ru · v0.42 предварительный обзор</div>
-          <div className="mono">№ 0042 / Tomsk · LTR</div>
+          <div>© 2026 База · usebaza.ru</div>
+          <div className="mono">LTR</div>
         </div>
       </div>
     </footer>

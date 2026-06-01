@@ -5,12 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Users, Building2, FolderOpen, Database, Activity, Shield, Trash2, Clock } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -43,11 +38,13 @@ type JobRow = {
 };
 type LogRow = { id: string; action: string; user_email: string; org_name: string; meta: Record<string, unknown>; created_at: string };
 
-const STATUS_COLORS: Record<string, string> = {
-  queued: "bg-muted text-muted-foreground",
-  running: "bg-blue-500/15 text-blue-500",
-  done: "bg-emerald-500/15 text-emerald-500",
-  failed: "bg-destructive/15 text-destructive",
+type TabValue = "overview" | "users" | "orgs" | "jobs" | "logs";
+
+const STATUS_DOT: Record<string, string> = {
+  queued: "dot-am",
+  running: "dot-em",
+  done: "dot-mt",
+  failed: "",
 };
 
 function formatDate(iso: string) {
@@ -67,6 +64,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabValue>("overview");
 
   const load = useCallback(async () => {
     try {
@@ -93,7 +91,13 @@ export default function AdminPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  if (loading || !authed) return <main className="mx-auto max-w-6xl px-6 py-12"><p className="text-muted-foreground">Загрузка...</p></main>;
+  if (loading || !authed) return (
+    <main className="relative mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      <div className="canvas-bg" />
+      <div className="grain" />
+      <p className="relative z-10 t-48 text-[13px]">Загрузка...</p>
+    </main>
+  );
 
   const toggleAdmin = async (userId: string, current: boolean) => {
     try {
@@ -141,243 +145,299 @@ export default function AdminPage() {
     }
   };
 
-  return (
-    <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Shield className="h-6 w-6" /> Админ-панель
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">Управление платформой БАЗА</p>
-      </div>
+  const tabItems: { value: TabValue; label: string }[] = [
+    { value: "overview", label: "Обзор" },
+    { value: "users", label: "Пользователи" },
+    { value: "orgs", label: "Организации" },
+    { value: "jobs", label: "Задания" },
+    { value: "logs", label: "Логи" },
+  ];
 
-      <Tabs defaultValue="overview" className="space-y-6">
-        <TabsList className="flex w-full overflow-x-auto sm:grid sm:grid-cols-5">
-          <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="users">Пользователи</TabsTrigger>
-          <TabsTrigger value="orgs">Организации</TabsTrigger>
-          <TabsTrigger value="jobs">Задания</TabsTrigger>
-          <TabsTrigger value="logs">Логи</TabsTrigger>
-        </TabsList>
+  return (
+    <main className="relative mx-auto max-w-6xl space-y-6 px-4 py-10 sm:px-6">
+      <div className="canvas-bg" />
+      <div className="grain" />
+
+      <div className="relative z-10 space-y-8">
+        {/* Header */}
+        <div className="space-y-1">
+          <div className="eyebrow">администрирование</div>
+          <h1 className="h1 flex items-center gap-3" style={{ fontSize: 40, lineHeight: 1.05 }}>
+            <Shield className="size-9 shrink-0" style={{ color: "var(--mint)" }} />
+            Админ-панель
+          </h1>
+          <p className="caption">Управление платформой БАЗА</p>
+        </div>
+
+        {/* Tab nav */}
+        <nav className="flex gap-1.5 overflow-x-auto border-b border-[var(--line)] pb-px">
+          {tabItems.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setActiveTab(tab.value)}
+              className={`nav-item shrink-0 ${activeTab === tab.value ? "active" : ""}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
 
         {/* ── Overview ── */}
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: "Пользователи", value: stats?.totals.users ?? 0, sub: `+${stats?.recent.users_week ?? 0} за неделю`, icon: Users },
-              { label: "Организации", value: stats?.totals.organizations ?? 0, sub: `${Object.entries(stats?.plan_distribution ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(", ")}`, icon: Building2 },
-              { label: "Проекты", value: stats?.totals.projects ?? 0, sub: `${stats?.totals.jobs ?? 0} сборов всего`, icon: FolderOpen },
-              { label: "Лиды", value: stats?.totals.leads ?? 0, sub: `+${stats?.recent.leads_week ?? 0} за неделю`, icon: Database },
-            ].map((s) => (
-              <Card key={s.label}>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{s.label}</CardTitle>
-                  <s.icon className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{s.value.toLocaleString("ru-RU")}</div>
-                  <p className="text-xs text-muted-foreground mt-1">{s.sub}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+        {activeTab === "overview" && (
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                { label: "Пользователи", value: stats?.totals.users ?? 0, sub: `+${stats?.recent.users_week ?? 0} за неделю`, icon: Users },
+                { label: "Организации", value: stats?.totals.organizations ?? 0, sub: Object.entries(stats?.plan_distribution ?? {}).filter(([, v]) => v > 0).map(([k, v]) => `${k}: ${v}`).join(", "), icon: Building2 },
+                { label: "Проекты", value: stats?.totals.projects ?? 0, sub: `${stats?.totals.jobs ?? 0} сборов всего`, icon: FolderOpen },
+                { label: "Лиды", value: stats?.totals.leads ?? 0, sub: `+${stats?.recent.leads_week ?? 0} за неделю`, icon: Database },
+              ].map((s) => (
+                <div key={s.label} className="panel p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="eyebrow">{s.label}</div>
+                    <s.icon className="size-4 t-40" />
+                  </div>
+                  <div className="tnum text-white" style={{ fontSize: 28, fontWeight: 300 }}>
+                    {s.value.toLocaleString("ru-RU")}
+                  </div>
+                  <p className="text-[11px] mono t-48 mt-1">{s.sub}</p>
+                </div>
+              ))}
+            </div>
 
-          <Card>
-            <CardHeader><CardTitle className="text-base">Выручка (оценка)</CardTitle></CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{(stats?.revenue_monthly_rub ?? 0).toLocaleString("ru-RU")} ₽<span className="text-base font-normal text-muted-foreground">/мес</span></div>
-            </CardContent>
-          </Card>
+            <div className="panel p-5">
+              <div className="eyebrow mb-3">выручка (оценка)</div>
+              <div className="tnum text-white" style={{ fontSize: 36, fontWeight: 300 }}>
+                {(stats?.revenue_monthly_rub ?? 0).toLocaleString("ru-RU")} ₽
+                <span className="text-[16px] t-48 ml-2">/мес</span>
+              </div>
+            </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader><CardTitle className="text-base">Последние регистрации</CardTitle></CardHeader>
-              <CardContent>
-                <div className="space-y-2">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="panel p-5">
+                <div className="eyebrow mb-4">последние регистрации</div>
+                <div className="space-y-2.5">
                   {users.slice(0, 5).map((u) => (
-                    <div key={u.id} className="flex items-center justify-between text-sm">
-                      <span className="font-medium">{u.full_name || u.email}</span>
-                      <span className="text-muted-foreground text-xs">{formatDate(u.created_at)}</span>
+                    <div key={u.id} className="flex items-center justify-between">
+                      <span className="text-[13px] text-white truncate">{u.full_name || u.email}</span>
+                      <span className="text-[11px] mono t-48 shrink-0 ml-4">{formatDate(u.created_at)}</span>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader><CardTitle className="text-base">Последние сборы</CardTitle></CardHeader>
-              <CardContent>
-                <div className="space-y-2">
+              </div>
+              <div className="panel p-5">
+                <div className="eyebrow mb-4">последние сборы</div>
+                <div className="space-y-2.5">
                   {jobs.slice(0, 5).map((j) => (
-                    <div key={j.id} className="flex items-center justify-between text-sm">
-                      <div>
-                        <span className="font-medium">{j.project_name}</span>
-                        <Badge variant="outline" className={`ml-2 text-[10px] ${STATUS_COLORS[j.status] ?? ""}`}>{j.status}</Badge>
+                    <div key={j.id} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`dot ${STATUS_DOT[j.status] ?? ""}`} style={!STATUS_DOT[j.status] ? { background: "var(--rose)" } : undefined} />
+                        <span className="text-[13px] text-white truncate">{j.project_name}</span>
                       </div>
-                      <span className="text-muted-foreground text-xs">{j.found_count} найдено</span>
+                      <span className="text-[11px] mono t-48 shrink-0 ml-4">{j.found_count} найдено</span>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           </div>
-        </TabsContent>
+        )}
 
         {/* ── Users ── */}
-        <TabsContent value="users">
-          <Card>
-            <CardHeader><CardTitle>Пользователи ({users.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 font-medium">Email</th>
-                      <th className="pb-2 font-medium">Имя</th>
-                      <th className="pb-2 font-medium">Роль</th>
-                      <th className="pb-2 font-medium">Дата</th>
-                      <th className="pb-2 font-medium">Действия</th>
+        {activeTab === "users" && (
+          <section className="panel p-6">
+            <div className="eyebrow mb-1">пользователи</div>
+            <p className="text-[12px] t-56 mb-5">Всего: {users.length}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--line)]">
+                    <th className="eyebrow text-left py-2.5">Email</th>
+                    <th className="eyebrow text-left py-2.5">Имя</th>
+                    <th className="eyebrow text-left py-2.5">Роль</th>
+                    <th className="eyebrow text-left py-2.5">Дата</th>
+                    <th className="eyebrow text-right py-2.5">Действия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id} className="border-b border-[var(--line)] last:border-0">
+                      <td className="py-3 text-[13px] text-white">{u.email}</td>
+                      <td className="py-3 text-[13px] t-84">{u.full_name || "—"}</td>
+                      <td className="py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
+                          <span className={`dot ${u.is_admin ? "dot-mt" : "dot-am"}`} />
+                          {u.is_admin ? "Админ" : "Пользователь"}
+                        </span>
+                      </td>
+                      <td className="py-3 text-[11px] mono t-48">{formatDate(u.created_at)}</td>
+                      <td className="text-right py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleAdmin(u.id, u.is_admin)}
+                            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-white/[0.06] hover:t-100 transition-colors"
+                          >
+                            {u.is_admin ? "Снять админа" : "Сделать админом"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(u)}
+                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] mono hover:bg-white/[0.06] transition-colors"
+                            style={{ color: "var(--rose)" }}
+                          >
+                            <Trash2 className="size-3" />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id} className="border-b last:border-0">
-                        <td className="py-3">{u.email}</td>
-                        <td className="py-3">{u.full_name || "—"}</td>
-                        <td className="py-3">
-                          {u.is_admin ? <Badge>Админ</Badge> : <Badge variant="outline">Пользователь</Badge>}
-                        </td>
-                        <td className="py-3 text-muted-foreground text-xs">{formatDate(u.created_at)}</td>
-                        <td className="py-3">
-                          <div className="flex gap-1">
-                            <Button size="sm" variant="ghost" onClick={() => toggleAdmin(u.id, u.is_admin)}>
-                              {u.is_admin ? "Снять админа" : "Сделать админом"}
-                            </Button>
-                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDeleteTarget(u)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* ── Organizations ── */}
-        <TabsContent value="orgs">
-          <Card>
-            <CardHeader><CardTitle>Организации ({orgs.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {orgs.map((org) => (
-                  <div key={org.id} className="rounded-lg border p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-semibold">{org.name}</span>
-                        <span className="ml-2 text-sm text-muted-foreground">{org.members_count} участников · {org.projects_count} проектов · {org.leads_count} лидов</span>
-                      </div>
-                      <Select value={org.plan ?? "free"} onValueChange={(v) => changePlan(org.id, v)}>
-                        <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="free">Free</SelectItem>
-                          <SelectItem value="starter">Starter</SelectItem>
-                          <SelectItem value="pro">Pro</SelectItem>
-                          <SelectItem value="team">Business</SelectItem>
-                        </SelectContent>
-                      </Select>
+        {activeTab === "orgs" && (
+          <section className="panel p-6">
+            <div className="eyebrow mb-1">организации</div>
+            <p className="text-[12px] t-56 mb-5">Всего: {orgs.length}</p>
+            <div className="space-y-4">
+              {orgs.map((org) => (
+                <div key={org.id} className="panel-flat p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-[14px] text-white font-medium truncate">{org.name}</p>
+                      <p className="text-[11px] mono t-48 mt-0.5">
+                        {org.members_count} участников · {org.projects_count} проектов · {org.leads_count} лидов
+                      </p>
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <span>Лиды: {org.leads_used_current_month} / {org.leads_limit_per_month}</span>
-                      <span>·</span>
-                      <span>Создана: {formatDate(org.created_at)}</span>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-                      <Input
-                        type="number" min={1} placeholder="Лимит проектов"
-                        value={limits[org.id]?.projects_limit ?? org.projects_limit}
-                        onChange={(e) => setLimits((p) => ({ ...p, [org.id]: { ...p[org.id], projects_limit: Math.max(1, +e.target.value) } }))}
-                      />
-                      <Input
-                        type="number" min={1} placeholder="Лимит лидов/мес"
-                        value={limits[org.id]?.leads_limit_per_month ?? org.leads_limit_per_month}
-                        onChange={(e) => setLimits((p) => ({ ...p, [org.id]: { ...p[org.id], leads_limit_per_month: Math.max(1, +e.target.value) } }))}
-                      />
-                      <Button onClick={() => saveLimits(org.id)}>Сохранить</Button>
-                    </div>
+                    <Select value={org.plan ?? "free"} onValueChange={(v) => changePlan(org.id, v)}>
+                      <SelectTrigger className="w-32 bg-white/[0.04] border-[var(--line-2)]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="free">Free</SelectItem>
+                        <SelectItem value="starter">Starter</SelectItem>
+                        <SelectItem value="pro">Pro</SelectItem>
+                        <SelectItem value="team">Business</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  <p className="text-[11px] mono t-48">
+                    Лиды: {org.leads_used_current_month} / {org.leads_limit_per_month} · Создана: {formatDate(org.created_at)}
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="Лимит проектов"
+                      value={limits[org.id]?.projects_limit ?? org.projects_limit}
+                      onChange={(e) => setLimits((p) => ({ ...p, [org.id]: { ...p[org.id], projects_limit: Math.max(1, +e.target.value) } }))}
+                    />
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      placeholder="Лимит лидов/мес"
+                      value={limits[org.id]?.leads_limit_per_month ?? org.leads_limit_per_month}
+                      onChange={(e) => setLimits((p) => ({ ...p, [org.id]: { ...p[org.id], leads_limit_per_month: Math.max(1, +e.target.value) } }))}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveLimits(org.id)}
+                      className="btn-brand rounded-full px-4 py-2 text-[13px]"
+                    >
+                      Сохранить
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* ── Jobs ── */}
-        <TabsContent value="jobs">
-          <Card>
-            <CardHeader><CardTitle>Задания ({jobs.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left text-muted-foreground">
-                      <th className="pb-2 font-medium">Проект</th>
-                      <th className="pb-2 font-medium">Организация</th>
-                      <th className="pb-2 font-medium">Статус</th>
-                      <th className="pb-2 font-medium">Найдено</th>
-                      <th className="pb-2 font-medium">Добавлено</th>
-                      <th className="pb-2 font-medium">Дата</th>
+        {activeTab === "jobs" && (
+          <section className="panel p-6">
+            <div className="eyebrow mb-1">задания</div>
+            <p className="text-[12px] t-56 mb-5">Всего: {jobs.length}</p>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[var(--line)]">
+                    <th className="eyebrow text-left py-2.5">Проект</th>
+                    <th className="eyebrow text-left py-2.5">Организация</th>
+                    <th className="eyebrow text-left py-2.5">Статус</th>
+                    <th className="eyebrow text-left py-2.5">Найдено</th>
+                    <th className="eyebrow text-left py-2.5">Добавлено</th>
+                    <th className="eyebrow text-right py-2.5">Дата</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {jobs.map((j) => (
+                    <tr key={j.id} className="border-b border-[var(--line)] last:border-0">
+                      <td className="py-3 text-[13px] text-white">{j.project_name}</td>
+                      <td className="py-3 text-[13px] t-56">{j.org_name}</td>
+                      <td className="py-3">
+                        <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
+                          <span
+                            className={`dot ${STATUS_DOT[j.status] ?? ""}`}
+                            style={!STATUS_DOT[j.status] ? { background: "var(--rose)" } : undefined}
+                          />
+                          {j.status}
+                        </span>
+                      </td>
+                      <td className="py-3 text-[13px] t-84">{j.found_count}</td>
+                      <td className="py-3 text-[13px] t-84">{j.added_count}</td>
+                      <td className="text-right py-3 text-[11px] mono t-48">{formatDate(j.created_at)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {jobs.map((j) => (
-                      <tr key={j.id} className="border-b last:border-0">
-                        <td className="py-3 font-medium">{j.project_name}</td>
-                        <td className="py-3 text-muted-foreground">{j.org_name}</td>
-                        <td className="py-3">
-                          <Badge variant="outline" className={STATUS_COLORS[j.status] ?? ""}>{j.status}</Badge>
-                        </td>
-                        <td className="py-3">{j.found_count}</td>
-                        <td className="py-3">{j.added_count}</td>
-                        <td className="py-3 text-muted-foreground text-xs">{formatDate(j.created_at)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         {/* ── Logs ── */}
-        <TabsContent value="logs">
-          <Card>
-            <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4" /> Логи активности ({logs.length})</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {logs.map((l) => (
-                  <div key={l.id} className="flex items-start justify-between rounded-lg border p-3 text-sm">
-                    <div>
-                      <Badge variant="outline" className="mr-2 text-xs">{l.action}</Badge>
-                      <span className="text-muted-foreground">{l.user_email}</span>
-                      {l.org_name !== "—" && <span className="text-muted-foreground"> · {l.org_name}</span>}
-                      {l.meta && Object.keys(l.meta).length > 0 && (
-                        <div className="mt-1 text-xs text-muted-foreground/70 font-mono">
-                          {JSON.stringify(l.meta).slice(0, 120)}
-                        </div>
+        {activeTab === "logs" && (
+          <section className="panel p-6">
+            <div className="eyebrow mb-1 flex items-center gap-2">
+              <Activity className="size-3" />
+              логи активности
+            </div>
+            <p className="text-[12px] t-56 mb-5">Всего: {logs.length}</p>
+            <div className="space-y-2">
+              {logs.map((l) => (
+                <div key={l.id} className="panel-flat p-3 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center rounded-md panel-thin px-2 py-0.5 text-[11px] mono">
+                        {l.action}
+                      </span>
+                      <span className="text-[12px] t-56 truncate">{l.user_email}</span>
+                      {l.org_name !== "—" && (
+                        <span className="text-[12px] t-48">· {l.org_name}</span>
                       )}
                     </div>
-                    <span className="shrink-0 text-xs text-muted-foreground flex items-center gap-1">
-                      <Clock className="h-3 w-3" /> {formatDate(l.created_at)}
-                    </span>
+                    {l.meta && Object.keys(l.meta).length > 0 && (
+                      <div className="mt-1 text-[11px] mono t-40">
+                        {JSON.stringify(l.meta).slice(0, 120)}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                  <span className="shrink-0 text-[11px] mono t-48 flex items-center gap-1">
+                    <Clock className="size-3" /> {formatDate(l.created_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
 
       {/* Delete user confirmation dialog */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>

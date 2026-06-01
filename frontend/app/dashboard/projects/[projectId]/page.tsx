@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, CalendarClock, Download, Loader2, Play, RefreshCw, Sparkles, Hash, Mail, TrendingUp, Users } from "lucide-react";
+import { CalendarClock, Download, Loader2, Play, RefreshCw, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -11,23 +11,21 @@ import { JobHistory } from "@/components/dashboard/job-history";
 import { LeadsTable } from "@/components/dashboard/leads-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Loader } from "@/components/ui/loader";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api, apiFetch } from "@/lib/api";
 import { getOrgId, getToken } from "@/lib/auth";
 import { useDebounce } from "@/lib/hooks";
 import type { CollectionJob, Lead, Project } from "@/lib/types";
 
 const STAT_CARDS = [
-  { key: "total", label: "Всего лидов", icon: Users },
-  { key: "enriched", label: "Обогащено", icon: Sparkles },
-  { key: "withEmail", label: "С email", icon: Mail },
-  { key: "avgScore", label: "Средний score", icon: TrendingUp },
+  { key: "total", label: "Всего лидов" },
+  { key: "enriched", label: "Обогащено" },
+  { key: "withEmail", label: "С email" },
+  { key: "avgScore", label: "Средний score" },
 ] as const;
 
 export default function ProjectDetailsPage() {
@@ -49,6 +47,7 @@ export default function ProjectDetailsPage() {
   const [perPage] = useState(25);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [tableLoading, setTableLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
@@ -59,6 +58,7 @@ export default function ProjectDetailsPage() {
   const leadsTableRef = useRef<HTMLDivElement>(null);
 
   const fetchAll = useCallback(async () => {
+    setTableLoading(true);
     try {
       const query = new URLSearchParams({ page: String(page), per_page: String(perPage), q: debouncedSearch, sort, order });
       if (status !== "all") query.set("status", status);
@@ -88,7 +88,7 @@ export default function ProjectDetailsPage() {
       setTotal(projectLeads.total);
       setJobs(Array.isArray(projectJobs) ? projectJobs : []);
       setOrgRole(membership.role);
-      setStats({ total: statsData.total, enriched: statsData.enriched, withEmail: statsData.with_email, avgScore: statsData.avg_score });
+      setStats({ total: statsData.total, enriched: statsData.enriched, withEmail: statsData.with_email, avgScore: Math.round(statsData.avg_score) });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "";
       if (msg.includes("авториз") || msg.includes("Сессия")) {
@@ -98,6 +98,7 @@ export default function ProjectDetailsPage() {
       setError(msg || "Не удалось загрузить проект");
     } finally {
       setLoading(false);
+      setTableLoading(false);
     }
   }, [hasEmail, hasPhone, maxScore, minScore, order, page, perPage, projectId, debouncedSearch, sort, status]);
 
@@ -246,7 +247,7 @@ export default function ProjectDetailsPage() {
           <span className="t-28 mx-1.5">/</span>
           <span className="t-40">проекты</span>
           <span className="t-28 mx-1.5">/</span>
-          <span className="t-72">{project?.id?.slice(0, 12) ?? "—"}</span>
+          <span className="t-72">{project?.name ?? "—"}</span>
         </div>
 
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
@@ -274,31 +275,6 @@ export default function ProjectDetailsPage() {
             </div>
           </div>
 
-          <div className="flex items-start gap-2 pt-2">
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger render={<button disabled aria-label="избранное" className="btn-icon cursor-not-allowed opacity-50" />}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <path d="M12 17.3l-5.5 3 1-6.2L3 9.6l6.3-.9L12 3l2.7 5.7 6.3.9-4.5 4.5 1 6.2z" />
-                  </svg>
-                </TooltipTrigger>
-                <TooltipContent>Скоро</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger render={<button disabled aria-label="поделиться" className="btn-icon cursor-not-allowed opacity-50" />}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                    <circle cx="18" cy="5" r="3" />
-                    <circle cx="6" cy="12" r="3" />
-                    <circle cx="18" cy="19" r="3" />
-                    <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4" />
-                  </svg>
-                </TooltipTrigger>
-                <TooltipContent>Скоро</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
         </div>
 
         {/* Chips row */}
@@ -419,9 +395,9 @@ export default function ProjectDetailsPage() {
                 <SelectContent>
                   <SelectItem value="all">Все статусы</SelectItem>
                   <SelectItem value="new">Новый</SelectItem>
-                  <SelectItem value="contacted">Контакт</SelectItem>
-                  <SelectItem value="qualified">Горячий</SelectItem>
-                  <SelectItem value="rejected">Отказ</SelectItem>
+                  <SelectItem value="contacted">Связались</SelectItem>
+                  <SelectItem value="qualified">Квалифицирован</SelectItem>
+                  <SelectItem value="rejected">Отклонён</SelectItem>
                 </SelectContent>
               </Select>
               <Select value={sort} onValueChange={(val: string | null) => { if (val) setSort(val); }}>
@@ -487,6 +463,7 @@ export default function ProjectDetailsPage() {
 
             <LeadsTable
               leads={leads}
+              loading={tableLoading}
               onBulkEnrich={handleBulkEnrich}
               canBulkEnrich={canManage && !enrichBusy}
               hideInternalFilters

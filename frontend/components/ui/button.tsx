@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
  *  - default   pure-white pill on dark canvas (THE primary action)
  *  - secondary glass pill (most actions)
  *  - ghost     text-only (toolbars, table actions)
- *  - brand     orange pill (the rare "do this NOW" action)
+ *  - brand     white mint-glow pill (the primary call-to-action)
  *  - destructive translucent rose (destructive)
  *  - link      text + underline on hover
  */
@@ -33,7 +33,7 @@ const buttonVariants = cva(
         ghost:
           "rounded-lg text-white/[0.72] hover:text-white hover:bg-white/[0.05] data-[state=open]:bg-white/[0.05] data-[state=open]:text-white",
         brand:
-          "rounded-full bg-[#FF6A00] text-black hover:bg-[#FF7A1A] active:bg-[#E65E00] shadow-[0_0_24px_rgba(255,106,0,0.25)] hover:shadow-[0_0_32px_rgba(255,106,0,0.4)]",
+          "rounded-full bg-white text-[#0A0A0C] font-medium shadow-[0_8px_28px_-10px_rgba(168,197,192,0.6),inset_0_-1px_0_rgba(0,0,0,0.18)] hover:-translate-y-px hover:bg-white/95 active:bg-white/90",
         destructive:
           "rounded-full text-status-offline bg-status-offline/10 border border-status-offline/20 hover:bg-status-offline/15 hover:border-status-offline/30",
         link:

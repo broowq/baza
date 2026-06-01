@@ -4,6 +4,20 @@ const nextConfig = {
   experimental: {
     typedRoutes: true
   },
+  async redirects() {
+    return [
+      {
+        source: '/settings',
+        destination: '/dashboard/settings',
+        permanent: true,
+      },
+      {
+        source: '/admin',
+        destination: '/dashboard/admin',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

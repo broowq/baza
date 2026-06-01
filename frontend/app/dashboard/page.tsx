@@ -690,7 +690,7 @@ export default function DashboardPage() {
             status ? (JOB_STATUS_MAP[status]?.label ?? status) :
             "новый";
 
-          const sourceList = ["2ГИС", "Yandex", "SearXNG"];
+          const sourceList = ["2ГИС", "Яндекс", "SearXNG"];
 
           return (
             <div
@@ -730,11 +730,11 @@ export default function DashboardPage() {
                         <span className="t-72 tnum">{latestJob.added_count ?? 0}</span> добавлено
                         {" · "}
                         <span className="t-72 tnum">{latestJob.enriched_count ?? 0}</span> обогащено
-                        {" · sources: "}
+                        {" · источники: "}
                         {sourceList.join(" · ")}
                       </>
                     ) : (
-                      <span className="italic">ещё не запускали сбор · sources: {sourceList.join(" · ")}</span>
+                      <span className="italic">ещё не запускали сбор · источники: {sourceList.join(" · ")}</span>
                     )}
                   </div>
                 </div>

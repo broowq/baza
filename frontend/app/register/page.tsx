@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
@@ -8,25 +9,10 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { setOrgId, setToken } from "@/lib/auth";
 import type { Organization } from "@/lib/types";
-
-function EyeIcon({ open }: { open: boolean }) {
-  return open ? (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ) : (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94" />
-      <path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  );
-}
+import { EyeIcon } from "@/components/ui/eye-icon";
 
 type RegisterResponse = {
   access_token: string;
-  refresh_token: string;
   message?: string | null;
   email_verification_required?: boolean;
 };
@@ -57,6 +43,7 @@ function RegisterContent() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [formError, setFormError] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
 
@@ -68,6 +55,7 @@ function RegisterContent() {
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setFormError("");
     setLoading(true);
     try {
       const data = await api<RegisterResponse>("/auth/register", {
@@ -77,11 +65,7 @@ function RegisterContent() {
 
       if (data.email_verification_required) {
         toast.success(data.message ?? "Аккаунт создан. Подтвердите email, затем войдите.");
-        if (typeof window !== "undefined") {
-          window.location.assign(`/login${querySuffix}`);
-        } else {
-          router.push("/login");
-        }
+        router.push(`/login${querySuffix}` as Route);
         return;
       }
 
@@ -103,7 +87,9 @@ function RegisterContent() {
 
       router.push("/dashboard");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось зарегистрироваться");
+      const msg = error instanceof Error ? error.message : "Не удалось зарегистрироваться";
+      setFormError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -219,6 +205,7 @@ function RegisterContent() {
                   checked={acceptedTerms}
                   onChange={(e) => setAcceptedTerms(e.target.checked)}
                   className="sr-only"
+                  required
                 />
                 <span className="text-[12.5px] t-72">
                   Принимаю{" "}
@@ -247,6 +234,7 @@ function RegisterContent() {
                   checked={acceptedPrivacy}
                   onChange={(e) => setAcceptedPrivacy(e.target.checked)}
                   className="sr-only"
+                  required
                 />
                 <span className="text-[12.5px] t-72">
                   Согласен на обработку персональных данных по{" "}
@@ -256,6 +244,12 @@ function RegisterContent() {
                 </span>
               </label>
             </div>
+
+            {formError && (
+              <div role="alert" aria-live="assertive" className="panel-flat px-3 py-2.5 text-[12px]" style={{ color: "var(--rose)" }}>
+                {formError}
+              </div>
+            )}
 
             <button
               type="submit"
