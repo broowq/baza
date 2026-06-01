@@ -124,6 +124,15 @@ def collect_leads_task(job_id: str) -> None:
         job = db.get(CollectionJob, UUID(job_id))
         if not job:
             return
+        # acks_late guard: with task_acks_late + reject_on_worker_lost, a task
+        # whose worker died mid-run is redelivered. If health_check already
+        # failed this job (or it somehow finished), do NOT revive it — just ack
+        # and exit. A still-'running'/'queued' job is re-run from scratch, which
+        # is safe (dedup-by-domain prevents duplicate leads, savepoints isolate
+        # per-lead writes).
+        if job.status in (JobStatus.failed, JobStatus.done):
+            logger.info("collect_leads_task: job %s already %s — skip redelivery", job_id, job.status)
+            return
         project = db.get(Project, job.project_id)
         if not project:
             job.status = JobStatus.failed
@@ -378,16 +387,16 @@ def collect_leads_task(job_id: str) -> None:
             except Exception:
                 logger.warning("Failed to auto-queue enrich after collect", exc_info=True)
     except SoftTimeLimitExceeded:
-        # Bug #2 fix: task hit the soft time limit (1500s). Mark the job failed
-        # so it doesn't stay 'running' forever and block subsequent API calls
-        # with a 409.  We do NOT raise so Celery won't attempt a retry — the
-        # job simply timed out and the user should re-trigger manually.
+        # Task hit its soft time limit (collect = 1800s / 30 min). Mark the job
+        # failed so it doesn't stay 'running' forever and block subsequent API
+        # calls with a 409. We do NOT raise so Celery won't attempt a retry —
+        # the job simply timed out and the user should re-trigger manually.
         logger.warning("collect_leads_task soft time limit exceeded for job_id=%s", job_id)
         db.rollback()
         job = db.get(CollectionJob, UUID(job_id))
         if job:
             job.status = JobStatus.failed
-            job.error = "Задача прервана: превышен лимит времени выполнения (1500 сек)"
+            job.error = "Задача прервана: превышен лимит времени выполнения (30 мин)"
             db.commit()
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(
@@ -441,6 +450,11 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
     try:
         job = db.get(CollectionJob, UUID(job_id))
         if not job:
+            return
+        # acks_late guard: a redelivered task (worker lost mid-run) must not
+        # revive a job health_check already failed, nor re-run a finished one.
+        if job.status in (JobStatus.failed, JobStatus.done):
+            logger.info("enrich_leads_task: job %s already %s — skip redelivery", job_id, job.status)
             return
         job.status = JobStatus.running
         db.commit()
@@ -646,14 +660,14 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             except Exception:
                 logger.warning("project-ready notification failed", exc_info=True)
     except SoftTimeLimitExceeded:
-        # Bug #2 fix: task hit the soft time limit (1500s). Mark failed so the
-        # job doesn't stay 'running' and block the project with 409 errors.
+        # Task hit its soft time limit (enrich = 3600s / 60 min). Mark failed so
+        # the job doesn't stay 'running' and block the project with 409 errors.
         logger.warning("enrich_leads_task soft time limit exceeded for job_id=%s", job_id)
         db.rollback()
         job = db.get(CollectionJob, UUID(job_id))
         if job:
             job.status = JobStatus.failed
-            job.error = "Задача прервана: превышен лимит времени выполнения (1500 сек)"
+            job.error = "Задача прервана: превышен лимит времени выполнения (60 мин)"
             db.commit()
     except (ConnectionError, TimeoutError) as exc:
         logger.warning(

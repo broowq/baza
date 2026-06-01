@@ -160,9 +160,33 @@ def health_check() -> None:
                 throttle_seconds=1800,
             )
 
+        # 3. Auto-remediate: flip stuck 'running' jobs (no progress for >30 min)
+        #    to 'failed' so the project is unblocked. A killed/OOM/evicted worker
+        #    never runs its except-handler, so the row would otherwise sit in
+        #    'running' forever and 409 every future collect/enrich. Both tasks
+        #    bump updated_at on progress (collect every 10 leads, enrich every
+        #    5), so updated_at < now-30min means genuinely no progress — a live
+        #    long job stays fresh and is never wrongly failed. Placed AFTER the
+        #    detection counts above so it doesn't inflate this run's failed-spike
+        #    alert.
+        remediated = db.execute(
+            update(CollectionJob)
+            .where(CollectionJob.status == JobStatus.running)
+            .where(CollectionJob.updated_at < stuck_threshold)
+            .values(
+                status=JobStatus.failed,
+                error="Задача прервана: воркер остановлен (таймаут/OOM)",
+                updated_at=now,
+            )
+        ).rowcount
+        if remediated:
+            db.commit()
+            logger.warning("health_check: auto-failed %d stuck job(s)", remediated)
+
         logger.debug("Health check ok: stuck=%d, failed_last_hour=%d", stuck, recent_failed)
     except Exception:
         logger.exception("health_check task failed")
+        db.rollback()
     finally:
         db.close()
 
