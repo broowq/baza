@@ -51,6 +51,14 @@ const ORDER_LABELS: Record<string, string> = { desc: "Убывание", asc: "�
 const EMAIL_LABELS: Record<string, string> = { all: "Email: все", true: "С email", false: "Без email" };
 const PHONE_LABELS: Record<string, string> = { all: "Тел: все", true: "С телефоном", false: "Без телефона" };
 
+function pluralCompanies(n: number): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return "новая компания";
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "новые компании";
+  return "новых компаний";
+}
+
 export default function ProjectDetailsPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -178,6 +186,26 @@ export default function ProjectDetailsPage() {
     return () => { cancelled = true; controller.abort(); };
   }, [projectId]);
 
+  // Toast the outcome when a collect job finishes — how many NEW companies were
+  // added this dose, or an honest "nothing new" when the query is exhausted.
+  const lastCollectToastRef = useRef<string | null>(null);
+  const collectToastInitRef = useRef(false);
+  useEffect(() => {
+    const last = jobs.find((j) => j.kind === "collect");
+    if (!last) return;
+    if (!collectToastInitRef.current) {
+      // First load — remember current state, don't toast historical completions.
+      collectToastInitRef.current = true;
+      if (last.status === "done") lastCollectToastRef.current = last.id;
+      return;
+    }
+    if (last.status !== "done" || lastCollectToastRef.current === last.id) return;
+    lastCollectToastRef.current = last.id;
+    const n = last.added_count ?? 0;
+    if (n > 0) toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
+    else toast("Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
+  }, [jobs]);
+
   const queueJob = async (kind: "collect" | "enrich", limit: number) => {
     setRunning(true);
     try {
@@ -185,7 +213,7 @@ export default function ProjectDetailsPage() {
         method: "POST",
         body: JSON.stringify({ lead_limit: limit }),
       });
-      toast.success(`Задача ${kind === "collect" ? "сбора" : "обогащения"} добавлена в очередь`);
+      toast.success(kind === "collect" ? "Собираем новые компании…" : "Задача обогащения добавлена в очередь");
       await fetchAll();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось запустить задачу");
@@ -331,12 +359,13 @@ export default function ProjectDetailsPage() {
           <button
             className="btn btn-brand"
             disabled={running || collectBusy || !canManage}
-            onClick={() => queueJob("collect", 500)}
+            title="Добавляет до 10 новых компаний (без повторов). Сначала из нашей базы, затем живой поиск."
+            onClick={() => queueJob("collect", 10)}
           >
             {collectBusy ? (
               <><Loader2 size={12} className="animate-spin" /> Собираем…</>
             ) : (
-              <><Play size={11} /> Собрать лиды</>
+              <><Play size={11} /> Собрать 10</>
             )}
           </button>
           <button

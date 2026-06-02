@@ -73,6 +73,24 @@ def _candidate_domain(c: dict) -> str:
     return (extract_domain(c.get("website") or "") or "").lower()
 
 
+def candidate_key(c: dict) -> str:
+    """Public dedup_key for a search-candidate dict — same identity rule as
+    upsert_companies / search_warehouse. Returns "" when the candidate has
+    neither a usable domain nor a name (caller should skip such)."""
+    return _dedup_key(
+        _candidate_domain(c),
+        (c.get("company") or c.get("name") or "").strip(),
+        (c.get("city") or "").strip(),
+    )
+
+
+def lead_key(*, domain: str, company: str, city: str) -> str:
+    """Public dedup_key for an existing Lead row. lead.domain is already the
+    normalized domain stored at save time ("" for maps leads), so this matches
+    the key a warehouse Company / candidate would get for the same business."""
+    return _dedup_key(domain or "", company or "", city or "")
+
+
 def _merge_distinct(existing: list | None, *values: str) -> list[str]:
     """Append non-empty *values* to *existing* preserving order, deduped."""
     out: list[str] = []
@@ -320,6 +338,7 @@ def search_warehouse(
     geography: str,
     segments: list[str] | None = None,
     limit: int = 100,
+    exclude_keys: set[str] | frozenset[str] | None = None,
 ) -> list[dict]:
     """Return stored companies matching niche + geography as candidate dicts.
 
@@ -329,6 +348,10 @@ def search_warehouse(
         the niche OR any segment ILIKE-matches. (jsonb containment + ILIKE.)
       * geography: city/region/address ILIKE the geography. When geography is a
         region/oblast, we also accept rows whose city resolves into that region.
+
+    `exclude_keys` — dedup_keys to leave out (companies the caller already has,
+    e.g. leads already in the project). This is what makes dosed collection
+    return NEW companies each batch instead of repeating.
 
     The returned dicts use the SAME shape the search pipeline consumes, with
     source="warehouse", demo=False. These are FREE — no external API call.
@@ -378,6 +401,14 @@ def search_warehouse(
                     geo_clauses.append(_ci_like(Company.city, c_name))
             stmt = stmt.where(or_(*geo_clauses))
 
+        # ── exclude already-held companies (dosed/no-repeat collection) ──────
+        if exclude_keys:
+            ek = [k for k in exclude_keys if k]
+            # Postgres caps bound params; for an extreme backlog skip the DB-side
+            # filter (caller still de-dupes in Python) rather than error out.
+            if ek and len(ek) <= 60000:
+                stmt = stmt.where(Company.dedup_key.notin_(ek))
+
         stmt = stmt.order_by(Company.best_score.desc(), Company.times_seen.desc()).limit(max(1, limit))
         rows = db.execute(stmt).scalars().all()
         return [_company_to_candidate(row) for row in rows]
@@ -394,10 +425,15 @@ def _company_to_candidate(row: Company) -> dict:
     demo=False. external_id prefers the 2GIS firm_id, then rusprofile id.
     """
     external_id = row.twogis_firm_id or row.rusprofile_id or ""
+    # Synthesize a website from the domain when the row has none, so the collect
+    # save-loop (which derives domain from website) treats a web-origin warehouse
+    # hit identically to a live one. Maps-origin rows have neither domain nor
+    # website and fall through to the placeholder/maps path on save.
+    website = row.website or (f"https://{row.domain}" if row.domain else "")
     return {
         "company": row.name or row.normalized_name,
         "city": row.city or "",
-        "website": row.website or "",
+        "website": website,
         "domain": row.domain or "",
         "email": row.email or "",
         "phone": row.phone or "",

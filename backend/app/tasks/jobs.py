@@ -1,6 +1,6 @@
 import logging
 import re as _re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from celery.exceptions import SoftTimeLimitExceeded
@@ -23,6 +23,27 @@ from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_d
 _MAX_CONCURRENT_JOBS_PER_ORG = 3
 
 logger = logging.getLogger(__name__)
+
+
+def _as_utc(dt: datetime | None) -> datetime | None:
+    """Treat a stored (possibly naive) timestamp as UTC for tz-aware math."""
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _project_dedup_keys(db, project_id) -> set[str]:
+    """dedup_keys of every company already collected for a project — the set we
+    exclude so each dose returns NEW businesses. Keys match the warehouse's
+    identity rule (base domain, else normalized_name|city)."""
+    keys: set[str] = set()
+    for domain, company, city in db.execute(
+        select(Lead.domain, Lead.company, Lead.city).where(Lead.project_id == project_id)
+    ).all():
+        k = company_warehouse.lead_key(domain=domain or "", company=company or "", city=city or "")
+        if k:
+            keys.add(k)
+    return keys
 
 
 def _notify_owner_project_ready(db, project: Project, enriched_count: int) -> None:
@@ -172,79 +193,104 @@ def collect_leads_task(job_id: str) -> None:
         org = db.get(Organization, job.organization_id)
         use_yandex = org.plan.value in ("pro", "team") if org else False
 
-        query = f"{effective_niche} {effective_geo} {' '.join(effective_segments)}"
-        candidates = search_leads(
-            query=query.strip(),
-            limit=job.requested_limit,
-            niche=effective_niche,
-            geography=effective_geo,
-            segments=effective_segments,
-            prompt=user_prompt,
-            use_yandex=use_yandex,
-            organization_id=str(job.organization_id),
-        )
-        live_count = len(candidates)
-
-        # ─── Company warehouse: write-through + warehouse-first reuse ───
-        # lead_collection has no DB session of its own, so the warehouse hooks
-        # live here (collect_leads_task owns `db`). Both steps are best-effort:
-        # a warehouse failure logs a warning and NEVER alters normal collection.
+        # ─── Dosed, warehouse-first, no-repeat collection ─────────────────
+        # Selection layer = our own company warehouse; seeding layer = live
+        # search. Each run delivers a small DOSE of companies NOT already in this
+        # project, served first from the warehouse (free, cross-org), and only if
+        # the dose can't be filled do we pay for a live search — which is written
+        # through to the warehouse so future doses (here AND for any other org on
+        # the same niche+geo) come for free. See memory: dosed-warehouse-first.
         settings = get_settings()
-        if getattr(settings, "warehouse_search_enabled", True):
-            # 1) Write-through: persist every freshly-discovered candidate into
-            #    the shared registry so future searches (any org) can reuse it.
+        warehouse_on = getattr(settings, "warehouse_search_enabled", True)
+        seed_limit = int(getattr(settings, "warehouse_seed_limit", 150))
+        cooldown_h = int(getattr(settings, "collect_exhaust_cooldown_hours", 12))
+        batch_size = max(1, min(int(job.requested_limit or 10), 200))
+
+        # Companies already collected for THIS project — excluded so every dose
+        # brings genuinely NEW businesses (no repeats on re-run).
+        already_keys = _project_dedup_keys(db, project.id)
+
+        candidates: list[dict] = []
+        chosen: set[str] = set(already_keys)
+
+        def _take(rows: list[dict]) -> int:
+            n = 0
+            for r in rows:
+                if len(candidates) >= batch_size:
+                    break
+                k = company_warehouse.candidate_key(r)
+                if not k or k in chosen:
+                    continue
+                chosen.add(k)
+                candidates.append(r)
+                n += 1
+            return n
+
+        # 1) Warehouse-first (free): pull a dose from our DB, excluding what the
+        #    project already has.
+        wh_used = 0
+        if warehouse_on:
             try:
-                stored = company_warehouse.upsert_companies(
-                    db, candidates, niche=effective_niche
-                )
-                logger.info("warehouse: wrote through %d/%d candidates", stored, live_count)
+                wh_used = _take(company_warehouse.search_warehouse(
+                    db, niche=effective_niche, geography=effective_geo,
+                    segments=effective_segments, limit=batch_size,
+                    exclude_keys=already_keys,
+                ))
             except Exception:
-                logger.warning("warehouse write-through failed", exc_info=True)
+                logger.warning("warehouse-first select failed", exc_info=True)
                 db.rollback()
 
-            # 2) Warehouse-first reuse: pull previously-stored companies matching
-            #    this niche+geography and merge in any not already present (dedupe
-            #    by domain, else company+city). These cost NO external API call.
-            try:
-                reused = company_warehouse.search_warehouse(
-                    db,
+        # 2) Live seed (paid) only when the warehouse can't fill the dose AND we
+        #    are not in the post-exhaustion cooldown. Live finds are written
+        #    through, then we re-select the dose from the now-seeded warehouse.
+        live_count = 0
+        did_live = False
+        if len(candidates) < batch_size:
+            exhausted_at = _as_utc(project.leads_exhausted_at)
+            in_cooldown = (
+                exhausted_at is not None
+                and (datetime.now(timezone.utc) - exhausted_at) < timedelta(hours=cooldown_h)
+            )
+            if not in_cooldown:
+                did_live = True
+                query = f"{effective_niche} {effective_geo} {' '.join(effective_segments)}"
+                live = search_leads(
+                    query=query.strip(),
+                    limit=max(seed_limit, batch_size),
                     niche=effective_niche,
                     geography=effective_geo,
                     segments=effective_segments,
-                    limit=job.requested_limit,
+                    prompt=user_prompt,
+                    use_yandex=use_yandex,
+                    organization_id=str(job.organization_id),
                 )
-                if reused:
-                    seen_domains = {
-                        (c.get("domain") or "").lower()
-                        for c in candidates
-                        if c.get("domain")
-                    }
-                    seen_companies = {
-                        f"{(c.get('company') or '').strip().lower()}|{(c.get('city') or '').strip().lower()}"
-                        for c in candidates
-                        if c.get("company")
-                    }
-                    added_from_wh = 0
-                    for r in reused:
-                        d = (r.get("domain") or "").lower()
-                        ck = f"{(r.get('company') or '').strip().lower()}|{(r.get('city') or '').strip().lower()}"
-                        if d and d in seen_domains:
-                            continue
-                        if not d and ck in seen_companies:
-                            continue
-                        if d:
-                            seen_domains.add(d)
-                        seen_companies.add(ck)
-                        candidates.append(r)
-                        added_from_wh += 1
-                    logger.info(
-                        "warehouse: %d reused, %d from live search (%d new from warehouse)",
-                        len(reused), live_count, added_from_wh,
-                    )
-            except Exception:
-                logger.warning("warehouse-first reuse failed", exc_info=True)
-                db.rollback()
+                live_count = len(live)
+                if warehouse_on:
+                    try:
+                        stored = company_warehouse.upsert_companies(db, live, niche=effective_niche)
+                        logger.info("warehouse: seeded %d/%d live finds", stored, live_count)
+                    except Exception:
+                        logger.warning("warehouse seed write-through failed", exc_info=True)
+                        db.rollback()
+                    # Re-select the dose from the freshly-seeded warehouse so the
+                    # whole selection stays single-sourced and consistently ranked.
+                    try:
+                        _take(company_warehouse.search_warehouse(
+                            db, niche=effective_niche, geography=effective_geo,
+                            segments=effective_segments, limit=batch_size,
+                            exclude_keys=chosen,
+                        ))
+                    except Exception:
+                        logger.warning("warehouse re-select after seed failed", exc_info=True)
+                        db.rollback()
+                # Belt-and-suspenders (warehouse off, or seed not yet visible):
+                # fill the remainder straight from the live rows.
+                _take(live)
 
+        logger.info(
+            "dosed collect: dose=%d delivered=%d (warehouse=%d, live_seed=%d, did_live=%s)",
+            batch_size, len(candidates), wh_used, live_count, did_live,
+        )
         job.found_count = len(candidates)
         db.commit()
 
@@ -263,7 +309,9 @@ def collect_leads_task(job_id: str) -> None:
                     break
 
             website = normalize_url(c.get("website") or "")
-            domain = extract_domain(website) if website else ""
+            # Prefer domain derived from the website; fall back to the candidate's
+            # own domain field (warehouse hits and some maps results carry it).
+            domain = (extract_domain(website) if website else "") or (c.get("domain") or "").strip().lower()
             base_domain = get_base_domain(domain) if domain else ""
             company_name = c.get("company", "").strip()
             city_name = c.get("city", "").strip()
@@ -288,7 +336,10 @@ def collect_leads_task(job_id: str) -> None:
                 continue
             # For web sources without a domain — skip (they're just URLs that didn't extract)
             # For maps sources (2GIS/Yandex) without a domain — KEEP (real B2B lead with address/phone)
-            is_maps = source in {"2gis", "yandex_maps"}
+            # 2GIS/Yandex and our own warehouse can yield a real B2B lead with no
+            # domain (address/phone only) — keep those; a bare web URL that never
+            # resolved to a domain is dropped.
+            is_maps = source in {"2gis", "yandex_maps", "warehouse"}
             if not domain and not is_maps:
                 continue
             # Maps lead without website needs at least address or phone to be useful
@@ -386,9 +437,23 @@ def collect_leads_task(job_id: str) -> None:
         ).scalar_one_or_none()
         if organization:
             organization.leads_used_current_month += added
+        # Exhaustion cooldown: if we PAID for a live seed this run and still added
+        # nothing new, the sources are tapped out for this niche+geo relative to
+        # what's already collected — back off live seeding for a while so repeat
+        # clicks don't burn API calls returning the same set. Any successful add
+        # clears the flag (new businesses may keep appearing).
+        if did_live and added == 0:
+            project.leads_exhausted_at = datetime.now(timezone.utc)
+        elif added > 0:
+            project.leads_exhausted_at = None
         job.status = JobStatus.done
         if quota_stopped:
             job.error = "Остановлено: месячная квота лидов исчерпана"
+        elif added == 0:
+            job.error = (
+                "Новых компаний не найдено: всё доступное по этому запросу уже собрано. "
+                "Измените нишу/гео/сегменты или включите автосбор для новых со временем."
+            )
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
         send_telegram(f"Lead collection finished. Job={job.id} Added={job.added_count}")

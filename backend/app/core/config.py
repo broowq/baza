@@ -99,6 +99,18 @@ class Settings(BaseSettings):
     # never blocks or alters normal collection. Set False to disable both.
     warehouse_search_enabled: bool = True
 
+    # Dosed collection: when the warehouse can't fill a dose, a live search is
+    # run with THIS limit to (re)seed the warehouse, then the dose is served from
+    # it. Bigger = fewer live calls overall (one seed feeds many free doses) but a
+    # larger one-time fetch. The number of companies reachable per niche+geo is
+    # roughly bounded by this (live sources have no cross-run pagination cursor).
+    warehouse_seed_limit: int = 150
+    # After a paid live seed yields 0 new companies, skip live re-seeding for this
+    # many hours (the warehouse stays the only source). Avoids burning API calls
+    # on repeat clicks once a niche+geo is exhausted; new businesses are picked up
+    # on the next allowed seed.
+    collect_exhaust_cooldown_hours: int = 12
+
     # ── 152-ФЗ compliance guard ──────────────────────────────────────
     # When False (default), the LLM client REFUSES to call any provider
     # whose data plane is outside the Russian Federation (currently:

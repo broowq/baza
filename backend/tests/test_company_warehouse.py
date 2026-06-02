@@ -23,7 +23,17 @@ from sqlalchemy import delete, select
 from app.api.deps import get_current_org, get_current_user
 from app.db.session import SessionLocal, get_db  # SessionLocal used by the db fixture
 from app.main import app
-from app.models import Company, Lead, LeadStatus, Organization, Project, User
+from app.models import (
+    CollectionJob,
+    Company,
+    JobStatus,
+    Lead,
+    LeadStatus,
+    Organization,
+    PlanType,
+    Project,
+    User,
+)
 from app.services import company_warehouse as cw
 
 # Unique-ish marker so parallel/other data never collides with test rows.
@@ -396,3 +406,110 @@ def test_lead_detail_404_for_unknown_id(api_env):
     client, state, lead_id, _ = api_env
     resp = client.get(f"/api/leads/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+# ── dosed, warehouse-first, no-repeat collection ─────────────────────────────
+
+def test_key_helpers_match_dedup_key():
+    c = _cand(company="Окна Сибирь", domain="www.Okna-Sib.RU", city="Томск")
+    assert cw.candidate_key(c) == cw._dedup_key("www.Okna-Sib.RU", "Окна Сибирь", "Томск")
+    # maps-style lead with no domain → name|city (matches a warehouse hit's key).
+    assert cw.lead_key(domain="", company="Окна Сибирь", city="Томск") == "окна сибирь|томск"
+    assert cw.lead_key(domain="okna-sib.ru", company="X", city="Y") == "okna-sib.ru"
+
+
+def test_search_warehouse_exclude_keys(db):
+    niche = f"{_PFX}exniche"
+    keys = []
+    for i in range(3):
+        dom = f"{_PFX}ex{i}.ru"
+        cw.upsert_companies(db, [_cand(company=f"Ex {i}", domain=dom, city="Томск", score=10 + i)], niche=niche)
+        keys.append(dom)
+    allhits = {cw.candidate_key(c) for c in cw.search_warehouse(db, niche=niche, geography="Томск", limit=50)}
+    assert set(keys).issubset(allhits)
+    # Excluding one key drops exactly it; the others remain.
+    excl = {cw.candidate_key(c) for c in cw.search_warehouse(
+        db, niche=niche, geography="Томск", limit=50, exclude_keys={keys[0]})}
+    assert keys[0] not in excl
+    assert keys[1] in excl and keys[2] in excl
+
+
+def _mk_org_project(db, prefix, niche, geo):
+    org = Organization(
+        name=f"{prefix}-org-{uuid.uuid4().hex[:6]}",
+        plan=PlanType.pro,
+        leads_used_current_month=0,
+        leads_limit_per_month=100000,
+        projects_limit=100,
+        users_limit=100,
+    )
+    db.add(org)
+    db.flush()
+    proj = Project(
+        organization_id=org.id, name=f"{prefix}-proj",
+        niche=niche, geography=geo, segments=[], prompt="",
+    )
+    db.add(proj)
+    db.flush()
+    db.commit()
+    return org, proj
+
+
+def test_dosed_collection_no_repeats_and_warehouse_first(db, monkeypatch):
+    """Two collects on the same project → two DISJOINT doses of 10, and the
+    second dose is served from the warehouse with NO new live search."""
+    from app.tasks import jobs as jobs_mod
+
+    prefix = f"{_PFX}dose"
+    niche = f"{prefix}-niche"
+    org, proj = _mk_org_project(db, prefix, niche, "Томск")
+
+    pool = [
+        _cand(company=f"{prefix} Co {i}", domain=f"{prefix}{i}.ru", city="Томск",
+              phone=f"+7000000{i:02d}", source="2gis", score=40 + i)
+        for i in range(25)
+    ]
+    calls = {"n": 0}
+
+    def fake_search_leads(*a, **k):
+        calls["n"] += 1
+        return [dict(c) for c in pool]
+
+    monkeypatch.setattr(jobs_mod, "search_leads", fake_search_leads)
+    monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
+
+    def run_collect(dose):
+        job = CollectionJob(
+            organization_id=org.id, project_id=proj.id,
+            status=JobStatus.queued, kind="collect", requested_limit=dose,
+        )
+        db.add(job)
+        db.commit()
+        jid = str(job.id)
+        jobs_mod.collect_leads_task(jid)
+        db.expire_all()
+        return db.get(CollectionJob, uuid.UUID(jid))
+
+    try:
+        job1 = run_collect(10)
+        assert job1.added_count == 10, "first dose adds exactly 10"
+        assert calls["n"] == 1, "first dose runs one live search to seed the warehouse"
+        leads1 = {l.domain for l in db.execute(
+            select(Lead).where(Lead.project_id == proj.id)).scalars()}
+        assert len(leads1) == 10
+
+        job2 = run_collect(10)
+        assert job2.added_count == 10, "second dose adds 10 MORE"
+        assert calls["n"] == 1, "second dose served from warehouse — no new live search"
+        leads2 = {l.domain for l in db.execute(
+            select(Lead).where(Lead.project_id == proj.id)).scalars()}
+        assert len(leads2) == 20, "20 distinct companies after two doses"
+        assert leads1.issubset(leads2), "second dose is disjoint from the first (no repeats)"
+    finally:
+        db.rollback()
+        db.execute(delete(Lead).where(Lead.project_id == proj.id))
+        db.execute(delete(CollectionJob).where(CollectionJob.project_id == proj.id))
+        db.execute(delete(Project).where(Project.id == proj.id))
+        db.execute(delete(Organization).where(Organization.id == org.id))
+        db.commit()

@@ -127,6 +127,10 @@ class Project(Base):
     okved_codes: Mapped[list[dict]] = mapped_column(JSONB, default=list, nullable=False)
     cron_schedule: Mapped[str] = mapped_column(String(120), default="0 9 * * 1", nullable=False)
     auto_collection_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Set when a paid live seed found 0 new companies (sources exhausted for this
+    # niche+geo vs what's already collected). Gates live re-seeding for a cooldown
+    # window so repeat collects don't burn API calls returning the same set.
+    leads_exhausted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 

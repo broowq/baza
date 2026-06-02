@@ -7,7 +7,10 @@ from app.models import JobStatus, LeadStatus
 
 
 class RunCollectionRequest(BaseModel):
-    lead_limit: int = Field(default=100, ge=10, le=5000)
+    # For COLLECT this is the dose — how many NEW companies to add this run
+    # (default 10; the task clamps to 200). For ENRICH it's how many leads to
+    # enrich. le kept high enough for enrich batches.
+    lead_limit: int = Field(default=10, ge=1, le=500)
 
 
 class EnrichSelectedRequest(BaseModel):
