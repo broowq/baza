@@ -114,6 +114,12 @@ _TRACKING_PARAMS = frozenset({
 def extract_domain(raw_url: str) -> str:
     if not raw_url:
         return ""
+    # A non-http(s) scheme (e.g. our "maps://2gis/{firm_id}" placeholder URLs) is
+    # not a web address and has no real domain. Without this guard the bare-domain
+    # branch below prepends "https://" → "https://maps://…" → netloc "maps", which
+    # poisons dedup_keys and gets the lead dropped later as an invalid domain.
+    if "://" in raw_url and not raw_url.startswith(("http://", "https://")):
+        return ""
     if not raw_url.startswith(("http://", "https://")):
         raw_url = f"https://{raw_url}"
     parsed = urlparse(raw_url.strip())

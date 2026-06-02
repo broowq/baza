@@ -418,6 +418,18 @@ def test_key_helpers_match_dedup_key():
     assert cw.lead_key(domain="okna-sib.ru", company="X", city="Y") == "okna-sib.ru"
 
 
+def test_maps_url_yields_no_domain_not_maps():
+    """maps:// placeholder URLs must NOT be coerced into a 'maps' domain — that
+    poisoned dedup_keys and made such leads get dropped/re-selected forever."""
+    from app.utils.url_tools import extract_domain
+    assert extract_domain("maps://2gis/700000000002") == ""
+    assert extract_domain("https://okna.ru") == "okna.ru"
+    assert extract_domain("okna.ru") == "okna.ru"
+    # A maps-website candidate keys by name|city (not "maps").
+    c = _cand(company="Ремавто, СТО", city="Томск", domain="", website="maps://2gis/700000000002")
+    assert cw.candidate_key(c) == "ремавто, сто|томск"
+
+
 def test_search_warehouse_exclude_keys(db):
     niche = f"{_PFX}exniche"
     keys = []

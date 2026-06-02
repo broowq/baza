@@ -431,16 +431,22 @@ def _company_to_candidate(row: Company) -> dict:
     demo=False. external_id prefers the 2GIS firm_id, then rusprofile id.
     """
     external_id = row.twogis_firm_id or row.rusprofile_id or ""
+    # Guard against a historically-corrupt domain (e.g. "maps" from a mis-parsed
+    # maps:// URL): a real domain always contains a dot. Garbage → treat as no
+    # domain so the row is handled as a maps/offline lead keyed by name|city
+    # (and saves instead of being dropped as an invalid domain).
+    domain = (row.domain or "").strip().lower()
+    if "." not in domain:
+        domain = ""
     # Synthesize a website from the domain when the row has none, so the collect
     # save-loop (which derives domain from website) treats a web-origin warehouse
-    # hit identically to a live one. Maps-origin rows have neither domain nor
-    # website and fall through to the placeholder/maps path on save.
-    website = row.website or (f"https://{row.domain}" if row.domain else "")
+    # hit identically to a live one. Maps-origin rows keep their maps:// website.
+    website = row.website or (f"https://{domain}" if domain else "")
     return {
         "company": row.name or row.normalized_name,
         "city": row.city or "",
         "website": website,
-        "domain": row.domain or "",
+        "domain": domain,
         "email": row.email or "",
         "phone": row.phone or "",
         "address": row.address or "",
