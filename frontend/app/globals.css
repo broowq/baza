@@ -1348,6 +1348,20 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
   }
 }
 
+/* ── LEADS GRID SCOPING ──────────────────────────────────────────────
+   The leads grid (components/dashboard/lead-cards.tsx) wraps cards in
+   .lead-cards-grid. ONLY inside that grid do cards become a fixed-height
+   flex column so that contacts pin to the bottom and every card in a row
+   is the same height. Other .lead-card consumers (dashboard project rows)
+   keep the default block layout. */
+.lead-cards-grid .lead-card {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* fill the grid cell → equal-height cards per row */
+  min-height: 176px; /* uniform card height; contacts pin to the bottom */
+  padding: 15px 16px;
+}
+
 /* Mint left-accent stripe — apply .lead-card--accent for highlighted leads */
 .lead-card--accent {
   border-left-color: rgba(168, 197, 192, 0.45);
@@ -1402,6 +1416,74 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin-top: 3px;
+}
+/* Score number (top-right of the header row) */
+.lead-card__score {
+  flex-shrink: 0;
+  font-family: var(--font-geist-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+/* Full-width score bar, own row */
+.lead-card__scorewrap {
+  margin-top: 12px;
+}
+.lead-card__scorewrap .score-bar {
+  width: 100%;
+}
+/* Badges row — ALWAYS one line (status + source), never wraps */
+.lead-card__badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-top: 9px;
+}
+.lead-card__badges .badge {
+  flex-shrink: 0;
+}
+/* Hairline divider before the contacts block */
+.lead-card__divider {
+  height: 1px;
+  border: 0;
+  background: var(--line-2);
+  margin: 12px 0 10px;
+}
+/* Contacts pinned to the bottom — always two rows (email + phone) so every
+   card is exactly the same height regardless of which contacts exist. */
+.lead-card__contacts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+}
+.lead-card__contact {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--t-56);
+  letter-spacing: -0.005em;
+}
+.lead-card__contact svg {
+  flex-shrink: 0;
+  opacity: 0.55;
+}
+.lead-card__contact > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lead-card__contact--empty {
+  opacity: 0.34;
+}
+.lead-card__contact--valid {
+  color: var(--mint);
 }
 
 /* ── DETAIL DRAWER / DRAWER PANEL ────────────────────────────────── */

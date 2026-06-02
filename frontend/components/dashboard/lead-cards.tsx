@@ -53,11 +53,21 @@ type LeadCardProps = {
   onClick: () => void;
 };
 
+function scoreColor(score: number): string {
+  if (score >= 80) return "var(--mint)";
+  if (score >= 60) return "rgba(232,196,128,0.92)";
+  return "rgba(255,255,255,0.5)";
+}
+
 function LeadCard({ lead, onClick }: LeadCardProps) {
   const isAccent = lead.score >= 80;
-  const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : "");
+  const httpSite =
+    lead.website && /^https?:\/\//i.test(lead.website) ? lead.website : "";
+  const domain =
+    lead.domain || (httpSite ? httpSite.replace(/^https?:\/\//i, "").split("/")[0] : "");
   const statusBadgeClass = STATUS_BADGE_CLASS[lead.status] ?? "";
   const sourceLabel = lead.source ? (SOURCE_LABELS[lead.source] ?? lead.source) : null;
+  const subtitle = [domain, lead.city].filter(Boolean).join("  ·  ") || "—";
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -75,69 +85,54 @@ function LeadCard({ lead, onClick }: LeadCardProps) {
       onKeyDown={handleKeyDown}
       aria-label={`Открыть детали: ${lead.company}`}
     >
-      {/* Row 1: name + score */}
+      {/* Header: name + score */}
       <div className="lead-card__row">
-        <span className="lead-card__name flex-1 truncate" title={lead.company}>
+        <span className="lead-card__name flex-1" title={lead.company}>
           {lead.company}
         </span>
-        <span
-          className="font-mono tnum shrink-0 text-[11px]"
-          style={{ color: isAccent ? "var(--mint)" : "rgba(255,255,255,0.48)" }}
-          aria-label={`Score ${lead.score}`}
-        >
+        <span className="lead-card__score" style={{ color: scoreColor(lead.score) }} aria-label={`Score ${lead.score}`}>
           {lead.score}
         </span>
       </div>
 
-      {/* Row 2: domain · city */}
-      {(domain || lead.city) && (
-        <div className="lead-card__row mt-1">
-          <span className="lead-card__sub flex-1 truncate">
-            {domain && <span>{domain}</span>}
-            {domain && lead.city && <span className="mx-1 opacity-40">·</span>}
-            {lead.city && <span>{lead.city}</span>}
-          </span>
-        </div>
-      )}
+      {/* Subtitle: domain · city (always one line) */}
+      <div className="lead-card__sub" title={subtitle}>
+        {subtitle}
+      </div>
 
-      {/* Score bar */}
-      <div className="lead-card__meta">
+      {/* Score bar — own full-width row */}
+      <div className="lead-card__scorewrap">
         <ScoreBar score={lead.score} />
+      </div>
+
+      {/* Badges — status + source, single line */}
+      <div className="lead-card__badges">
         <span className={`badge ${statusBadgeClass}`}>
           {STATUS_LABELS[lead.status] ?? lead.status}
         </span>
-        {sourceLabel && (
-          <span className="badge badge--source">
-            {sourceLabel}
-          </span>
-        )}
+        {sourceLabel && <span className="badge badge--source">{sourceLabel}</span>}
       </div>
 
-      {/* Contact indicators */}
-      <div className="lead-card__meta" style={{ marginTop: 6 }}>
-        {lead.email && (
-          <span
-            className="inline-flex items-center gap-1 text-[11px]"
-            style={{ color: lead.email_status === "valid" ? "var(--green)" : "rgba(255,255,255,0.48)" }}
-            title={lead.email}
-          >
-            <Mail size={10} />
-            <span className="truncate max-w-[120px]">{lead.email}</span>
-          </span>
-        )}
-        {lead.phone && (
-          <span
-            className="inline-flex items-center gap-1 text-[11px]"
-            style={{ color: "rgba(255,255,255,0.48)" }}
-            title={lead.phone}
-          >
-            <Phone size={10} />
-            <span className="font-mono truncate max-w-[100px]">{lead.phone}</span>
-          </span>
-        )}
-        {!lead.email && !lead.phone && (
-          <span className="t-40 text-[11px]">нет контактов</span>
-        )}
+      <hr className="lead-card__divider" />
+
+      {/* Contacts — always two rows so every card is the same height */}
+      <div className="lead-card__contacts">
+        <span
+          className={`lead-card__contact${
+            lead.email ? (lead.email_status === "valid" ? " lead-card__contact--valid" : "") : " lead-card__contact--empty"
+          }`}
+          title={lead.email || undefined}
+        >
+          <Mail size={11} />
+          <span>{lead.email || "—"}</span>
+        </span>
+        <span
+          className={`lead-card__contact${lead.phone ? "" : " lead-card__contact--empty"}`}
+          title={lead.phone || undefined}
+        >
+          <Phone size={11} />
+          <span className="font-mono">{lead.phone || "—"}</span>
+        </span>
       </div>
     </div>
   );
@@ -150,18 +145,23 @@ function SkeletonCard() {
   return (
     <div className="lead-card" aria-hidden="true">
       <div className="lead-card__row">
-        <div className="skeleton flex-1" style={{ height: 14, borderRadius: 6, maxWidth: 160 }} />
-        <div className="skeleton" style={{ width: 24, height: 12, borderRadius: 4 }} />
+        <div className="skeleton flex-1" style={{ height: 14, borderRadius: 6, maxWidth: 150 }} />
+        <div className="skeleton" style={{ width: 22, height: 12, borderRadius: 4 }} />
       </div>
-      <div className="lead-card__row mt-1">
-        <div className="skeleton flex-1" style={{ height: 12, borderRadius: 4, maxWidth: 100 }} />
+      <div className="lead-card__sub">
+        <div className="skeleton" style={{ height: 11, borderRadius: 4, maxWidth: 110 }} />
       </div>
-      <div className="lead-card__meta">
-        <div className="skeleton" style={{ width: 56, height: 3, borderRadius: 999 }} />
-        <div className="skeleton" style={{ width: 64, height: 20, borderRadius: 999 }} />
+      <div className="lead-card__scorewrap">
+        <div className="skeleton" style={{ width: "100%", height: 4, borderRadius: 999 }} />
       </div>
-      <div className="lead-card__meta" style={{ marginTop: 6 }}>
-        <div className="skeleton" style={{ width: 110, height: 12, borderRadius: 4 }} />
+      <div className="lead-card__badges">
+        <div className="skeleton" style={{ width: 96, height: 20, borderRadius: 999 }} />
+        <div className="skeleton" style={{ width: 48, height: 20, borderRadius: 999 }} />
+      </div>
+      <hr className="lead-card__divider" />
+      <div className="lead-card__contacts">
+        <div className="skeleton" style={{ height: 11, borderRadius: 4, maxWidth: 150 }} />
+        <div className="skeleton" style={{ height: 11, borderRadius: 4, maxWidth: 110 }} />
       </div>
     </div>
   );
@@ -187,7 +187,7 @@ export function LeadCards({ leads, loading = false, onLeadUpdate }: LeadCardsPro
     return (
       <>
         <div
-          className="grid gap-3"
+          className="lead-cards-grid grid gap-3"
           style={{
             gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
           }}
@@ -230,7 +230,7 @@ export function LeadCards({ leads, loading = false, onLeadUpdate }: LeadCardsPro
   return (
     <>
       <div
-        className="grid gap-3"
+        className="lead-cards-grid grid gap-3"
         style={{
           gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
         }}
@@ -238,7 +238,7 @@ export function LeadCards({ leads, loading = false, onLeadUpdate }: LeadCardsPro
         aria-label="Список лидов"
       >
         {displayLeads.map((lead) => (
-          <div key={lead.id} role="listitem">
+          <div key={lead.id} role="listitem" className="h-full">
             <LeadCard
               lead={lead}
               onClick={() => setOpenLeadId(lead.id)}
