@@ -50,14 +50,11 @@ const initialProject: ProjectForm = {
   segments: "",
 };
 
-const JOB_STATUS_MAP: Record<
-  string,
-  { label: string; className: string }
-> = {
-  queued: { label: "В очереди", className: "bg-muted text-muted-foreground" },
-  running: { label: "В работе", className: "bg-blue-500/15 text-blue-700 dark:text-blue-400" },
-  done: { label: "Готово", className: "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20" },
-  failed: { label: "Ошибка", className: "bg-destructive/10 text-destructive" },
+const JOB_STATUS_MAP: Record<string, string> = {
+  queued: "В очереди",
+  running: "В работе",
+  done: "Готово",
+  failed: "Ошибка",
 };
 
 export default function DashboardPage() {
@@ -346,8 +343,6 @@ export default function DashboardPage() {
               <span>{projects.length} {(new Intl.PluralRules("ru").select(projects.length) === "one" ? "проект" : new Intl.PluralRules("ru").select(projects.length) === "few" ? "проекта" : "проектов")}</span>
               <span className="sep-dot mx-2" />
               <span>{org?.users_limit ? `${org.users_limit} мест` : "—"}</span>
-              <span className="sep-dot mx-2" />
-              <span>ru-RU · {Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
             </div>
           </div>
 
@@ -420,9 +415,6 @@ export default function DashboardPage() {
           <div className="eyebrow mb-2">проекты</div>
           <div className="flex items-end gap-4 flex-wrap">
             <h1 className="h1" style={{ fontSize: 44 }}>Ваши воронки</h1>
-            <span className="mono-cap mb-2 tnum">
-              {projects.length} из {org?.projects_limit ?? "?"}
-            </span>
           </div>
         </div>
         {canManage && (
@@ -441,7 +433,7 @@ export default function DashboardPage() {
               <motion.div key="prompt-step" initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} transition={{ duration: 0.2 }}>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5 text-violet-500" />
+                    <Sparkles className="h-5 w-5" style={{ color: "var(--mint)" }} />
                     Найти клиентов
                   </DialogTitle>
                   <DialogDescription>
@@ -492,7 +484,7 @@ export default function DashboardPage() {
               <motion.div key="review-step" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.2 }}>
                 <DialogHeader>
                   <DialogTitle className="flex items-center gap-2">
-                    <Search className="h-5 w-5 text-emerald-500" />
+                    <Search className="h-5 w-5" style={{ color: "var(--mint)" }} />
                     Стратегия поиска
                   </DialogTitle>
                   <DialogDescription>
@@ -501,9 +493,9 @@ export default function DashboardPage() {
                 </DialogHeader>
 
                 {enhanced?.explanation && (
-                  <div className="mt-3 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
-                    <p className="text-sm text-violet-700 dark:text-violet-300">
-                      <Sparkles className="mr-1.5 inline h-3.5 w-3.5" />
+                  <div className="mt-3 rounded-lg border border-[var(--line-2)] bg-white/[0.03] p-3">
+                    <p className="text-sm t-84">
+                      <Sparkles className="mr-1.5 inline h-3.5 w-3.5" style={{ color: "var(--mint)" }} />
                       {enhanced.explanation}
                     </p>
                   </div>
@@ -789,7 +781,7 @@ export default function DashboardPage() {
             "badge badge--source";
 
           const statusLabel =
-            status ? (JOB_STATUS_MAP[status]?.label ?? status) :
+            status ? (JOB_STATUS_MAP[status] ?? status) :
             "новый";
 
           const sourceList = ["2ГИС", "Яндекс", "SearXNG"];

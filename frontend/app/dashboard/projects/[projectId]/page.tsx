@@ -29,6 +29,14 @@ const STAT_CARDS = [
   { key: "avgScore", label: "Средний score" },
 ] as const;
 
+const JOB_KIND_RU: Record<string, string> = { collect: "сбор", enrich: "обогащение" };
+const JOB_STATUS_RU: Record<string, string> = {
+  queued: "в очереди",
+  running: "идёт",
+  done: "готово",
+  failed: "ошибка",
+};
+
 export default function ProjectDetailsPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -266,14 +274,6 @@ export default function ProjectDetailsPage() {
                   <span>гео: {project.geography}</span>
                 </>
               )}
-              {project && project.segments.length > 0 && (
-                <>
-                  <span className="sep-dot mx-2" />
-                  <span>{project.segments.length} сегмент{project.segments.length === 1 ? "" : project.segments.length < 5 ? "а" : "ов"}</span>
-                </>
-              )}
-              <span className="sep-dot mx-2" />
-              <span>id <span className="t-72">{project?.id?.slice(0, 8) ?? "—"}</span></span>
             </div>
           </div>
 
@@ -283,7 +283,7 @@ export default function ProjectDetailsPage() {
         {project && (project.segments.length > 0 || (project.okved_codes?.length ?? 0) > 0) && (
           <div className="flex items-center gap-2 flex-wrap">
             {project.segments.slice(0, 8).map((seg) => (
-              <span key={seg} className="chip chip-sans">сегмент: {seg}</span>
+              <span key={seg} className="chip chip-sans">{seg}</span>
             ))}
             {project.okved_codes?.map((o) => (
               <span key={o.code} className="chip chip-okv" title={o.label}>
@@ -334,7 +334,9 @@ export default function ProjectDetailsPage() {
             CSV
           </button>
           <span className="mono-cap t-40 ml-auto mr-2">
-            {jobs.length > 0 ? `последняя задача · ${jobs[0].kind} · ${jobs[0].status}` : "сбор ещё не запускали"}
+            {jobs.length > 0
+              ? `${JOB_KIND_RU[jobs[0].kind] ?? jobs[0].kind} · ${JOB_STATUS_RU[jobs[0].status] ?? jobs[0].status}`
+              : "сбор ещё не запускали"}
           </span>
         </div>
 
