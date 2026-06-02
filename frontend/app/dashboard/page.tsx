@@ -57,6 +57,19 @@ const JOB_STATUS_MAP: Record<string, string> = {
   failed: "Ошибка",
 };
 
+// Onboarding preview rows. Real values come from the public /public/landing feed
+// (demo project, contacts masked to booleans); this fallback keeps the table
+// populated before the fetch resolves / if it fails.
+type DemoSample = { company: string; city: string; score: number; has_email: boolean; has_phone: boolean };
+const DEMO_SAMPLE_FALLBACK: DemoSample[] = [
+  { company: "Хонда-Сан, автосервис", city: "Новосибирск", score: 88, has_email: true, has_phone: true },
+  { company: "Пятое колесо, автосервис", city: "Томск", score: 86, has_email: true, has_phone: true },
+  { company: "Гибрид-Сервис", city: "Томск", score: 81, has_email: true, has_phone: true },
+  { company: "ИТ-Партнёр", city: "Екатеринбург", score: 80, has_email: true, has_phone: true },
+  { company: "Мастер Шин", city: "Екатеринбург", score: 77, has_email: false, has_phone: true },
+  { company: "СпецТехникаСиб", city: "Кемерово", score: 76, has_email: true, has_phone: true },
+];
+
 export default function DashboardPage() {
   const authed = useAuthGuard();
   const [loading, setLoading] = useState(true);
@@ -78,6 +91,22 @@ export default function DashboardPage() {
   const [enhanced, setEnhanced] = useState<PromptEnhanceResponse | null>(null);
   const [formStep, setFormStep] = useState<"prompt" | "review">("prompt");
   const [error, setError] = useState<string | null>(null);
+  const [demoSamples, setDemoSamples] = useState<DemoSample[] | null>(null);
+
+  // Real sample rows for the onboarding preview, from the public stats feed.
+  useEffect(() => {
+    let cancelled = false;
+    const base = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+    fetch(`${base}/public/landing`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d && d.available && Array.isArray(d.samples) && d.samples.length) {
+          setDemoSamples(d.samples as DemoSample[]);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const bootstrap = useCallback(async () => {
     setError(null);
@@ -721,26 +750,23 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="text-[12.5px]">
-                {[
-                  ["Пятое колесо, автосервис", "Томск", "+7 3822 55-12-40", "info@5koleso.ru", 78],
-                  ["Гибрид-Сервис", "Томск", "+7 3822 48-09-11", "zakaz@gibrid70.ru", 74],
-                  ["Ремавто, СТО", "Томск", "+7 3822 90-33-72", "remavto@mail.ru", 71],
-                  ["ПроКар, автотехцентр", "Томск", "+7 3822 21-55-08", "prokar.tomsk@bk.ru", 69],
-                  ["Хонда-Сан, автосервис", "Новосибирск", "+7 383 209-44-17", "service@honda-san.ru", 66],
-                  ["Резиновая подкова", "Новосибирск", "+7 383 311-78-90", "—", 61],
-                ].map(([co, city, phone, email, score]) => (
-                  <tr key={co as string} className="border-t border-white/[0.06]">
-                    <td className="py-2.5 pr-3 text-white/[0.88]">{co}</td>
-                    <td className="py-2.5 pr-3 t-56">{city}</td>
-                    <td className="py-2.5 pr-3 t-72 mono text-[11.5px]">{phone}</td>
-                    <td className="py-2.5 pr-3 t-72">{email}</td>
+                {(demoSamples ?? DEMO_SAMPLE_FALLBACK).slice(0, 6).map((row, i) => (
+                  <tr key={`${row.company}-${i}`} className="border-t border-white/[0.06]">
+                    <td className="py-2.5 pr-3 text-white/[0.88]">{row.company}</td>
+                    <td className="py-2.5 pr-3 t-56">{row.city}</td>
+                    <td className="py-2.5 pr-3 mono text-[11.5px]" style={{ color: row.has_phone ? "var(--mint)" : "rgba(255,255,255,0.34)" }}>
+                      {row.has_phone ? "✓" : "—"}
+                    </td>
+                    <td className="py-2.5 pr-3" style={{ color: row.has_email ? "var(--mint)" : "rgba(255,255,255,0.34)" }}>
+                      {row.has_email ? "✓" : "—"}
+                    </td>
                     <td className="py-2.5 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <div className="score-bar score-bar--sm" style={{ "--score": `${(score as number) / 100}` } as React.CSSProperties}>
+                        <div className="score-bar score-bar--sm" style={{ "--score": `${row.score / 100}` } as React.CSSProperties}>
                           <div className="score-bar__fill" />
                         </div>
-                        <span className="mono tnum text-[11.5px]" style={{ color: (score as number) >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
-                          {score}
+                        <span className="mono tnum text-[11.5px]" style={{ color: row.score >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
+                          {row.score}
                         </span>
                       </div>
                     </td>
@@ -750,7 +776,7 @@ export default function DashboardPage() {
             </table>
           </div>
           <p className="mono-cap mt-4 t-40 text-[10px]">
-            компании и контакты на примере — сгенерированы для демонстрации
+            реальные данные из демо-проекта БАЗА · контакты скрыты (✓ — найден)
           </p>
         </div>
         </motion.div>
