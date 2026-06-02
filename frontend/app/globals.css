@@ -191,9 +191,13 @@ body.spot-ready::before { opacity: 1; }
 }
 
 /* HERO FEED */
-.hero-feed { display: flex; flex-direction: column; gap: 0; min-height: 120px; position: relative; }
+/* Fixed height for exactly 4 rows (4 × 34px) + overflow:hidden so a transient
+   5th row (the old one still fading while the new one enters) slides into the
+   clipped zone instead of growing the card — kills the jump on each rotation. */
+.hero-feed { display: flex; flex-direction: column; gap: 0; height: 136px; overflow: hidden; position: relative; }
 .hero-feed .feed-row {
   display: flex; align-items: center; gap: 10px;
+  height: 34px; box-sizing: border-box; flex: none;
   padding: 8px 0; font-size: 12px; color: var(--t-72);
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   opacity: 0; transform: translateY(-6px);

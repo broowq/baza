@@ -451,9 +451,9 @@ function HeroLiveCard() {
       for (const en of entries) {
         if (!en.isIntersecting || seedRef.current) continue;
         seedRef.current = true;
-        // seed 3 rows
+        // seed 4 rows to fill the fixed-height feed immediately
         const seed: typeof feed = [];
-        for (let k = 0; k < 3; k++) {
+        for (let k = 0; k < 4; k++) {
           const [co, city, score] = pick();
           seed.unshift({ id: `${Date.now()}-${k}`, co, meta: city, score });
         }
