@@ -361,7 +361,6 @@ def export_project_csv(
                 "source_url",
                 "contacts_json",
                 "demo",
-                "aggregator_skipped",
             ]
         )
         yield output.getvalue()
@@ -388,7 +387,6 @@ def export_project_csv(
                     lead.source_url,
                     json.dumps(contacts, ensure_ascii=False),
                     str(bool(lead.demo)).lower(),
-                    "false",
                 ]
             )
             yield output.getvalue()

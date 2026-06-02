@@ -635,27 +635,6 @@ def _is_relevant_business(item: dict, niche: str, geography: str = "", segments:
     return _candidate_relevance_score(item, niche, geography, segments) >= _MIN_RELEVANCE_SCORE
 
 
-# DEPRECATED: _fake_results is no longer called. Kept for reference only.
-def _fake_results(query: str, lead_limit: int) -> list[dict]:
-    safe_query = "".join(ch for ch in query.lower() if ch.isalnum())[:18] or "company"
-    rows = []
-    for idx in range(1, min(lead_limit, 80) + 1):
-        website = f"https://{safe_query}{idx}.io"
-        rows.append(
-            {
-                "company": f"{query.title()} Company {idx}",
-                "city": random.choice(["Berlin", "London", "Warsaw", "Madrid", "Tallinn"]),
-                "website": website,
-                "domain": extract_domain(website),
-                "source_url": "fallback:demo",
-                "snippet": "Demo fallback lead because search engine is unavailable",
-                "demo": True,
-                "source": "demo",
-            }
-        )
-    return rows
-
-
 def _parse_searxng_items(payload: dict) -> list[dict]:
     items = []
     for item in payload.get("results", []):

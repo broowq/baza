@@ -207,11 +207,14 @@ export default function AdminPage() {
             </div>
 
             <div className="panel p-5">
-              <div className="eyebrow mb-3">выручка (оценка)</div>
+              <div className="eyebrow mb-3">выручка · активные подписки</div>
               <div className="tnum text-white" style={{ fontSize: 36, fontWeight: 300 }}>
                 {(stats?.revenue_monthly_rub ?? 0).toLocaleString("ru-RU")} ₽
                 <span className="text-[16px] t-48 ml-2">/мес</span>
               </div>
+              <p className="text-[11px] mono t-48 mt-2">
+                MRR по оплаченным активным подпискам. Демо и неоплаченные тарифы не учитываются.
+              </p>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-2">

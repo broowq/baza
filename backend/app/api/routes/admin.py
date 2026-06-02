@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
 from app.db.session import get_db
-from app.models import ActionLog, CollectionJob, Lead, Membership, Organization, PlanType, Project, User
+from app.models import ActionLog, CollectionJob, Lead, Membership, Organization, PlanType, Project, Subscription, User
 from app.services.quota import PLAN_LIMITS, apply_plan_limits
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -58,12 +58,19 @@ def get_stats(
     leads_today = db.scalar(select(func.count(Lead.id)).where(Lead.created_at >= today_start)) or 0
     leads_week = db.scalar(select(func.count(Lead.id)).where(Lead.created_at >= week_ago)) or 0
 
-    # Revenue estimate based on plans
+    # Real monthly revenue (MRR): sum plan prices over ACTIVE, non-expired
+    # subscriptions only — NOT the Organization.plan field. Demo/free/failed-
+    # payment orgs carry a plan value but never paid; counting them would
+    # inflate revenue with money nobody owes. An org only contributes once its
+    # YooKassa payment succeeds (Subscription.status == "active").
     from app.api.routes.plans import PLAN_PRICES_RUB
-    revenue = 0
-    for plan_type in [PlanType.starter, PlanType.pro, PlanType.team]:
-        count = db.scalar(select(func.count(Organization.id)).where(Organization.plan == plan_type)) or 0
-        revenue += count * PLAN_PRICES_RUB.get(plan_type.value, 0)
+    active_plan_ids = db.execute(
+        select(Subscription.plan_id).where(
+            Subscription.status == "active",
+            Subscription.current_period_end > now,
+        )
+    ).scalars().all()
+    revenue = sum(PLAN_PRICES_RUB.get(plan_id, 0) for plan_id in active_plan_ids)
 
     # Plan distribution
     plan_dist = {}
