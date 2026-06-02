@@ -681,6 +681,15 @@ function HeroSection() {
 
 /* ── Prompt demo ──────────────────────────────────────────────── */
 
+const PROMPT_TAGS: Array<{ text: string; chip: string }> = [
+  { text: "кормовые добавки", chip: "продукт" },
+  { text: "крупного рогатого скота", chip: "отрасль · КРС" },
+  { text: "фермерские хозяйства", chip: "ОКВЭД 01.4*" },
+  { text: "Сибирского ФО", chip: "регион · СФО" },
+  { text: "от 200 голов", chip: "размер" },
+  { text: "email и закупщиком", chip: "контакт" },
+];
+
 function PromptDemo() {
   const stats = useStats();
   // Real pipeline figures where the endpoint backs them; the two raw funnel
@@ -740,31 +749,20 @@ function PromptDemo() {
     };
   }, [phase]);
 
-  // Tagged content rendered when parsed
+  // Inline highlight of the matched phrases (mint underline). The entity chips
+  // are rendered as a separate row below the prompt (see render) so they can
+  // never overlap the wrapping prompt text.
   const Tagged = () => {
-    const tags: Array<{ text: string; chip: string }> = [
-      { text: "кормовые добавки", chip: "продукт" },
-      { text: "крупного рогатого скота", chip: "отрасль · КРС" },
-      { text: "фермерские хозяйства", chip: "ОКВЭД 01.4*" },
-      { text: "Сибирского ФО", chip: "регион · СФО" },
-      { text: "от 200 голов", chip: "размер" },
-      { text: "email и закупщиком", chip: "контакт" },
-    ];
-    // Construct rendered text by splitting on tag.text occurrences in order
     const parts: React.ReactNode[] = [];
     let remaining = targetText;
     let key = 0;
-    tags.forEach((tag, idx) => {
+    PROMPT_TAGS.forEach((tag, idx) => {
       const at = remaining.indexOf(tag.text);
       if (at < 0) return;
       if (at > 0) parts.push(<span key={key++}>{remaining.slice(0, at)}</span>);
       parts.push(
-        <span
-          key={key++}
-          className={"ptag" + (idx < litCount ? " lit" : "")}
-        >
+        <span key={key++} className={"ptag" + (idx < litCount ? " lit" : "")}>
           {tag.text}
-          <span className="chip">{tag.chip}</span>
         </span>,
       );
       remaining = remaining.slice(at + tag.text.length);
@@ -810,6 +808,30 @@ function PromptDemo() {
                     {phase !== "parsed" && <span className="caret" />}
                   </p>
                 </div>
+              </div>
+
+              {/* Extracted entities — light up one-by-one. Kept as a row BELOW
+                  the prompt (not floating chips inside it) so they can never
+                  overlap the wrapping prompt text. */}
+              <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                {PROMPT_TAGS.map((t, i) => {
+                  const lit = phase === "parsed" && i < litCount;
+                  return (
+                    <span
+                      key={t.chip}
+                      className="chip chip-sans"
+                      style={{
+                        fontSize: "10px",
+                        opacity: lit ? 1 : 0.32,
+                        color: lit ? "var(--mint)" : "rgba(255,255,255,0.45)",
+                        borderColor: lit ? "rgba(168,197,192,0.40)" : "var(--line-2)",
+                        transition: "opacity .35s ease, color .35s ease, border-color .35s ease",
+                      }}
+                    >
+                      {t.chip}
+                    </span>
+                  );
+                })}
               </div>
 
               <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">

@@ -257,7 +257,7 @@ body.spot-ready::before { opacity: 1; }
   40% { background-color: rgba(168, 197, 192, 0.12); }
   100% { background-color: rgba(168, 197, 192, 0); }
 }
-.prompt-text-wrap { padding-top: 28px; }
+.prompt-text-wrap { padding-top: 2px; }
 .caret {
   display: inline-block; width: 1px; height: 1em;
   background: var(--mint); vertical-align: -2px; margin-left: 2px;
