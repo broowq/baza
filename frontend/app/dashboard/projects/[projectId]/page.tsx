@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, Download, Loader2, Play, RefreshCw, Sparkles } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, SlidersHorizontal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -37,6 +37,20 @@ const JOB_STATUS_RU: Record<string, string> = {
   failed: "ошибка",
 };
 
+// Select value→label maps. Base UI's <SelectValue> renders the raw value unless
+// given a function child, so map each value to its Russian label explicitly.
+const STATUS_LABELS: Record<string, string> = {
+  all: "Все статусы",
+  new: "Новый",
+  contacted: "Связались",
+  qualified: "Квалифицирован",
+  rejected: "Отклонён",
+};
+const SORT_LABELS: Record<string, string> = { score: "По score", created_at: "По дате", company: "По компании" };
+const ORDER_LABELS: Record<string, string> = { desc: "Убывание", asc: "Возрастание" };
+const EMAIL_LABELS: Record<string, string> = { all: "Email: все", true: "С email", false: "Без email" };
+const PHONE_LABELS: Record<string, string> = { all: "Тел: все", true: "С телефоном", false: "Без телефона" };
+
 export default function ProjectDetailsPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -63,6 +77,7 @@ export default function ProjectDetailsPage() {
   const [stats, setStats] = useState({ total: 0, enriched: 0, withEmail: 0, avgScore: 0 });
   const [activeTab, setActiveTab] = useState<string>("leads");
   const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [showFilters, setShowFilters] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
@@ -242,6 +257,24 @@ export default function ProjectDetailsPage() {
   const collectBusy = jobs.some((job) => job.kind === "collect" && (job.status === "queued" || job.status === "running"));
   const enrichBusy = jobs.some((job) => job.kind === "enrich" && (job.status === "queued" || job.status === "running"));
 
+  // How many filters are narrowing the list (sort/order don't count) — drives
+  // the badge on the «Фильтры» button so active filters are visible when collapsed.
+  const activeFilterCount =
+    (status !== "all" ? 1 : 0) +
+    (minScore ? 1 : 0) +
+    (maxScore ? 1 : 0) +
+    (hasEmail !== "all" ? 1 : 0) +
+    (hasPhone !== "all" ? 1 : 0);
+
+  const resetFilters = () => {
+    setPage(1);
+    setStatus("all");
+    setMinScore("");
+    setMaxScore("");
+    setHasEmail("all");
+    setHasPhone("all");
+  };
+
   return (
     <motion.main
       initial={{ opacity: 0, y: 12 }}
@@ -384,105 +417,161 @@ export default function ProjectDetailsPage() {
         <TabsContent value="leads" className="overflow-hidden">
           <div ref={leadsTableRef} className="space-y-4 min-w-0">
             {/* Filters + view toggle bar */}
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted/30 p-3 [&>*]:w-full [&>*]:sm:w-auto">
-              <Input
-                className="w-full sm:w-48"
-                placeholder="Поиск..."
-                value={search}
-                aria-label="Поиск по лидам"
-                onChange={(e) => { setPage(1); setSearch(e.target.value); }}
-              />
-              <Select value={status} onValueChange={(val: string | null) => { if (val) { setPage(1); setStatus(val); } }}>
-                <SelectTrigger aria-label="Фильтр по статусу">
-                  <SelectValue placeholder="Все статусы" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Все статусы</SelectItem>
-                  <SelectItem value="new">Новый</SelectItem>
-                  <SelectItem value="contacted">Связались</SelectItem>
-                  <SelectItem value="qualified">Квалифицирован</SelectItem>
-                  <SelectItem value="rejected">Отклонён</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={sort} onValueChange={(val: string | null) => { if (val) setSort(val); }}>
-                <SelectTrigger aria-label="Сортировка">
-                  <SelectValue placeholder="По score" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="score">По score</SelectItem>
-                  <SelectItem value="created_at">По дате</SelectItem>
-                  <SelectItem value="company">По компании</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={order} onValueChange={(val: string | null) => { if (val) setOrder(val); }}>
-                <SelectTrigger aria-label="Порядок сортировки">
-                  <SelectValue placeholder="Убывание" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="desc">Убывание</SelectItem>
-                  <SelectItem value="asc">Возрастание</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                className="w-full sm:w-24"
-                placeholder="Score от"
-                value={minScore}
-                aria-label="Минимальный score"
-                onChange={(e) => { setPage(1); setMinScore(e.target.value); }}
-              />
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                className="w-full sm:w-24"
-                placeholder="Score до"
-                value={maxScore}
-                aria-label="Максимальный score"
-                onChange={(e) => { setPage(1); setMaxScore(e.target.value); }}
-              />
-              <Select value={hasEmail} onValueChange={(val: string | null) => { if (val) { setPage(1); setHasEmail(val); } }}>
-                <SelectTrigger aria-label="Фильтр по email">
-                  <SelectValue placeholder="Email: все" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Email: все</SelectItem>
-                  <SelectItem value="true">С email</SelectItem>
-                  <SelectItem value="false">Без email</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={hasPhone} onValueChange={(val: string | null) => { if (val) { setPage(1); setHasPhone(val); } }}>
-                <SelectTrigger aria-label="Фильтр по телефону">
-                  <SelectValue placeholder="Тел: все" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Тел: все</SelectItem>
-                  <SelectItem value="true">С телефоном</SelectItem>
-                  <SelectItem value="false">Без телефона</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="rounded-xl bg-muted/30 p-2.5 space-y-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Input
+                  className="w-full sm:w-64"
+                  placeholder="Поиск по компании, сайту, городу…"
+                  value={search}
+                  aria-label="Поиск по лидам"
+                  onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+                />
 
-              {/* View toggle — Cards | Table */}
-              <div className="seg ml-auto shrink-0" role="group" aria-label="Вид отображения">
+                {/* Toggle the filter panel — keeps the bar clean by default */}
                 <button
                   type="button"
-                  className={`seg-btn${viewMode === "cards" ? " active" : ""}`}
-                  aria-pressed={viewMode === "cards"}
-                  onClick={() => setViewMode("cards")}
+                  className="btn btn-ghost shrink-0"
+                  aria-expanded={showFilters}
+                  aria-controls="lead-filters-panel"
+                  onClick={() => setShowFilters((v) => !v)}
                 >
-                  Карточки
+                  <SlidersHorizontal size={13} />
+                  Фильтры
+                  {activeFilterCount > 0 && (
+                    <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--mint)] px-1 text-[10.5px] font-semibold leading-none text-black tnum">
+                      {activeFilterCount}
+                    </span>
+                  )}
+                  <ChevronDown
+                    size={13}
+                    className="transition-transform"
+                    style={{ transform: showFilters ? "rotate(180deg)" : "none", opacity: 0.55 }}
+                  />
                 </button>
-                <button
-                  type="button"
-                  className={`seg-btn${viewMode === "table" ? " active" : ""}`}
-                  aria-pressed={viewMode === "table"}
-                  onClick={() => setViewMode("table")}
-                >
-                  Таблица
-                </button>
+
+                {/* View toggle — Cards | Table */}
+                <div className="seg ml-auto shrink-0" role="group" aria-label="Вид отображения">
+                  <button
+                    type="button"
+                    className={`seg-btn${viewMode === "cards" ? " active" : ""}`}
+                    aria-pressed={viewMode === "cards"}
+                    onClick={() => setViewMode("cards")}
+                  >
+                    Карточки
+                  </button>
+                  <button
+                    type="button"
+                    className={`seg-btn${viewMode === "table" ? " active" : ""}`}
+                    aria-pressed={viewMode === "table"}
+                    onClick={() => setViewMode("table")}
+                  >
+                    Таблица
+                  </button>
+                </div>
               </div>
+
+              {/* Collapsible filter panel — rendered in normal flow (no portal) so
+                  the nested selects work reliably */}
+              {showFilters && (
+                <div
+                  id="lead-filters-panel"
+                  className="grid gap-x-4 gap-y-3 border-t border-[var(--line-2)] pt-3 sm:grid-cols-2 lg:grid-cols-4"
+                >
+                  <div className="space-y-1.5">
+                    <div className="eyebrow">Статус</div>
+                    <Select value={status} onValueChange={(val: string | null) => { if (val) { setPage(1); setStatus(val); } }}>
+                      <SelectTrigger className="w-full" aria-label="Фильтр по статусу">
+                        <SelectValue placeholder="Все статусы">
+                          {(v: string | null) => (v ? STATUS_LABELS[v] ?? v : "Все статусы")}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все статусы</SelectItem>
+                        <SelectItem value="new">Новый</SelectItem>
+                        <SelectItem value="contacted">Связались</SelectItem>
+                        <SelectItem value="qualified">Квалифицирован</SelectItem>
+                        <SelectItem value="rejected">Отклонён</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="eyebrow">Сортировка</div>
+                    <div className="flex gap-2">
+                      <Select value={sort} onValueChange={(val: string | null) => { if (val) setSort(val); }}>
+                        <SelectTrigger className="w-full flex-1" aria-label="Сортировка">
+                          <SelectValue placeholder="По score">
+                            {(v: string | null) => (v ? SORT_LABELS[v] ?? v : "По score")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="score">По score</SelectItem>
+                          <SelectItem value="created_at">По дате</SelectItem>
+                          <SelectItem value="company">По компании</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={order} onValueChange={(val: string | null) => { if (val) setOrder(val); }}>
+                        <SelectTrigger className="w-full flex-1" aria-label="Порядок сортировки">
+                          <SelectValue placeholder="Убывание">
+                            {(v: string | null) => (v ? ORDER_LABELS[v] ?? v : "Убывание")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="desc">Убывание</SelectItem>
+                          <SelectItem value="asc">Возрастание</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="eyebrow">Score</div>
+                    <div className="flex items-center gap-2">
+                      <Input type="number" min={0} max={100} className="w-full" placeholder="от" value={minScore} aria-label="Минимальный score" onChange={(e) => { setPage(1); setMinScore(e.target.value); }} />
+                      <span className="t-40">—</span>
+                      <Input type="number" min={0} max={100} className="w-full" placeholder="до" value={maxScore} aria-label="Максимальный score" onChange={(e) => { setPage(1); setMaxScore(e.target.value); }} />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <div className="eyebrow">Контакты</div>
+                    <div className="flex gap-2">
+                      <Select value={hasEmail} onValueChange={(val: string | null) => { if (val) { setPage(1); setHasEmail(val); } }}>
+                        <SelectTrigger className="w-full flex-1" aria-label="Фильтр по email">
+                          <SelectValue placeholder="Email: все">
+                            {(v: string | null) => (v ? EMAIL_LABELS[v] ?? v : "Email: все")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Email: все</SelectItem>
+                          <SelectItem value="true">С email</SelectItem>
+                          <SelectItem value="false">Без email</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Select value={hasPhone} onValueChange={(val: string | null) => { if (val) { setPage(1); setHasPhone(val); } }}>
+                        <SelectTrigger className="w-full flex-1" aria-label="Фильтр по телефону">
+                          <SelectValue placeholder="Тел: все">
+                            {(v: string | null) => (v ? PHONE_LABELS[v] ?? v : "Тел: все")}
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">Тел: все</SelectItem>
+                          <SelectItem value="true">С телефоном</SelectItem>
+                          <SelectItem value="false">Без телефона</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {activeFilterCount > 0 && (
+                    <div className="flex justify-end sm:col-span-2 lg:col-span-4">
+                      <button type="button" className="btn btn-ghost" onClick={resetFilters}>
+                        Сбросить фильтры
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Cards view */}
@@ -586,9 +675,13 @@ function AutoCollectionBar({
   const currentPreset = SCHEDULE_PRESETS.find((p) => p.value === schedule);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-3 py-2 text-sm">
+    <div className="panel-flat flex flex-wrap items-center gap-3 px-5 text-sm" style={{ minHeight: 56, paddingTop: 8, paddingBottom: 8 }}>
       <div className="flex items-center gap-2">
-        <CalendarClock size={15} className="text-muted-foreground" />
+        <CalendarClock
+          size={15}
+          className={project.auto_collection_enabled ? "" : "text-muted-foreground"}
+          style={project.auto_collection_enabled ? { color: "var(--mint)" } : undefined}
+        />
         <span className="font-medium">Автосбор</span>
       </div>
 
@@ -598,14 +691,18 @@ function AutoCollectionBar({
           checked={project.auto_collection_enabled}
           disabled={saving}
           onChange={(e) => void save({ auto_collection_enabled: e.target.checked, cron_schedule: schedule })}
-          className="h-4 w-4 cursor-pointer rounded"
+          className="h-4 w-4 cursor-pointer rounded accent-[var(--mint)]"
         />
-        <span>{project.auto_collection_enabled ? "Включён" : "Выключен"}</span>
+        <span className={project.auto_collection_enabled ? "" : "t-56"}>
+          {project.auto_collection_enabled ? "Включён" : "Выключен"}
+        </span>
       </label>
 
       <Select value={schedule} onValueChange={onScheduleChange} disabled={saving}>
         <SelectTrigger className="h-8 w-auto min-w-[200px] text-xs">
-          <SelectValue placeholder="Расписание" />
+          <SelectValue placeholder="Расписание">
+            {(v: string | null) => SCHEDULE_PRESETS.find((p) => p.value === v)?.label ?? "Расписание"}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           {SCHEDULE_PRESETS.map((preset) => (
@@ -615,8 +712,8 @@ function AutoCollectionBar({
       </Select>
 
       {project.auto_collection_enabled && currentPreset && (
-        <span className="text-xs text-muted-foreground">
-          Следующий запуск: {currentPreset.label.toLowerCase()}. Получите email когда готово.
+        <span className="mono-cap t-40 ml-auto">
+          след. запуск: {currentPreset.label.toLowerCase()} · уведомим на email
         </span>
       )}
       {saving && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
