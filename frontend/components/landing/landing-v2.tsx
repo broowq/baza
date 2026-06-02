@@ -16,7 +16,9 @@
  *  - Live clock in corner-meta
  */
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -27,6 +29,96 @@ import Link from "next/link";
 import { getToken } from "@/lib/auth";
 import { Reveal } from "@/components/reveal";
 import { Magnetic } from "@/components/magnetic";
+
+/* ─────────────────────────────────────────────────────────────
+   LIVE DEMO DATA — fed from the public, unauthenticated
+   GET {NEXT_PUBLIC_API_URL}/public/landing endpoint.
+   Every consumer falls back to its original hardcoded value when
+   `stats` is null (still loading) or the endpoint reports
+   available:false (demo base not seeded) — so the page renders
+   identically when no data has arrived. No layout shift, no flash.
+   ───────────────────────────────────────────────────────────── */
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+
+type LandingStats = {
+  available: boolean;
+  totals: { leads: number; enriched: number; with_email: number; with_phone: number; qualified: number };
+  rates: { enrichment: number; email: number; phone: number; qualified: number };
+  avg_score: number;
+  sources: Array<{ source: string; count: number }>;
+  by_city: Array<{ city: string; count: number; avg_score: number }>;
+  funnel: { found: number; added: number; enriched: number; qualified: number };
+  samples: Array<{
+    company: string;
+    city: string;
+    score: number;
+    source: string;
+    has_email: boolean;
+    has_phone: boolean;
+    email_valid?: boolean;
+  }>;
+  generated_at?: string;
+};
+
+/** Maps backend source codes → RU display labels used across the demos. */
+const SOURCE_LABELS: Record<string, string> = {
+  "2gis": "2ГИС",
+  yandex_maps: "Яндекс",
+  rusprofile: "ЕГРЮЛ",
+  searxng: "Web",
+  bing: "Bing",
+};
+const sourceLabel = (code: string) => SOURCE_LABELS[code] ?? code;
+
+/** Short 2-letter badge for the leads table (matches existing visual style). */
+const sourceBadge = (code: string): { src: string; color: string } => {
+  switch (code) {
+    case "2gis":
+      return { src: "2G", color: "var(--sky)" };
+    case "yandex_maps":
+      return { src: "ЯК", color: "var(--green)" };
+    case "rusprofile":
+      return { src: "ЕГ", color: "var(--amber)" };
+    case "searxng":
+      return { src: "Web", color: "var(--mint)" };
+    case "bing":
+      return { src: "Bi", color: "var(--sky)" };
+    default:
+      return { src: code.slice(0, 2).toUpperCase(), color: "var(--mint)" };
+  }
+};
+
+/** Context carrying the fetched stats (null until/unless data arrives). */
+const StatsContext = createContext<LandingStats | null>(null);
+const useStats = () => useContext(StatsContext);
+
+/**
+ * Fetch /public/landing ONCE on mount with a plain fetch (NOT the @/lib/api
+ * helper — that redirects to /login on 401, which would break this public
+ * page). On any error or available:false, stats stays null and every block
+ * keeps its hardcoded fallback. Render is never blocked on this fetch.
+ */
+function useLandingStats(): LandingStats | null {
+  const [stats, setStats] = useState<LandingStats | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/public/landing`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as LandingStats;
+        if (!cancelled && data && data.available) setStats(data);
+      } catch {
+        // leave stats null → fallbacks
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return stats;
+}
 
 /* ─────────────────────────────────────────────────────────────
    DATA
@@ -320,26 +412,39 @@ function TopNav() {
 /* ── Hero + Live mini-card ──────────────────────────────────── */
 
 function HeroLiveCard() {
-  const [count, setCount] = useState(2731);
-  const [delta, setDelta] = useState(47);
+  const stats = useStats();
+  // Rotating company/city/score pool driving the hero feed: real samples when
+  // available, else the hardcoded COMPANY_POOL fallback. Keeps [co, city, score].
+  const heroPool = useMemo<Array<[string, string, number]>>(() => {
+    if (stats?.samples.length) {
+      return stats.samples.map((s) => [s.company, s.city, s.score] as [string, string, number]);
+    }
+    return COMPANY_POOL.map(([co, city, , score]) => [co, city, score] as [string, string, number]);
+  }, [stats]);
+  const pick = useCallback(
+    () => heroPool[Math.floor(Math.random() * heroPool.length)],
+    [heroPool],
+  );
+  // Always-current picker so the long-lived feed ticker (started once on
+  // scroll-into-view) keeps drawing from real samples once they load.
+  const pickRef = useRef(pick);
+  useEffect(() => {
+    pickRef.current = pick;
+  }, [pick]);
+
+  const [count, setCount] = useState(0);
   const [feed, setFeed] = useState<
     Array<{ id: string; co: string; meta: string; score: number; out?: boolean }>
   >([]);
-  const [ago, setAgo] = useState(0);
-  const flashRef = useRef<HTMLDivElement | null>(null);
-  const lastUpdateRef = useRef<number>(Date.now());
   const seedRef = useRef(false);
   const sectionRef = useRef<HTMLDivElement | null>(null);
 
-  // ago counter
+  // The hero number is the REAL demo-base lead count — no fabricated growth.
   useEffect(() => {
-    const id = setInterval(() => {
-      setAgo(Math.floor((Date.now() - lastUpdateRef.current) / 1000));
-    }, 1000);
-    return () => clearInterval(id);
-  }, []);
+    if (stats) setCount(stats.totals.leads);
+  }, [stats]);
 
-  // start ticking when section in view
+  // start the sample feed rotation when the section scrolls into view
   useEffect(() => {
     if (!sectionRef.current) return;
     const io = new IntersectionObserver((entries) => {
@@ -349,15 +454,13 @@ function HeroLiveCard() {
         // seed 3 rows
         const seed: typeof feed = [];
         for (let k = 0; k < 3; k++) {
-          const [co, city, , score] = COMPANY_POOL[Math.floor(Math.random() * COMPANY_POOL.length)];
+          const [co, city, score] = pick();
           seed.unshift({ id: `${Date.now()}-${k}`, co, meta: city, score });
         }
         setFeed(seed);
-        // start ticks
-        const numTimer = scheduleTickNum();
+        // rotate sample companies through the feed (showcase, not new leads)
         const feedTimer = scheduleTickFeed();
         return () => {
-          clearTimeout(numTimer);
           clearTimeout(feedTimer);
         };
       }
@@ -367,27 +470,9 @@ function HeroLiveCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const scheduleTickNum = useCallback(() => {
-    return window.setTimeout(function tick() {
-      const inc = 1 + Math.floor(Math.random() * 2);
-      setCount((c) => c + inc);
-      setDelta((d) => d + inc);
-      // flash
-      if (flashRef.current) {
-        flashRef.current.classList.remove("flash");
-        // force reflow
-        void flashRef.current.offsetWidth;
-        flashRef.current.classList.add("flash");
-      }
-      window.setTimeout(tick, 2200 + Math.random() * 1800);
-    }, 1800);
-  }, []);
-
   const scheduleTickFeed = useCallback(() => {
     return window.setTimeout(function pushLead() {
-      lastUpdateRef.current = Date.now();
-      setAgo(0);
-      const [co, city, , score] = COMPANY_POOL[Math.floor(Math.random() * COMPANY_POOL.length)];
+      const [co, city, score] = pickRef.current();
       setFeed((f) => {
         const next = [{ id: `${Date.now()}-${Math.random()}`, co, meta: city, score }, ...f];
         // mark oldest as fade-out if > 4
@@ -411,21 +496,22 @@ function HeroLiveCard() {
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <span className="dot dot-em" />
-            <span className="text-[12px] t-72">собирается прямо сейчас</span>
+            <span className="text-[12px] t-72">демо-база · реальный пример</span>
           </div>
-          <span className="t-40 text-[10px] mono">обновлено {ago}с назад</span>
         </div>
-        <div ref={flashRef} className="h1 tnum hero-bignum" style={{ fontSize: 84 }}>
+        <div className="h1 tnum hero-bignum" style={{ fontSize: 84 }}>
           {count.toLocaleString("ru-RU")}
         </div>
-        <div className="text-[12px] t-72 mt-1">лидов сегодня</div>
+        <div className="text-[12px] t-72 mt-1">лидов в демо-базе</div>
         <div className="mt-4 flex items-baseline gap-3 text-[12px]">
-          <span className="mono tnum" style={{ color: "var(--green)" }}>▲ +{delta}</span>
-          <span className="t-48">за последний час</span>
+          <span className="mono tnum" style={{ color: "var(--green)" }}>
+            {stats ? Math.round(stats.rates.enrichment * 100) : 0}%
+          </span>
+          <span className="t-48">обогащено</span>
         </div>
 
         <div className="mt-5 hairline pt-4">
-          <div className="eyebrow mb-3">последние</div>
+          <div className="eyebrow mb-3">из базы</div>
           <div className="hero-feed">
             {feed.map((row) => (
               <div key={row.id} className={"feed-row" + (row.out ? " fade-out" : "")}>
@@ -441,11 +527,15 @@ function HeroLiveCard() {
         <div className="mt-4 hairline pt-4 grid grid-cols-2 gap-3 text-[11px]">
           <div>
             <div className="t-48">конверсия в работу</div>
-            <div className="mono mt-0.5 tnum text-white text-[13px]">21.0%</div>
+            <div className="mono mt-0.5 tnum text-white text-[13px]">
+              {stats ? Math.round(stats.rates.qualified * 100) : "21.0"}%
+            </div>
           </div>
           <div>
             <div className="t-48">средний score</div>
-            <div className="mono mt-0.5 tnum text-white text-[13px]">72 / 100</div>
+            <div className="mono mt-0.5 tnum text-white text-[13px]">
+              {stats ? Math.round(stats.avg_score) : 72} / 100
+            </div>
           </div>
         </div>
       </div>
@@ -592,6 +682,14 @@ function HeroSection() {
 /* ── Prompt demo ──────────────────────────────────────────────── */
 
 function PromptDemo() {
+  const stats = useStats();
+  // Real pipeline figures where the endpoint backs them; the two raw funnel
+  // counts (12 410 → 384 → 217) have no source and stay illustrative.
+  const srcCount = stats?.sources.length ?? 8;            // 01 · парсинг
+  const smtpPct = stats ? Math.round(stats.rates.email * 100) : 78; // 04 · SMTP+MX
+  const finalLeads = stats?.funnel.added ?? 134;          // 05 · готово
+  const regionCount = stats?.by_city.length ?? 9;         // subtitle
+
   const targetText =
     "Продаю кормовые добавки для крупного рогатого скота. Нужны фермерские хозяйства Сибирского ФО от 200 голов, с email и закупщиком. Без перекупщиков.";
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -716,11 +814,12 @@ function PromptDemo() {
 
               <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
                 {[
-                  ["01 · парсинг", "8 источников", 100, "var(--mint)"],
+                  ["01 · парсинг", `${srcCount} источников`, 100, "var(--mint)"],
+                  // 02/03 raw funnel counts are illustrative (no endpoint source).
                   ["02 · матчинг", "12 410 → 384", 100, "var(--mint)"],
                   ["03 · дедуп", "→ 217", 100, "var(--mint)"],
-                  ["04 · обогащение", "SMTP+MX", 78, "var(--mint)"],
-                  ["05 · готово", `${phase === "parsed" ? 134 : 0} лидов`, 100, "var(--green)"],
+                  ["04 · обогащение", "SMTP+MX", smtpPct, "var(--mint)"],
+                  ["05 · готово", `${phase === "parsed" ? finalLeads : 0} лидов`, 100, "var(--green)"],
                 ].map(([label, val, w], i) => (
                   <div key={i} className={`panel-flat elev-1 px-3 py-3${i === 4 && phase === "parsed" ? " ring-1 ring-[var(--mint)]/20" : ""}`}>
                     <div className="t-40 mono text-[10px]">{label as string}</div>
@@ -733,7 +832,7 @@ function PromptDemo() {
               </div>
 
               <div className="mt-5 flex items-center gap-3 t-48 text-[11px] hairline pt-4">
-                <span className="mono">9 регионов · ОКВЭД 01.4*</span>
+                <span className="mono">{regionCount} регионов · ОКВЭД 01.4*</span>
                 <span className="mx-2">·</span>
                 <span>отбор по выручке &gt; 60M ₽</span>
                 <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-white transition-colors">
@@ -946,18 +1045,101 @@ function RailItem({
 
 /* ── View: Overview ──────────────────────────────────────── */
 
+// Illustrative funnel midpoints with no dedicated /public/landing field —
+// kept as fallbacks so the pipeline reads sensibly when no data is loaded.
+const DEMO_FN_QUEUE = 142580;
+const DEMO_FN_PARSER = 111210;
+const DEMO_FN_DEDUP = 76994;
+const DEMO_FN_ENRICH = 51328;
+const DEMO_FN_READY = 29942;
+
+// Decorative sparkline shapes reused for the source-mix rows (geometry only).
+const SRC_SPARK_PATHS = [
+  "M0 12 L10 11 L20 8 L30 9 L40 6 L50 7 L60 4 L70 5 L80 3",
+  "M0 8 L10 10 L20 7 L30 9 L40 8 L50 6 L60 7 L70 5 L80 6",
+  "M0 6 L10 8 L20 7 L30 11 L40 9 L50 12 L60 10 L70 13 L80 11",
+  "M0 14 L10 12 L20 13 L30 10 L40 11 L50 9 L60 10 L70 8 L80 9",
+  "M0 11 L10 11 L20 12 L30 10 L40 12 L50 11 L60 13 L70 12 L80 14",
+];
+
+// Original hardcoded source-mix rows — fallback when stats aren't loaded.
+const DEMO_SOURCE_ROWS: Array<{ name: string; pct: number; num: string }> = [
+  { name: "ЕГРЮЛ / ФНС", pct: 42, num: "59 884" },
+  { name: "СПАРК / API", pct: 26, num: "37 070" },
+  { name: "Отраслевые", pct: 18, num: "25 664" },
+  { name: "Парс сайтов", pct: 9, num: "12 832" },
+  { name: "Импорт CSV", pct: 5, num: "7 130" },
+];
+
+// Original hardcoded leads-table rows — fallback when no real samples exist.
+type TableRow = {
+  src: string;
+  color: string;
+  co: string;
+  city: string;
+  score: number;
+  inn?: string;
+  hasEmail?: boolean;
+  hasPhone?: boolean;
+};
+const DEMO_TABLE_ROWS: TableRow[] = [
+  { src: "2G", color: "var(--sky)", co: "Птицефабрика «Юг»", inn: "ИНН 7017234567", city: "Томск", score: 92 },
+  { src: "ЕГ", color: "var(--amber)", co: "АО «Сибирская аграрная»", inn: "ИНН 7017012345", city: "Томск", score: 88 },
+  { src: "ЯК", color: "var(--green)", co: "КФХ «Турунтаево»", inn: "ИНН 7014099887", city: "с. Турунтаево", score: 81 },
+  { src: "2G", color: "var(--sky)", co: "Межениновская ПТФ", inn: "ИНН 7014048561", city: "с. Межениновка", score: 78 },
+  { src: "ЕГ", color: "var(--amber)", co: "ООО «Томь-Агро»", inn: "ИНН 7017341290", city: "Северск", score: 74 },
+  { src: "ЯК", color: "var(--green)", co: "СПК «Нелюбино»", inn: "ИНН 7014011230", city: "с. Нелюбино", score: 64 },
+];
+
 function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
-  // counters
-  const liveRef = useCountUp<HTMLSpanElement>(142580, { thin: true });
-  const totalRef = useCountUp<HTMLSpanElement>(2847, { thin: true });
-  const enrichedRef = useCountUp<HTMLSpanElement>(1923, { thin: true });
-  const emailRef = useCountUp<HTMLSpanElement>(1456, { thin: true });
-  const scoreRef = useCountUp<HTMLSpanElement>(72);
-  const fnQueueRef = useCountUp<HTMLSpanElement>(142580, { thin: true });
-  const fnParserRef = useCountUp<HTMLSpanElement>(111210, { thin: true });
-  const fnDedupRef = useCountUp<HTMLSpanElement>(76994, { thin: true });
-  const fnEnrichRef = useCountUp<HTMLSpanElement>(51328, { thin: true });
-  const fnReadyRef = useCountUp<HTMLSpanElement>(29942, { thin: true });
+  const stats = useStats();
+  // counters — real totals/funnel when loaded, else original hardcoded values.
+  const liveRef = useCountUp<HTMLSpanElement>(stats?.funnel.found ?? 142580, { thin: true });
+  const totalRef = useCountUp<HTMLSpanElement>(stats?.totals.leads ?? 2847, { thin: true });
+  const enrichedRef = useCountUp<HTMLSpanElement>(stats?.totals.enriched ?? 1923, { thin: true });
+  const emailRef = useCountUp<HTMLSpanElement>(stats?.totals.with_email ?? 1456, { thin: true });
+  const scoreRef = useCountUp<HTMLSpanElement>(stats ? Math.round(stats.avg_score) : 72);
+  // Funnel: queue→found, enrich→enriched, ready→qualified are real; the two
+  // intermediate stages have no endpoint field → DEMO_* fallbacks.
+  const fnQueueRef = useCountUp<HTMLSpanElement>(stats?.funnel.found ?? DEMO_FN_QUEUE, { thin: true });
+  const fnParserRef = useCountUp<HTMLSpanElement>(stats?.funnel.added ?? DEMO_FN_PARSER, { thin: true });
+  const fnDedupRef = useCountUp<HTMLSpanElement>(stats?.funnel.added ?? DEMO_FN_DEDUP, { thin: true });
+  const fnEnrichRef = useCountUp<HTMLSpanElement>(stats?.funnel.enriched ?? DEMO_FN_ENRICH, { thin: true });
+  const fnReadyRef = useCountUp<HTMLSpanElement>(stats?.funnel.qualified ?? DEMO_FN_READY, { thin: true });
+
+  // Source-mix list (источники · 7 дней) + heatmap rows: derive from real
+  // source counts → RU labels with % share; fall back to the original rows.
+  const srcTotal = stats?.sources.reduce((a, s) => a + s.count, 0) ?? 0;
+  const sourceRows =
+    stats && srcTotal > 0
+      ? stats.sources.map((s) => ({
+          name: sourceLabel(s.source),
+          pct: Math.round((s.count / srcTotal) * 100),
+          num: thinFmt(s.count),
+        }))
+      : null;
+
+  // Heatmap rows: the per-hour curve shape is decorative (no real per-hour
+  // data), so we keep the shapes but relabel the rows with real source names
+  // when available. Fall back to the original HEATMAP_SOURCES labels.
+  const heatmapRows: typeof HEATMAP_SOURCES =
+    stats && stats.sources.length > 0
+      ? HEATMAP_SOURCES.map((row, i) => ({
+          name: stats.sources[i] ? sourceLabel(stats.sources[i].source) : row.name,
+          curve: row.curve,
+        }))
+      : HEATMAP_SOURCES;
+
+  // Pulse stream: ts/tag/num are decorative telemetry; the real part is the
+  // company + city · source. Overlay real samples onto the existing rows
+  // (preserving count) so the scroller looks identical but names are real.
+  const pulseRows =
+    stats && stats.samples.length > 0
+      ? PULSE_FEED.map((row, i) => {
+          const s = stats.samples[i % stats.samples.length];
+          return { ...row, co: s.company, meta: `${s.city} · ${sourceLabel(s.source)}` };
+        })
+      : PULSE_FEED;
 
   return (
     <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
@@ -1001,7 +1183,7 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
           </div>
           <div className="feed-mask">
             <div className="feed-rail">
-              {[...PULSE_FEED, ...PULSE_FEED].map((row, i) => (
+              {[...pulseRows, ...pulseRows].map((row, i) => (
                 <div key={i} className="feed-row">
                   <span className="mono t-40">{row.ts}</span>
                   <span className={`feed-tag ${row.tag}`}>{row.tagText}</span>
@@ -1048,7 +1230,7 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
             </div>
           </div>
           <div className="heatmap">
-            {HEATMAP_SOURCES.map((s) => (
+            {heatmapRows.map((s) => (
               <Heatmap row key={s.name} src={s} />
             ))}
           </div>
@@ -1066,11 +1248,15 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
             <span className="t-40 mono text-[10px]">all projects</span>
           </div>
           <div className="src-list">
-            <SourceRow name="ЕГРЮЛ / ФНС" pct={42} num="59 884" path="M0 12 L10 11 L20 8 L30 9 L40 6 L50 7 L60 4 L70 5 L80 3" />
-            <SourceRow name="СПАРК / API" pct={26} num="37 070" path="M0 8 L10 10 L20 7 L30 9 L40 8 L50 6 L60 7 L70 5 L80 6" />
-            <SourceRow name="Отраслевые" pct={18} num="25 664" path="M0 6 L10 8 L20 7 L30 11 L40 9 L50 12 L60 10 L70 13 L80 11" />
-            <SourceRow name="Парс сайтов" pct={9} num="12 832" path="M0 14 L10 12 L20 13 L30 10 L40 11 L50 9 L60 10 L70 8 L80 9" />
-            <SourceRow name="Импорт CSV" pct={5} num="7 130" path="M0 11 L10 11 L20 12 L30 10 L40 12 L50 11 L60 13 L70 12 L80 14" />
+            {(sourceRows ?? DEMO_SOURCE_ROWS).map((r, i) => (
+              <SourceRow
+                key={r.name}
+                name={r.name}
+                pct={r.pct}
+                num={r.num}
+                path={SRC_SPARK_PATHS[i % SRC_SPARK_PATHS.length]}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -1133,9 +1319,31 @@ function SourceRow({ name, pct, num, path }: { name: string; pct: number; num: s
 /* ── View: Project ─────────────────────────────────────── */
 
 function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
-  const collectedRef = useCountUp<HTMLSpanElement>(134);
-  const emailedRef = useCountUp<HTMLSpanElement>(71);
-  const qualRef = useCountUp<HTMLSpanElement>(17);
+  const stats = useStats();
+  // Real project totals when loaded, else original hardcoded demo values.
+  const collectedRef = useCountUp<HTMLSpanElement>(stats?.funnel.added ?? 134);
+  const emailedRef = useCountUp<HTMLSpanElement>(stats?.totals.with_email ?? 71);
+  const qualRef = useCountUp<HTMLSpanElement>(stats?.totals.qualified ?? 17);
+
+  // Leads table: render from real samples (company/city/score/source) with
+  // contacts masked to ✓/— badges — never invent emails/phones. Falls back
+  // to the original 6 demo rows. Keep the existing "демо-данные" label.
+  const tableRows: TableRow[] | null =
+    stats && stats.samples.length > 0
+      ? stats.samples.slice(0, 6).map((s) => {
+          const badge = sourceBadge(s.source);
+          return {
+            src: badge.src,
+            color: badge.color,
+            co: s.company,
+            city: s.city,
+            score: s.score,
+            hasEmail: s.has_email,
+            hasPhone: s.has_phone,
+          };
+        })
+      : null;
+  const tableTotal = stats?.funnel.added ?? 134;
 
   return (
     <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
@@ -1198,12 +1406,12 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
           <div className="flex items-center justify-between px-5 py-3 hairline" style={{ borderTop: 0 }}>
             <div className="flex items-center gap-2 text-[12px]">
               <span className="text-white">Лиды</span>
-              <span className="t-40 ml-1 mono">134</span>
+              <span className="t-40 ml-1 mono">{tableTotal}</span>
               <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
             </div>
             <div className="seg" style={{ padding: 2 }}>
               <button className="seg-btn active" style={{ padding: "4px 10px", fontSize: 11 }}>Все</button>
-              <button className="seg-btn" style={{ padding: "4px 10px", fontSize: 11 }}>Q · 17</button>
+              <button className="seg-btn" style={{ padding: "4px 10px", fontSize: 11 }}>Q · {stats?.totals.qualified ?? 17}</button>
             </div>
           </div>
           <table className="lt">
@@ -1211,21 +1419,20 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
               <tr><th>Компания</th><th>Город</th><th className="text-right">Score</th></tr>
             </thead>
             <tbody>
-              {[
-                { src: "2G", color: "var(--sky)", co: "Птицефабрика «Юг»", inn: "ИНН 7017234567", city: "Томск", score: 92 },
-                { src: "ЕГ", color: "var(--amber)", co: "АО «Сибирская аграрная»", inn: "ИНН 7017012345", city: "Томск", score: 88 },
-                { src: "ЯК", color: "var(--green)", co: "КФХ «Турунтаево»", inn: "ИНН 7014099887", city: "с. Турунтаево", score: 81 },
-                { src: "2G", color: "var(--sky)", co: "Межениновская ПТФ", inn: "ИНН 7014048561", city: "с. Межениновка", score: 78 },
-                { src: "ЕГ", color: "var(--amber)", co: "ООО «Томь-Агро»", inn: "ИНН 7017341290", city: "Северск", score: 74 },
-                { src: "ЯК", color: "var(--green)", co: "СПК «Нелюбино»", inn: "ИНН 7014011230", city: "с. Нелюбино", score: 64 },
-              ].map((row, i) => (
+              {(tableRows ?? DEMO_TABLE_ROWS).map((row, i) => (
                 <tr key={i}>
                   <td>
                     <div className="flex items-center gap-2">
                       <span className="mono text-[10px]" style={{ color: row.color }}>{row.src}</span>
                       <span style={{ fontWeight: i === 0 ? 500 : 400 }}>{row.co}</span>
                     </div>
-                    <div className="t-40 mono text-[10px] mt-0.5">{row.inn}</div>
+                    {"inn" in row && row.inn ? (
+                      <div className="t-40 mono text-[10px] mt-0.5">{row.inn}</div>
+                    ) : (
+                      <div className="t-40 mono text-[10px] mt-0.5">
+                        email {"hasEmail" in row && row.hasEmail ? "✓" : "—"} · тел {"hasPhone" in row && row.hasPhone ? "✓" : "—"}
+                      </div>
+                    )}
                   </td>
                   <td className="t-72">{row.city}</td>
                   <td className="text-right">
@@ -1241,7 +1448,7 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
             </tbody>
           </table>
           <div className="px-5 py-3 hairline flex items-center text-[11px]">
-            <span className="t-40">показано 6 из 134</span>
+            <span className="t-40">показано {(tableRows ?? DEMO_TABLE_ROWS).length} из {tableTotal}</span>
             <Link href="/register" className="ml-auto text-white flex items-center gap-1.5 hover:opacity-80 transition-opacity">
               смотреть все
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -1256,22 +1463,55 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
 }
 
 function BubbleChart() {
+  const stats = useStats();
+  // Build the scatter dataset. Real path: by_city → X=средний score,
+  // Y=лидов, bubble size=объём (count). The fabricated "выручка" axis is
+  // dropped entirely. Fallback path: the original BUBBLE_DATA (revenue X,
+  // qualified-sized bubbles) so the chart is byte-identical with no data.
+  const real = Boolean(stats && stats.by_city.length > 0);
+  const points: Array<{ short: string; x: number; y: number; size: number; primary?: boolean }> =
+    real && stats
+      ? (() => {
+          const top = Math.max(...stats.by_city.map((c) => c.count));
+          return stats.by_city.map((c) => ({
+            short: c.city,
+            x: c.avg_score,
+            y: c.count,
+            size: c.count,
+            primary: c.count === top,
+          }));
+        })()
+      : BUBBLE_DATA.map((d) => ({ short: d.short, x: d.rev, y: d.leads, size: d.qual, primary: d.primary }));
+
   const VW = 760, VH = 360;
   const ML = 64, MR = 24, MT = 24, MB = 44;
   const W = VW - ML - MR;
   const H = VH - MT - MB;
-  const xMin = 30, xMax = 200, yMin = 0, yMax = 55, rMin = 6, rMax = 32;
-  const qMax = Math.max(...BUBBLE_DATA.map((d) => d.qual));
+  // Axis domains: real data derives padded score/volume ranges; fallback
+  // keeps the exact original constants so geometry is unchanged.
+  const niceCeil = (v: number) => Math.max(5, Math.ceil(v / 5) * 5);
+  const xMin = real ? 0 : 30;
+  const xMax = real ? 100 : 200;
+  const yMin = 0;
+  const yMax = real ? niceCeil(Math.max(...points.map((p) => p.y)) * 1.15) : 55;
+  const rMin = 6, rMax = 32;
+  const sizeMax = Math.max(...points.map((p) => p.size));
   const X = (v: number) => ML + ((v - xMin) / (xMax - xMin)) * W;
   const Y = (v: number) => MT + H - ((v - yMin) / (yMax - yMin)) * H;
-  const R = (q: number) => rMin + (Math.sqrt(q) / Math.sqrt(qMax)) * (rMax - rMin);
+  const R = (q: number) => rMin + (Math.sqrt(q) / Math.sqrt(sizeMax || 1)) * (rMax - rMin);
 
-  const xTicks = [40, 80, 120, 160, 200];
-  const yTicks = [10, 20, 30, 40, 50];
+  const xTicks = real ? [20, 40, 60, 80, 100] : [40, 80, 120, 160, 200];
+  const yTicks = real
+    ? Array.from({ length: 5 }, (_, i) => Math.round(((i + 1) / 5) * yMax))
+    : [10, 20, 30, 40, 50];
 
   // medians
-  const medX = [...BUBBLE_DATA].map((d) => d.rev).sort((a, b) => a - b)[Math.floor(BUBBLE_DATA.length / 2)];
-  const medY = [...BUBBLE_DATA].map((d) => d.leads).sort((a, b) => a - b)[Math.floor(BUBBLE_DATA.length / 2)];
+  const medX = [...points].map((d) => d.x).sort((a, b) => a - b)[Math.floor(points.length / 2)];
+  const medY = [...points].map((d) => d.y).sort((a, b) => a - b)[Math.floor(points.length / 2)];
+
+  // Subtitle / axis copy — honest sums from real data, else original demo text.
+  const regionCount = real && stats ? stats.by_city.length : 9;
+  const totalLeads = real && stats ? stats.totals.leads : 134;
 
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -1288,12 +1528,12 @@ function BubbleChart() {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="eyebrow">регионы · сводка</div>
-          <div className="text-[15px] light mt-1">Лиды по выручке и объёму</div>
+          <div className="text-[15px] light mt-1">{real ? "Лиды по score и объёму" : "Лиды по выручке и объёму"}</div>
         </div>
         <div className="t-40 mono text-[10px] text-right">
-          9 регионов
+          {regionCount} регионов
           <br />
-          134 лида
+          {totalLeads} лида
         </div>
       </div>
 
@@ -1317,10 +1557,10 @@ function BubbleChart() {
             <text key={`yl${t}`} x={ML - 10} y={Y(t) + 3} textAnchor="end">{t}</text>
           ))}
           {xTicks.map((t) => (
-            <text key={`xl${t}`} x={X(t)} y={VH - MB + 18} textAnchor="middle">{t}M</text>
+            <text key={`xl${t}`} x={X(t)} y={VH - MB + 18} textAnchor="middle">{real ? t : `${t}M`}</text>
           ))}
           <text x={ML} y={MT - 8} fill="rgba(255,255,255,0.55)" fontSize="10.5">лиды собрано</text>
-          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="rgba(255,255,255,0.55)" fontSize="10.5">медианная выручка, ₽M →</text>
+          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="rgba(255,255,255,0.55)" fontSize="10.5">{real ? "средний score →" : "медианная выручка, ₽M →"}</text>
         </g>
 
         {/* medians */}
@@ -1332,8 +1572,8 @@ function BubbleChart() {
 
         {/* bubbles */}
         <g>
-          {BUBBLE_DATA.map((d, i) => {
-            const cx = X(d.rev), cy = Y(d.leads), r = R(d.qual);
+          {points.map((d, i) => {
+            const cx = X(d.x), cy = Y(d.y), r = R(d.size);
             const isHover = hoverIdx === i;
             return (
               <g
@@ -1362,7 +1602,7 @@ function BubbleChart() {
                   {d.short}
                 </text>
                 <text className="bubble-num" x={cx + r + 8} y={cy + 11} fontFamily="Geist Mono" fontSize="9.5" fill="rgba(168,197,192,0.7)">
-                  {d.leads} лид · {d.qual} qual
+                  {real ? `${d.y} лид · score ${Math.round(d.x)}` : `${d.y} лид · ${d.size} qual`}
                 </text>
               </g>
             );
@@ -1373,17 +1613,17 @@ function BubbleChart() {
       <div className="bubble-legend mt-3 flex items-center gap-5 text-[11px] t-48 flex-wrap">
         <span className="flex items-center gap-2">
           <span className="bub-dot" style={{ width: 6, height: 6 }} />
-          &lt; 30 qual.
+          {real ? "меньше лидов" : "< 30 qual."}
         </span>
         <span className="flex items-center gap-2">
           <span className="bub-dot" style={{ width: 10, height: 10 }} />
-          30–60 qual.
+          {real ? "средне" : "30–60 qual."}
         </span>
         <span className="flex items-center gap-2">
           <span className="bub-dot" style={{ width: 15, height: 15 }} />
-          60+ qual.
+          {real ? "больше лидов" : "60+ qual."}
         </span>
-        <span className="ml-auto mono">размер · qualified</span>
+        <span className="ml-auto mono">{real ? "размер · объём" : "размер · qualified"}</span>
       </div>
     </div>
   );
@@ -1392,16 +1632,26 @@ function BubbleChart() {
 /* ── View: Lead ──────────────────────────────────────── */
 
 function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
-  const scoreRef = useCountUp<HTMLSpanElement>(92);
+  const stats = useStats();
+  // Drive the lead card from the top real sample when available. Identity +
+  // score are real; sub-scores, ЛПР, address, timeline & notes have no
+  // endpoint source and stay as labelled demo data. Contacts are masked to
+  // ✓/— from has_email/has_phone — never synthesised into fake addresses.
+  const lead = stats?.samples[0];
+  const leadCo = lead?.company ?? "Птицефабрика «Юг»";
+  const leadCity = lead?.city ?? "Томск";
+  const leadScore = lead?.score ?? 92;
+  const leadSrc = lead ? sourceLabel(lead.source) : "2GIS+ЕГРЮЛ";
+  const scoreRef = useCountUp<HTMLSpanElement>(leadScore);
   return (
     <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-6">
         <div>
-          <div className="eyebrow">лид · 2GIS+ЕГРЮЛ</div>
-          <div className="h1 mt-2" style={{ fontSize: 56 }}>Птицефабрика «Юг»</div>
+          <div className="eyebrow">лид · {leadSrc}</div>
+          <div className="h1 mt-2" style={{ fontSize: 56 }}>{leadCo}</div>
           <div className="text-[13px] t-72 mt-1">
-            ООО «Птицефабрика Юг» <span className="t-28">·</span>{" "}
-            <span className="mono">ИНН 7017234567</span> <span className="t-28">·</span> Томск
+            {lead ? leadCo : "ООО «Птицефабрика Юг»"} <span className="t-28">·</span>{" "}
+            <span className="mono">{lead ? `источник ${leadSrc}` : "ИНН 7017234567"}</span> <span className="t-28">·</span> {leadCity}
             {" "}<span className="panel-thin px-2 py-0.5 text-[10px] mono align-middle ml-1">демо-данные</span>
           </div>
         </div>
@@ -1439,7 +1689,7 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
           <div className="h-[5px] rounded-full mt-3" style={{ background: "rgba(255,255,255,0.08)" }}>
             <div
               className="h-full rounded-full"
-              style={{ width: "92%", background: "var(--mint)", boxShadow: "0 0 12px rgba(168,197,192,0.45)" }}
+              style={{ width: `${leadScore}%`, background: "var(--mint)", boxShadow: "0 0 12px rgba(168,197,192,0.45)" }}
             />
           </div>
           <div className="grid grid-cols-3 gap-2 mt-4 text-[11px]">
@@ -1469,23 +1719,23 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
           <div className="space-y-3 text-[12.5px]">
             <div className="flex items-center gap-3">
               <span className="dot dot-em" />
-              <span className="mono">info@ptf-yug.ru</span>
-              <span className="ml-auto t-40 text-[10px]">SMTP+MX ✓</span>
+              <span className="mono">{lead ? (lead.has_email ? "email найден" : "email не найден") : "info@ptf-yug.ru"}</span>
+              <span className="ml-auto t-40 text-[10px]">{lead ? (lead.email_valid ? "SMTP+MX ✓" : lead.has_email ? "не проверен" : "—") : "SMTP+MX ✓"}</span>
             </div>
             <div className="flex items-center gap-3">
               <svg className="t-48" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
               </svg>
-              <span className="mono">+7 382 245-18-90</span>
-              <span className="ml-auto t-40 text-[10px]">основной</span>
+              <span className="mono">{lead ? (lead.has_phone ? "телефон найден" : "телефон не найден") : "+7 382 245-18-90"}</span>
+              <span className="ml-auto t-40 text-[10px]">{lead ? (lead.has_phone ? "✓" : "—") : "основной"}</span>
             </div>
             <div className="flex items-center gap-3">
               <svg className="t-48" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <circle cx="12" cy="12" r="9" />
                 <path d="M3 12h18M12 3a13 13 0 010 18 13 13 0 010-18z" />
               </svg>
-              <span className="mono">ptf-yug.ru</span>
-              <span className="ml-auto t-40 text-[10px]">site online</span>
+              <span className="mono">{lead ? "сайт — демо" : "ptf-yug.ru"}</span>
+              <span className="ml-auto t-40 text-[10px]">{lead ? "демо-данные" : "site online"}</span>
             </div>
           </div>
           <div className="hairline mt-5 pt-4">
@@ -1507,10 +1757,10 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
           <div className="eyebrow mb-3">хронология</div>
           <div className="space-y-3 text-[12px]">
             {[
-              ["14:23", <>обогащён <span className="t-48">· score 92</span></>],
+              ["14:23", <>обогащён <span className="t-48">· score {leadScore}</span></>],
               ["14:21", "подтверждён email · SMTP 220"],
               ["14:19", <>сматчен с ЕГРЮЛ <span className="mono t-40">7017234567</span></>],
-              ["14:18", <>попал в очередь <span className="t-48">· источник: 2GIS</span></>],
+              ["14:18", <>попал в очередь <span className="t-48">· источник: {leadSrc}</span></>],
               ["26.02", "добавлен в проект «Кормовые · Томск»"],
             ].map(([t, c], i) => (
               <div key={i} className="flex items-start gap-3">
@@ -1537,6 +1787,13 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
 /* ── Features ──────────────────────────────────────── */
 
 function FeaturesSection() {
+  const stats = useStats();
+  // Real rates for the KPI tiles; deliver→email, контактность(ЛПР)→phone,
+  // совпадение→enrichment. Fall back to the original demo percentages.
+  const deliverPct = stats ? Math.round(stats.rates.email * 100) : 94;
+  const matchPct = stats ? Math.round(stats.rates.enrichment * 100) : 88;
+  const lprPct = stats ? Math.round(stats.rates.phone * 100) : 71;
+  const avgScore = stats ? Math.round(stats.avg_score) : 72;
   return (
     <section id="sources" className="relative">
       <div className="max-w-[1320px] mx-auto px-6 py-24">
@@ -1562,9 +1819,9 @@ function FeaturesSection() {
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">SMTP+MX-проверка, валидация по ФНС, сопоставление ЛПР с открытыми профилями.</p>
             <div className="mt-5 hairline pt-4 grid grid-cols-3 gap-2">
               {[
-                ["deliver", "94%"],
-                ["match", "88%"],
-                ["ЛПР", "71%"],
+                ["deliver", `${deliverPct}%`],
+                ["match", `${matchPct}%`],
+                ["ЛПР", `${lprPct}%`],
               ].map(([label, val]) => (
                 <div key={label} className="stat-tile" style={{ padding: "8px 10px" }}>
                   <div className="stat-tile__label">{label}</div>
@@ -1578,8 +1835,8 @@ function FeaturesSection() {
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>100-балльный скоринг под ваш промпт.</h3>
             <p className="t-72 text-[13px] mt-3 leading-[1.55]">Соответствие, контактность, платёжеспособность — три оси, прозрачные веса, объяснение для каждого балла.</p>
             <div className="mt-5 hairline pt-4">
-              <div className="flex items-center justify-between text-[11px] t-48 mb-2"><span>средний</span><span className="mono">72 / 100</span></div>
-              <div className="score-bar" style={{ "--score": 0.72 } as React.CSSProperties}>
+              <div className="flex items-center justify-between text-[11px] t-48 mb-2"><span>средний</span><span className="mono">{avgScore} / 100</span></div>
+              <div className="score-bar" style={{ "--score": avgScore / 100 } as React.CSSProperties}>
                 <div className="score-bar__fill" />
               </div>
             </div>
@@ -1673,9 +1930,8 @@ function FooterSection() {
           <div className="text-white mb-3 text-[12px]">Статус</div>
           <div className="flex md:justify-end items-center gap-2">
             <span className="dot dot-em" />
-            <span>все системы стабильны</span>
+            <span>Работает</span>
           </div>
-          <div className="mono mt-2">latency 184 мс</div>
         </div>
       </div>
       <div className="hairline">
@@ -1723,7 +1979,12 @@ function MarqueeBand() {
 
 export function LandingPage() {
   useCursorSpotlight();
+  // Single fetch of /public/landing on mount; shared with every demo block
+  // via context. Null until data arrives → blocks keep their hardcoded
+  // fallbacks, so first paint is unchanged (no loading flash / layout shift).
+  const stats = useLandingStats();
   return (
+    <StatsContext.Provider value={stats}>
     <div className="min-h-screen bg-[var(--bg)] text-white">
       <CornerMeta />
       <TopNav />
@@ -1746,5 +2007,6 @@ export function LandingPage() {
       </Reveal>
       <FooterSection />
     </div>
+    </StatsContext.Provider>
   );
 }
