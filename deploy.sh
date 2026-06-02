@@ -89,8 +89,11 @@ fi
 echo ""
 echo "=== Smoke test ==="
 sleep 3
-curl -sI "https://${SERVER_IP}/" 2>/dev/null | head -1 || curl -sI "http://${SERVER_IP}/" | head -1
-curl -s "https://${SERVER_IP}/api/health" 2>/dev/null || curl -s "http://${SERVER_IP}/api/health"
+# -k: the TLS cert is issued for the domain, not the bare IP. --max-time: never
+# let a smoke curl hang the whole deploy — with no timeout, curl to a closed
+# port 80 or a flaky path blocks indefinitely and leaves deploy.sh "running".
+curl -skI --max-time 10 "https://${SERVER_IP}/" | head -1 || curl -sI --max-time 10 "http://${SERVER_IP}/" | head -1
+curl -sk --max-time 10 "https://${SERVER_IP}/api/health" || curl -s --max-time 10 "http://${SERVER_IP}/api/health"
 echo ""
 
 echo ""
