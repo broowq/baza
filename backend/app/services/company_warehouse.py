@@ -402,14 +402,20 @@ def search_warehouse(
             stmt = stmt.where(or_(*geo_clauses))
 
         # ── exclude already-held companies (dosed/no-repeat collection) ──────
+        sql_filtered = True
         if exclude_keys:
             ek = [k for k in exclude_keys if k]
-            # Postgres caps bound params; for an extreme backlog skip the DB-side
-            # filter (caller still de-dupes in Python) rather than error out.
-            if ek and len(ek) <= 60000:
+            # Postgres caps bound params (~65535); for an extreme backlog skip the
+            # DB-side filter and let the caller de-dupe in Python — but then we
+            # must fetch a WIDER window (below) so a full dose of new rows can
+            # still surface instead of only the top-ranked already-held ones.
+            if ek and len(ek) <= 65000:
                 stmt = stmt.where(Company.dedup_key.notin_(ek))
+            elif ek:
+                sql_filtered = False
 
-        stmt = stmt.order_by(Company.best_score.desc(), Company.times_seen.desc()).limit(max(1, limit))
+        eff_limit = max(1, limit) if sql_filtered else max(limit, 2000)
+        stmt = stmt.order_by(Company.best_score.desc(), Company.times_seen.desc()).limit(eff_limit)
         rows = db.execute(stmt).scalars().all()
         return [_company_to_candidate(row) for row in rows]
     except Exception:

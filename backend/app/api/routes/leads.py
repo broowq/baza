@@ -180,13 +180,16 @@ def run_collection(
             detail=f"Превышен лимит одновременных задач ({MAX_CONCURRENT_JOBS_PER_ORG}). Дождитесь завершения текущих задач.",
         )
 
-    ensure_lead_quota(organization, payload.lead_limit)
+    # Collect dose ceiling — the task clamps to the same 200; match it here so the
+    # quota pre-check reflects what will actually be added (not the raw request).
+    dose = min(payload.lead_limit, 200)
+    ensure_lead_quota(organization, dose)
     job = CollectionJob(
         organization_id=organization.id,
         project_id=project.id,
         status=JobStatus.queued,
         kind="collect",
-        requested_limit=payload.lead_limit,
+        requested_limit=dose,
     )
     db.add(job)
     db.flush()
@@ -195,7 +198,7 @@ def run_collection(
         user_id=str(membership.user_id),
         organization_id=str(organization.id),
         action="leads.collect.queued",
-        meta={"project_id": str(project.id), "limit": payload.lead_limit, "job_id": str(job.id)},
+        meta={"project_id": str(project.id), "limit": dose, "job_id": str(job.id)},
     )
     db.commit()
     db.refresh(job)

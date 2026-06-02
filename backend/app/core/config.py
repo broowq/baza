@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     # on repeat clicks once a niche+geo is exhausted; new businesses are picked up
     # on the next allowed seed.
     collect_exhaust_cooldown_hours: int = 12
+    # Dose per scheduled auto-collection run (same dosed/no-repeat model as the
+    # manual button). Kept modest so a daily cron trickles new companies and
+    # spreads monthly quota, rather than grabbing a big chunk each tick.
+    auto_collect_dose: int = 25
 
     # ── 152-ФЗ compliance guard ──────────────────────────────────────
     # When False (default), the LLM client REFUSES to call any provider

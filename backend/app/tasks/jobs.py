@@ -251,7 +251,12 @@ def collect_leads_task(job_id: str) -> None:
                 exhausted_at is not None
                 and (datetime.now(timezone.utc) - exhausted_at) < timedelta(hours=cooldown_h)
             )
-            if not in_cooldown:
+            # Non-locking quota estimate: don't pay for a live seed the org can't
+            # use anyway (the save loop still enforces the precise locked cap).
+            # This also keeps a pure quota-stop from being mistaken for source
+            # exhaustion below (did_live stays False → no cooldown stamp).
+            org_remaining = (org.leads_limit_per_month - org.leads_used_current_month) if org else 0
+            if not in_cooldown and org_remaining > 0:
                 did_live = True
                 query = f"{effective_niche} {effective_geo} {' '.join(effective_segments)}"
                 live = search_leads(
@@ -265,6 +270,7 @@ def collect_leads_task(job_id: str) -> None:
                     organization_id=str(job.organization_id),
                 )
                 live_count = len(live)
+                stored = 0
                 if warehouse_on:
                     try:
                         stored = company_warehouse.upsert_companies(db, live, niche=effective_niche)
@@ -283,9 +289,12 @@ def collect_leads_task(job_id: str) -> None:
                     except Exception:
                         logger.warning("warehouse re-select after seed failed", exc_info=True)
                         db.rollback()
-                # Belt-and-suspenders (warehouse off, or seed not yet visible):
-                # fill the remainder straight from the live rows.
-                _take(live)
+                # Fall back to raw live rows ONLY when the warehouse couldn't be the
+                # source (disabled, or nothing was written through) — otherwise the
+                # re-select above is the single, consistently-ranked source and
+                # mixing raw live rows would inflate found_count.
+                if not warehouse_on or stored == 0:
+                    _take(live)
 
         logger.info(
             "dosed collect: dose=%d delivered=%d (warehouse=%d, live_seed=%d, did_live=%s)",
@@ -318,10 +327,11 @@ def collect_leads_task(job_id: str) -> None:
             source = c.get("source", "")
 
             # For maps leads without website — generate stable placeholder URL so unique constraint works.
-            # For 2GIS, prefer the firm_id (if provided) — lets enrichment hit the firm page directly.
+            # Prefer a 2GIS firm_id (incl. warehouse-reused 2GIS rows that carry it)
+            # so enrichment can hit the firm page directly instead of name-searching.
             if not website and company_name:
                 firm_id = (c.get("firm_id") or "").strip()
-                if source == "2gis" and firm_id:
+                if firm_id and source in {"2gis", "warehouse"}:
                     website = f"maps://2gis/{firm_id}"
                 else:
                     slug_co = _re.sub(r"[^a-zа-я0-9]+", "-", company_name.lower()).strip("-")[:60]
@@ -442,7 +452,7 @@ def collect_leads_task(job_id: str) -> None:
         # what's already collected — back off live seeding for a while so repeat
         # clicks don't burn API calls returning the same set. Any successful add
         # clears the flag (new businesses may keep appearing).
-        if did_live and added == 0:
+        if did_live and added == 0 and not quota_stopped:
             project.leads_exhausted_at = datetime.now(timezone.utc)
         elif added > 0:
             project.leads_exhausted_at = None
@@ -839,6 +849,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
 @celery.task(name="jobs.schedule_auto_collection")
 def schedule_auto_collection() -> None:
     now = datetime.now(timezone.utc)
+    auto_dose = int(getattr(get_settings(), "auto_collect_dose", 25))
     db = SessionLocal()
     try:
         projects = db.execute(select(Project).where(Project.auto_collection_enabled.is_(True))).scalars().all()
@@ -866,7 +877,7 @@ def schedule_auto_collection() -> None:
                 project_id=project.id,
                 status=JobStatus.queued,
                 kind="collect",
-                requested_limit=100,
+                requested_limit=auto_dose,
             )
             db.add(job)
             db.flush()

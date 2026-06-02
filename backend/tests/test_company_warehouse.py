@@ -513,3 +513,45 @@ def test_dosed_collection_no_repeats_and_warehouse_first(db, monkeypatch):
         db.execute(delete(Project).where(Project.id == proj.id))
         db.execute(delete(Organization).where(Organization.id == org.id))
         db.commit()
+
+
+def test_zero_quota_skips_live_seed_and_not_exhausted(db, monkeypatch):
+    """An org at its monthly cap must NOT pay for a live seed, and a quota stop
+    must NOT be recorded as source exhaustion (which would gate live for 12h)."""
+    from app.tasks import jobs as jobs_mod
+
+    prefix = f"{_PFX}quota"
+    org, proj = _mk_org_project(db, prefix, f"{prefix}-niche", "Томск")
+    org.leads_limit_per_month = 5
+    org.leads_used_current_month = 5  # 0 remaining
+    db.commit()
+
+    calls = {"n": 0}
+
+    def fake_search_leads(*a, **k):
+        calls["n"] += 1
+        return [_cand(company=f"{prefix} {i}", domain=f"{prefix}{i}.ru", city="Томск") for i in range(10)]
+
+    monkeypatch.setattr(jobs_mod, "search_leads", fake_search_leads)
+    monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
+
+    job = CollectionJob(organization_id=org.id, project_id=proj.id,
+                        status=JobStatus.queued, kind="collect", requested_limit=10)
+    db.add(job)
+    db.commit()
+    jid = str(job.id)
+    try:
+        jobs_mod.collect_leads_task(jid)
+        db.expire_all()
+        assert calls["n"] == 0, "no live seed should run when remaining quota is 0"
+        assert db.get(Project, proj.id).leads_exhausted_at is None, \
+            "quota stop must not set the source-exhaustion cooldown"
+        assert db.get(CollectionJob, uuid.UUID(jid)).added_count == 0
+    finally:
+        db.rollback()
+        db.execute(delete(Lead).where(Lead.project_id == proj.id))
+        db.execute(delete(CollectionJob).where(CollectionJob.project_id == proj.id))
+        db.execute(delete(Project).where(Project.id == proj.id))
+        db.execute(delete(Organization).where(Organization.id == org.id))
+        db.commit()

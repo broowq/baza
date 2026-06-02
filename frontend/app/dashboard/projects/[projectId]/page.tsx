@@ -203,7 +203,8 @@ export default function ProjectDetailsPage() {
     lastCollectToastRef.current = last.id;
     const n = last.added_count ?? 0;
     if (n > 0) toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
-    else toast("Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
+    // 0 added — show the backend's honest reason (quota hit vs. nothing left).
+    else toast(last.error || "Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
   }, [jobs]);
 
   const queueJob = async (kind: "collect" | "enrich", limit: number) => {
