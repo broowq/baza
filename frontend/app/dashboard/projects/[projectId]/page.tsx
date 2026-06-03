@@ -207,6 +207,26 @@ export default function ProjectDetailsPage() {
     else toast(last.error || "Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
   }, [jobs]);
 
+  // Toast the outcome when an enrich job finishes. Surfaces the backend's
+  // honest reason (e.g. "источники недоступны — проверьте API-ключи") instead
+  // of leaving the user to wonder why "обогащено"/"с email" didn't move.
+  const lastEnrichToastRef = useRef<string | null>(null);
+  const enrichToastInitRef = useRef(false);
+  useEffect(() => {
+    const last = jobs.find((j) => j.kind === "enrich");
+    if (!last) return;
+    if (!enrichToastInitRef.current) {
+      enrichToastInitRef.current = true;
+      if (last.status === "done" || last.status === "failed") lastEnrichToastRef.current = last.id;
+      return;
+    }
+    if ((last.status !== "done" && last.status !== "failed") || lastEnrichToastRef.current === last.id) return;
+    lastEnrichToastRef.current = last.id;
+    if (last.status === "failed") toast.error(last.error || "Обогащение не удалось");
+    else if (last.error) toast(last.error);
+    else toast.success(`Обогащение завершено: обработано ${last.enriched_count}`);
+  }, [jobs]);
+
   const queueJob = async (kind: "collect" | "enrich", limit: number) => {
     setRunning(true);
     try {

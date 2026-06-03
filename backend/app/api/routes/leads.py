@@ -224,12 +224,17 @@ def run_enrichment(
             status_code=429,
             detail=f"Превышен лимит одновременных задач ({MAX_CONCURRENT_JOBS_PER_ORG}). Дождитесь завершения текущих задач.",
         )
+    # A lead is enrichable if it was never enriched, OR it still has no
+    # actionable contact (no email AND no phone). We deliberately do NOT require
+    # the address to also be empty: warehouse/2GIS leads often carry an address
+    # but no email/phone, and gating on address left them permanently
+    # un-enrichable ("Нет лидов для обогащения") even though they need contacts.
     enrichable = db.scalar(
         select(func.count(Lead.id)).where(
             Lead.project_id == project.id,
             or_(
                 Lead.enriched.is_(False),
-                (Lead.email == "") & (Lead.phone == "") & (Lead.address == ""),
+                (Lead.email == "") & (Lead.phone == ""),
             ),
         )
     ) or 0

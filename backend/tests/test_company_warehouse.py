@@ -614,3 +614,54 @@ def test_zero_quota_skips_live_seed_and_not_exhausted(db, monkeypatch):
         db.execute(delete(Project).where(Project.id == proj.id))
         db.execute(delete(Organization).where(Organization.id == org.id))
         db.commit()
+
+
+def test_enrich_reprocesses_contactless_lead_and_flags_dead_source(db, monkeypatch):
+    """A lead that is already enriched=True but still has NO email/phone (only an
+    address, like warehouse/2GIS leads) must remain enrichable — the old
+    address-gated check left it permanently stuck ("Нет лидов для обогащения").
+    And when contacts come back empty because a source is down, the job records
+    an honest reason instead of silently reporting 0."""
+    from app.tasks import jobs as jobs_mod
+    import app.services.lead_collection as lc
+
+    prefix = f"{_PFX}enrk"
+    org, proj = _mk_org_project(db, prefix, niche=f"{prefix}-n", geo="Томск")
+    lead = Lead(
+        organization_id=org.id, project_id=proj.id,
+        company=f"{prefix} Co", city="Томск",
+        website="maps://warehouse/x-tomsk", domain="",
+        email="", phone="", address="площадь Батенькова, 2",
+        source="2gis", status=LeadStatus.new, score=40, enriched=True,
+    )
+    db.add(lead)
+    db.commit()
+
+    # Enrichment finds nothing, and the 2GIS API key is dead this run.
+    monkeypatch.setattr(jobs_mod, "enrich_2gis_lead",
+                        lambda *a, **k: {"emails": [], "phones": [], "addresses": []})
+    monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(jobs_mod, "_notify_owner_project_ready", lambda *a, **k: None)
+    monkeypatch.setattr(lc, "_TWOGIS_DEAD_KEY", True, raising=False)
+
+    job = CollectionJob(
+        organization_id=org.id, project_id=proj.id,
+        status=JobStatus.queued, kind="enrich", requested_limit=10,
+    )
+    db.add(job)
+    db.commit()
+    jid = job.id
+    try:
+        jobs_mod.enrich_leads_task(str(jid))
+        db.expire_all()
+        job = db.get(CollectionJob, jid)
+        assert job.enriched_count == 1, "contactless already-enriched lead must be reprocessed, not skipped"
+        assert job.error and "источники недоступны" in job.error, \
+            "dead contact source must be surfaced honestly in job.error"
+    finally:
+        db.rollback()
+        db.execute(delete(Lead).where(Lead.project_id == proj.id))
+        db.execute(delete(CollectionJob).where(CollectionJob.project_id == proj.id))
+        db.execute(delete(Project).where(Project.id == proj.id))
+        db.execute(delete(Organization).where(Organization.id == org.id))
+        db.commit()

@@ -603,11 +603,14 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         # why enriched_count is lower than the number of requested IDs.
         skipped_already_enriched: list[str] = []
 
+        # Enrichable = never enriched, OR still missing an actionable contact
+        # (no email AND no phone). Address is intentionally NOT part of this
+        # check — a lead with only an address still needs a phone/email.
         query = select(Lead).where(
             Lead.project_id == job.project_id,
             or_(
                 Lead.enriched.is_(False),
-                (Lead.email == "") & (Lead.phone == "") & (Lead.address == ""),
+                (Lead.email == "") & (Lead.phone == ""),
             ),
         )
         if lead_ids:
@@ -626,7 +629,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 ).scalars().all()
                 enrichable_ids = {
                     lead.id for lead in all_requested
-                    if not lead.enriched or not (lead.email or lead.phone or lead.address)
+                    if not lead.enriched or not (lead.email or lead.phone)
                 }
                 for lead in all_requested:
                     if lead.id not in enrichable_ids:
@@ -639,6 +642,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         # buyer-match bonus stays consistent with the initial collect-pass.
         project_segments = list(project.segments) if (project and project.segments) else []
         enriched = 0
+        contacts_found = 0  # leads that ended this run with an email or phone
         for lead in leads:
             website = lead.website or ""
             if website.startswith("maps://"):
@@ -703,6 +707,8 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             lead.email = _clip(raw_email, 255)
             lead.phone = _clip(raw_phone, 80)
             lead.address = _clip(raw_address, 300)
+            if lead.email or lead.phone:
+                contacts_found += 1
 
             # Email deliverability check — syntax + MX record lookup.
             # Cheap (1 DNS query, cached) and catches ~80% of bounces.
@@ -777,16 +783,37 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         job.enriched_count = enriched
         job.status = JobStatus.done
         job.updated_at = datetime.now(timezone.utc)
-        # Bug #5 fix: record skipped (already-enriched) leads in job.error so
-        # the user can see why enriched_count may be lower than requested.
-        # We use job.error for non-fatal informational messages when status=done
-        # (consistent with quota_stopped pattern in collect_leads_task).
+        # Non-fatal informational messages surfaced to the user via job.error
+        # (shown in История задач + a completion toast). Same convention as the
+        # quota_stopped note in collect_leads_task.
+        messages: list[str] = []
+        # Honest signal: we processed leads but found NO contacts AND a contact
+        # source was unavailable this run — tell the user WHY instead of silently
+        # reporting 0. Usual cause: expired/invalid 2GIS/Yandex API key, or 2GIS
+        # bot-protection (captcha) blocking the scrape fallback.
+        if leads and contacts_found == 0:
+            from app.services import lead_collection as _lc
+            issues = []
+            if getattr(_lc, "_TWOGIS_DEAD_KEY", False):
+                issues.append("2GIS API (ошибка ключа)")
+            if getattr(_lc, "_YANDEX_DEAD_KEY", False):
+                issues.append("Yandex Maps API (ошибка ключа)")
+            if getattr(_lc, "_TWOGIS_SCRAPE_BLOCKED", False) or getattr(_lc, "_TWOGIS_SCRAPE_BLOCKED_ENRICH", False):
+                issues.append("2GIS веб-поиск (защита от ботов)")
+            if issues:
+                messages.append(
+                    "Контакты не найдены: источники недоступны — "
+                    + ", ".join(issues)
+                    + ". Проверьте API-ключи 2GIS/Yandex на сервере."
+                )
+        # Bug #5: record skipped (already-enriched-with-contact) leads so the
+        # user sees why enriched_count may be lower than the number requested.
         if skipped_already_enriched:
-            job.error = (
-                f"Пропущено уже обогащённых: {len(skipped_already_enriched)} лид(ов). "
-                f"IDs: {', '.join(skipped_already_enriched[:20])}"
-                + (" …" if len(skipped_already_enriched) > 20 else "")
+            messages.append(
+                f"Пропущено уже обогащённых: {len(skipped_already_enriched)} лид(ов)."
             )
+        if messages:
+            job.error = " ".join(messages)
         db.commit()
         send_telegram(f"Lead enrichment finished. Job={job.id} Enriched={job.enriched_count}")
 
