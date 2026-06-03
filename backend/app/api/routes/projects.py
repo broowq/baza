@@ -170,6 +170,11 @@ def update_project(
     for field, value in updates.items():
         setattr(project, field, value)
 
+    # Prompt/niche changed → drop the cached search query so the next collect
+    # re-derives the LLM search niche (see Project.search_query).
+    if "prompt" in updates or "niche" in updates:
+        project.search_query = ""
+
     log_action(
         db,
         user_id=str(membership.user_id),

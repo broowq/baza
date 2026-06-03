@@ -131,6 +131,10 @@ class Project(Base):
     # niche+geo vs what's already collected). Gates live re-seeding for a cooldown
     # window so repeat collects don't burn API calls returning the same set.
     leads_exhausted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Cached LLM search-optimized niche (enhance_prompt's search_queries_niche).
+    # Computed once and reused by every dosed collect so we don't pay for an LLM
+    # prompt-enhance on each dose. Reset to "" when the project prompt changes.
+    search_query: Mapped[str] = mapped_column(String(300), default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
 

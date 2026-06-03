@@ -527,6 +527,53 @@ def test_dosed_collection_no_repeats_and_warehouse_first(db, monkeypatch):
         db.commit()
 
 
+def test_enhance_prompt_cached_per_project(db, monkeypatch):
+    """A prompted project enhances the search niche ONCE (cache miss) and reuses
+    project.search_query on every later dose — no per-dose LLM cost."""
+    from app.tasks import jobs as jobs_mod
+    import app.services.prompt_enhancer as pe
+
+    prefix = f"{_PFX}enh"
+    org, proj = _mk_org_project(db, prefix, niche=f"{prefix}-raw", geo="Томск")
+    proj.prompt = "продаю запчасти, нужны автосервисы Томска"
+    db.commit()
+
+    enh_calls = {"n": 0}
+
+    def fake_enhance(prompt, *, organization_id=None):
+        enh_calls["n"] += 1
+        return {"search_queries_niche": f"{prefix}-search", "niche": f"{prefix}-niche",
+                "geography": "Томск", "segments": []}
+
+    monkeypatch.setattr(pe, "enhance_prompt", fake_enhance)
+    monkeypatch.setattr(jobs_mod, "search_leads",
+                        lambda *a, **k: [_cand(company=f"{prefix} {i}", domain=f"{prefix}{i}.ru", city="Томск") for i in range(15)])
+    monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
+    monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
+
+    def run():
+        job = CollectionJob(organization_id=org.id, project_id=proj.id,
+                            status=JobStatus.queued, kind="collect", requested_limit=5)
+        db.add(job)
+        db.commit()
+        jobs_mod.collect_leads_task(str(job.id))
+        db.expire_all()
+
+    try:
+        run()
+        assert enh_calls["n"] == 1, "first collect enhances once (cache miss)"
+        assert (db.get(Project, proj.id).search_query or "").strip() == f"{prefix}-search"
+        run()
+        assert enh_calls["n"] == 1, "second collect reuses cached search_query — no new enhance"
+    finally:
+        db.rollback()
+        db.execute(delete(Lead).where(Lead.project_id == proj.id))
+        db.execute(delete(CollectionJob).where(CollectionJob.project_id == proj.id))
+        db.execute(delete(Project).where(Project.id == proj.id))
+        db.execute(delete(Organization).where(Organization.id == org.id))
+        db.commit()
+
+
 def test_zero_quota_skips_live_seed_and_not_exhausted(db, monkeypatch):
     """An org at its monthly cap must NOT pay for a live seed, and a quota stop
     must NOT be recorded as source exhaustion (which would gate live for 12h)."""
