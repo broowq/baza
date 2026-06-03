@@ -14,7 +14,6 @@ type PlanRow = {
   projects_limit: number;
   users_limit: number;
   leads_limit_per_month: number;
-  searches_per_month?: number;
   can_invite_members: boolean;
   price_monthly_rub?: number;
   price_monthly_usd?: number;

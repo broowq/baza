@@ -992,7 +992,7 @@ search_queries_niche — это то, что будет искаться на к
         answer = llm_client.chat(
             raw_prompt,
             system=system_prompt,
-            max_tokens=2500,  # bumped from 800: we now ask for 25-40 segments
+            max_tokens=3500,  # 25-40 segments + okved codes can exceed 2500 → truncation
             temperature=0.3,
             organization_id=organization_id,
         )
@@ -1010,6 +1010,17 @@ search_queries_niche — это то, что будет искаться на к
         last_brace = answer.rfind("}")
         if first_brace != -1 and last_brace != -1:
             answer = answer[first_brace:last_brace + 1]
+
+        # Truncation guard: a response cut off at max_tokens leaves unbalanced
+        # braces, so json.loads below raises and we silently fall back to the
+        # rule-based path. Log it so truncation is observable in ops instead of
+        # masquerading as "LLM returned nothing useful".
+        if answer.count("{") != answer.count("}"):
+            logger.warning(
+                "LLM segment JSON looks truncated (unbalanced braces, len=%d) — "
+                "consider raising max_tokens; falling back to rules",
+                len(answer),
+            )
 
         result = json.loads(answer)
 

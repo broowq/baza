@@ -2064,7 +2064,7 @@ def search_leads(
                 break
         logger.info(
             "Geo-tier fallback: tier=%r added %d new (running total %d/%d)",
-            tier_geo, len(merged) - (len(merged) - len(extra)), len(merged), limit,
+            tier_geo, len(extra), len(merged), limit,
         )
         if len(merged) >= target_floor:
             break  # good enough; don't escalate further

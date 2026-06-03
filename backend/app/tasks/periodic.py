@@ -106,8 +106,10 @@ def send_reminder_emails() -> None:
                 logger.warning("reminder digest send failed for user %s", user.email, exc_info=True)
                 continue
 
-            # Clear reminder_at on successfully-notified leads (one-shot reminder)
-            for lead in leads:
+            # Clear reminder_at only on the leads we actually included in the
+            # digest (email is capped at 50). Leads 51+ keep their reminder so
+            # they resurface in tomorrow's digest instead of being silently lost.
+            for lead in leads[:50]:
                 lead.reminder_at = None
             db.commit()
 
@@ -246,7 +248,7 @@ def purge_old_leads() -> None:
             result = db.execute(
                 delete(Lead)
                 .where(Lead.organization_id == org.id)
-                .where(Lead.created_at < cutoff)
+                .where(Lead.updated_at < cutoff)
             )
             if result.rowcount:
                 logger.info(

@@ -637,7 +637,6 @@ def update_lead(
     if payload.mark_contacted:
         # Convenience flag — sets last_contacted_at=now() and bumps status to "contacted"
         # if it was still "new". Lets sales click one button after a call.
-        from datetime import datetime, timezone
         lead.last_contacted_at = datetime.now(timezone.utc)
         if lead.status == LeadStatus.new:
             lead.status = LeadStatus.contacted

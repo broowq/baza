@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_admin
 from app.db.session import get_db
 from app.models import ActionLog, CollectionJob, Lead, Membership, Organization, PlanType, Project, Subscription, User
-from app.services.quota import PLAN_LIMITS, apply_plan_limits
+from app.services.quota import apply_plan_limits
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -171,7 +171,6 @@ def delete_user(
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
     # Delete memberships first
-    db.execute(select(Membership).where(Membership.user_id == user.id))
     for m in db.execute(select(Membership).where(Membership.user_id == user.id)).scalars().all():
         db.delete(m)
     db.delete(user)

@@ -167,18 +167,21 @@ const HEATMAP_SOURCES: Array<{ name: string; curve: number[] }> = [
   { name: "парс", curve: [0.32, 0.28, 0.22, 0.18, 0.16, 0.14, 0.18, 0.22, 0.28, 0.32, 0.36, 0.4, 0.42, 0.45, 0.42, 0.38, 0.34, 0.32, 0.36, 0.42, 0.5, 0.55, 0.48, 0.4] },
 ];
 
+// Illustrative regional demo data for the bubble chart, used only when the
+// public stats endpoint returns nothing. Counts only (leads / qualified) —
+// no fabricated revenue, so the chart never presents made-up ₽ figures.
 const BUBBLE_DATA: Array<{
-  region: string; short: string; rev: number; leads: number; qual: number; primary?: boolean;
+  region: string; short: string; leads: number; qual: number; primary?: boolean;
 }> = [
-  { region: "Томская обл.", short: "Томск", rev: 142, leads: 47, qual: 17, primary: true },
-  { region: "Новосибирская", short: "Новосиб.", rev: 98, leads: 28, qual: 11 },
-  { region: "Красноярский кр.", short: "Красноярск", rev: 168, leads: 17, qual: 9 },
-  { region: "Кемеровская", short: "Кемерово", rev: 128, leads: 19, qual: 6 },
-  { region: "Алтайский кр.", short: "Барнаул", rev: 72, leads: 11, qual: 4 },
-  { region: "Омская обл.", short: "Омск", rev: 88, leads: 12, qual: 3 },
-  { region: "Иркутская", short: "Иркутск", rev: 116, leads: 9, qual: 3 },
-  { region: "Респ. Хакасия", short: "Абакан", rev: 54, leads: 6, qual: 2 },
-  { region: "Респ. Алтай", short: "Г-Алт.", rev: 42, leads: 4, qual: 1 },
+  { region: "Томская обл.", short: "Томск", leads: 47, qual: 17, primary: true },
+  { region: "Новосибирская", short: "Новосиб.", leads: 28, qual: 11 },
+  { region: "Красноярский кр.", short: "Красноярск", leads: 17, qual: 9 },
+  { region: "Кемеровская", short: "Кемерово", leads: 19, qual: 6 },
+  { region: "Алтайский кр.", short: "Барнаул", leads: 11, qual: 4 },
+  { region: "Омская обл.", short: "Омск", leads: 12, qual: 3 },
+  { region: "Иркутская", short: "Иркутск", leads: 9, qual: 3 },
+  { region: "Респ. Хакасия", short: "Абакан", leads: 6, qual: 2 },
+  { region: "Респ. Алтай", short: "Г-Алт.", leads: 4, qual: 1 },
 ];
 
 /* ─────────────────────────────────────────────────────────────
@@ -467,6 +470,9 @@ function HeroLiveCard() {
     }, { threshold: 0.3 });
     io.observe(sectionRef.current);
     return () => io.disconnect();
+    // Mount-only: a one-shot IntersectionObserver that seeds the demo feed once
+    // when the section scrolls into view. Re-running on dep changes would
+    // re-observe and stack duplicate feed timers, so deps are intentionally [].
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -528,7 +534,7 @@ function HeroLiveCard() {
           <div>
             <div className="t-48">конверсия в работу</div>
             <div className="mono mt-0.5 tnum text-white text-[13px]">
-              {stats ? Math.round(stats.rates.qualified * 100) : "21.0"}%
+              {stats ? Math.round(stats.rates.qualified * 100) : 21}%
             </div>
           </div>
           <div>
@@ -728,6 +734,9 @@ function PromptDemo() {
     }, { threshold: 0.5 });
     io.observe(wrapRef.current);
     return () => io.disconnect();
+    // Mount-only: a one-shot IntersectionObserver that starts the typing demo
+    // once when visible. Re-running would restart the animation mid-flight, so
+    // deps are intentionally [].
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1070,7 +1079,6 @@ function RailItem({
 // Illustrative funnel midpoints with no dedicated /public/landing field —
 // kept as fallbacks so the pipeline reads sensibly when no data is loaded.
 const DEMO_FN_QUEUE = 142580;
-const DEMO_FN_PARSER = 111210;
 const DEMO_FN_DEDUP = 76994;
 const DEMO_FN_ENRICH = 51328;
 const DEMO_FN_READY = 29942;
@@ -1124,7 +1132,6 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
   // Funnel: queue→found, enrich→enriched, ready→qualified are real; the two
   // intermediate stages have no endpoint field → DEMO_* fallbacks.
   const fnQueueRef = useCountUp<HTMLSpanElement>(stats?.funnel.found ?? DEMO_FN_QUEUE, { thin: true });
-  const fnParserRef = useCountUp<HTMLSpanElement>(stats?.funnel.added ?? DEMO_FN_PARSER, { thin: true });
   const fnDedupRef = useCountUp<HTMLSpanElement>(stats?.funnel.added ?? DEMO_FN_DEDUP, { thin: true });
   const fnEnrichRef = useCountUp<HTMLSpanElement>(stats?.funnel.enriched ?? DEMO_FN_ENRICH, { thin: true });
   const fnReadyRef = useCountUp<HTMLSpanElement>(stats?.funnel.qualified ?? DEMO_FN_READY, { thin: true });
@@ -1229,7 +1236,6 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
           </div>
           <div className="funnel">
             <FunnelRow label="очередь" w={100} numRef={fnQueueRef} />
-            <FunnelRow label="парсер" w={78} numRef={fnParserRef} />
             <FunnelRow label="дедуп" w={54} numRef={fnDedupRef} />
             <FunnelRow label="обогащ." w={36} numRef={fnEnrichRef} />
             <FunnelRow label="готовы" w={21} numRef={fnReadyRef} em />
@@ -1349,7 +1355,8 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
 
   // Leads table: render from real samples (company/city/score/source) with
   // contacts masked to ✓/— badges — never invent emails/phones. Falls back
-  // to the original 6 demo rows. Keep the existing "демо-данные" label.
+  // to the original 6 demo rows, and the "демо-данные" badge shows only in
+  // that fallback case (not when real samples are displayed).
   const tableRows: TableRow[] | null =
     stats && stats.samples.length > 0
       ? stats.samples.slice(0, 6).map((s) => {
@@ -1429,7 +1436,7 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
             <div className="flex items-center gap-2 text-[12px]">
               <span className="text-white">Лиды</span>
               <span className="t-40 ml-1 mono">{tableTotal}</span>
-              <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
+              {!tableRows && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>}
             </div>
             <div className="seg" style={{ padding: 2 }}>
               <button className="seg-btn active" style={{ padding: "4px 10px", fontSize: 11 }}>Все</button>
@@ -1487,9 +1494,9 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
 function BubbleChart() {
   const stats = useStats();
   // Build the scatter dataset. Real path: by_city → X=средний score,
-  // Y=лидов, bubble size=объём (count). The fabricated "выручка" axis is
-  // dropped entirely. Fallback path: the original BUBBLE_DATA (revenue X,
-  // qualified-sized bubbles) so the chart is byte-identical with no data.
+  // Y=лидов, bubble size=объём (count). Fallback path (no public data):
+  // illustrative BUBBLE_DATA plotted as qualified × leads counts — never
+  // fabricated revenue.
   const real = Boolean(stats && stats.by_city.length > 0);
   const points: Array<{ short: string; x: number; y: number; size: number; primary?: boolean }> =
     real && stats
@@ -1503,7 +1510,7 @@ function BubbleChart() {
             primary: c.count === top,
           }));
         })()
-      : BUBBLE_DATA.map((d) => ({ short: d.short, x: d.rev, y: d.leads, size: d.qual, primary: d.primary }));
+      : BUBBLE_DATA.map((d) => ({ short: d.short, x: d.qual, y: d.leads, size: d.qual, primary: d.primary }));
 
   const VW = 760, VH = 360;
   const ML = 64, MR = 24, MT = 24, MB = 44;
@@ -1512,8 +1519,8 @@ function BubbleChart() {
   // Axis domains: real data derives padded score/volume ranges; fallback
   // keeps the exact original constants so geometry is unchanged.
   const niceCeil = (v: number) => Math.max(5, Math.ceil(v / 5) * 5);
-  const xMin = real ? 0 : 30;
-  const xMax = real ? 100 : 200;
+  const xMin = 0;
+  const xMax = real ? 100 : 20;
   const yMin = 0;
   const yMax = real ? niceCeil(Math.max(...points.map((p) => p.y)) * 1.15) : 55;
   const rMin = 6, rMax = 32;
@@ -1522,7 +1529,7 @@ function BubbleChart() {
   const Y = (v: number) => MT + H - ((v - yMin) / (yMax - yMin)) * H;
   const R = (q: number) => rMin + (Math.sqrt(q) / Math.sqrt(sizeMax || 1)) * (rMax - rMin);
 
-  const xTicks = real ? [20, 40, 60, 80, 100] : [40, 80, 120, 160, 200];
+  const xTicks = real ? [20, 40, 60, 80, 100] : [4, 8, 12, 16, 20];
   const yTicks = real
     ? Array.from({ length: 5 }, (_, i) => Math.round(((i + 1) / 5) * yMax))
     : [10, 20, 30, 40, 50];
@@ -1550,7 +1557,8 @@ function BubbleChart() {
       <div className="flex items-start justify-between mb-3">
         <div>
           <div className="eyebrow">регионы · сводка</div>
-          <div className="text-[15px] light mt-1">{real ? "Лиды по score и объёму" : "Лиды по выручке и объёму"}</div>
+          <div className="text-[15px] light mt-1">{real ? "Лиды по score и объёму" : "Лиды по квалификации и объёму"}</div>
+          {!real && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40 inline-block mt-1">демо-данные</span>}
         </div>
         <div className="t-40 mono text-[10px] text-right">
           {regionCount} регионов
@@ -1579,10 +1587,10 @@ function BubbleChart() {
             <text key={`yl${t}`} x={ML - 10} y={Y(t) + 3} textAnchor="end">{t}</text>
           ))}
           {xTicks.map((t) => (
-            <text key={`xl${t}`} x={X(t)} y={VH - MB + 18} textAnchor="middle">{real ? t : `${t}M`}</text>
+            <text key={`xl${t}`} x={X(t)} y={VH - MB + 18} textAnchor="middle">{t}</text>
           ))}
           <text x={ML} y={MT - 8} fill="rgba(255,255,255,0.55)" fontSize="10.5">лиды собрано</text>
-          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="rgba(255,255,255,0.55)" fontSize="10.5">{real ? "средний score →" : "медианная выручка, ₽M →"}</text>
+          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="rgba(255,255,255,0.55)" fontSize="10.5">{real ? "средний score →" : "квалифицированы →"}</text>
         </g>
 
         {/* medians */}

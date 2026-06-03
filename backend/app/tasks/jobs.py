@@ -306,7 +306,7 @@ def collect_leads_task(job_id: str) -> None:
 
         added = 0
         quota_stopped = False
-        for i, c in enumerate(candidates):
+        for c in candidates:
             # Re-check quota every 10 leads using SELECT FOR UPDATE
             if added % 10 == 0:
                 remaining = _check_quota_with_lock(db, job.organization_id)

@@ -330,8 +330,9 @@ def _call_anthropic(
         return None, 0, 0
 
     # FIX (Bug #4): temperature was previously omitted, making Anthropic calls
-    # non-deterministic (API default = 1.0).  Pass it through so the filter
-    # gets the same low-temperature (0.1) behaviour as YandexGPT/GigaChat.
+    # non-deterministic (API default = 1.0).  Pass the caller's temperature
+    # through so Anthropic gets the same low-temperature (chat() default 0.3)
+    # determinism as the YandexGPT/GigaChat paths.
     kwargs = {
         "model": "claude-sonnet-4-20250514",
         "max_tokens": max_tokens,

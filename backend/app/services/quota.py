@@ -16,9 +16,6 @@ from app.models import Organization, PlanType
 # Limits per plan. leads_per_month is the REAL enforced cap (see
 # ensure_lead_quota). Collection is now DOSED: each "Собрать" adds ≤10 NEW
 # companies (no repeats), so leads_per_month ÷ ~10 ≈ collections/month.
-# "searches" is advisory ONLY — it is not enforced anywhere (there is no
-# searches_used counter); kept for possible future per-collection metering.
-# Do NOT surface it to users as a hard "N сборов/мес" promise.
 # ai_cost_kopecks = monthly LLM spend ceiling in kopecks (₽ × 100).
 #   free:    0       (no LLM access — rule-based only)
 #   starter: 30000   (₽300/mo)
@@ -27,19 +24,19 @@ from app.models import Organization, PlanType
 PLAN_LIMITS = {
     PlanType.free: {
         "projects": 1, "users": 1, "leads_per_month": 0,
-        "can_invite": False, "searches": 0, "ai_cost_kopecks": 0,
+        "can_invite": False, "ai_cost_kopecks": 0,
     },
     PlanType.starter: {
         "projects": 5, "users": 3, "leads_per_month": 5000,
-        "can_invite": True, "searches": 30, "ai_cost_kopecks": 30000,
+        "can_invite": True, "ai_cost_kopecks": 30000,
     },
     PlanType.pro: {
         "projects": 20, "users": 10, "leads_per_month": 25000,
-        "can_invite": True, "searches": 100, "ai_cost_kopecks": 300000,
+        "can_invite": True, "ai_cost_kopecks": 300000,
     },
     PlanType.team: {
         "projects": 100, "users": 50, "leads_per_month": 100000,
-        "can_invite": True, "searches": 300, "ai_cost_kopecks": 1500000,
+        "can_invite": True, "ai_cost_kopecks": 1500000,
     },
 }
 

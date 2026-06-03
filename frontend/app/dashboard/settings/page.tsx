@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import {
   ArrowLeftIcon,
   CheckIcon,
@@ -137,7 +137,7 @@ export default function SettingsPage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<TabValue>("profile");
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       const [me, org, membership] = await Promise.all([
         api<{ email: string; full_name: string; is_admin: boolean }>("/auth/me").catch(() => null),
@@ -152,7 +152,10 @@ export default function SettingsPage() {
         toast.error("Не удалось загрузить настройки. Проверьте соединение с сервером.");
       }
 
-      const role = membership?.role ?? orgRole;
+      // Use the freshly-fetched role only. Falling back to the stale orgRole
+      // state here was unreliable (if the membership fetch failed, the admin
+      // sub-fetches below would fail too) and made `load` depend on orgRole.
+      const role = membership?.role;
       if (role === "owner" || role === "admin") {
         const [orgInvites, orgMembers, orgActions] = await Promise.all([
           api<Invite[]>("/organizations/invites").catch(() => [] as Invite[]),
@@ -172,12 +175,11 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (authed) void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authed]);
+  }, [authed, load]);
 
   const createInvite = async (e: FormEvent) => {
     e.preventDefault();

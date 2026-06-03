@@ -30,7 +30,6 @@ def list_plans():
             "projects_limit": PLAN_LIMITS[plan]["projects"],
             "users_limit": PLAN_LIMITS[plan]["users"],
             "leads_limit_per_month": PLAN_LIMITS[plan]["leads_per_month"],
-            "searches_per_month": PLAN_LIMITS[plan]["searches"],
             "can_invite_members": PLAN_LIMITS[plan]["can_invite"],
             "price_monthly_rub": PLAN_PRICES_RUB.get(plan.value, 0),
             "payment_provider": (

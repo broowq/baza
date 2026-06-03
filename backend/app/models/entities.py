@@ -181,6 +181,15 @@ class Lead(Base):
     enriched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Bumped on every UPDATE (onupdate) — tracks last activity on the lead so
+    # GDPR/152-ФЗ retention purge (purge_old_leads) can delete by inactivity,
+    # not by creation date. Backfilled to created_at for pre-existing rows.
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     project = relationship("Project", back_populates="leads")
 
