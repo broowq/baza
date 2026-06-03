@@ -13,8 +13,12 @@ from fastapi import HTTPException
 from app.models import Organization, PlanType
 
 
-# Limits per plan — "searches" = number of "Собрать лиды" clicks per month
-# leads_per_month = searches × ~500 average leads per search
+# Limits per plan. leads_per_month is the REAL enforced cap (see
+# ensure_lead_quota). Collection is now DOSED: each "Собрать" adds ≤10 NEW
+# companies (no repeats), so leads_per_month ÷ ~10 ≈ collections/month.
+# "searches" is advisory ONLY — it is not enforced anywhere (there is no
+# searches_used counter); kept for possible future per-collection metering.
+# Do NOT surface it to users as a hard "N сборов/мес" promise.
 # ai_cost_kopecks = monthly LLM spend ceiling in kopecks (₽ × 100).
 #   free:    0       (no LLM access — rule-based only)
 #   starter: 30000   (₽300/mo)

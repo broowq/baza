@@ -182,14 +182,12 @@ export default function PlansPage() {
                   <div className="feat">
                     <span className="b" />
                     <span>
-                      {plan.searches_per_month ?? "∞"} сборов в месяц
+                      До {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов в месяц
                     </span>
                   </div>
                   <div className="feat">
                     <span className="b" />
-                    <span>
-                      До {plan.leads_limit_per_month.toLocaleString("ru-RU")} лидов в месяц
-                    </span>
+                    <span>Сбор дозами, без повторов</span>
                   </div>
                   <div className="feat">
                     <span className="b" />
