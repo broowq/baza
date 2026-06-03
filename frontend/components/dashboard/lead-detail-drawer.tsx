@@ -422,7 +422,13 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     <div className="eyebrow mb-2">Категории</div>
                     <div className="flex flex-wrap gap-1.5">
                       {detail.warehouse.categories.map((cat) => (
-                        <span key={cat} className="chip chip-sans">{cat}</span>
+                        <span
+                          key={cat}
+                          className="chip chip-sans max-w-full text-left"
+                          style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}
+                        >
+                          {cat}
+                        </span>
                       ))}
                     </div>
                   </section>
@@ -470,7 +476,13 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                           <div className="mb-1 text-[10px] uppercase tracking-wider text-white/[0.40]">Ниши</div>
                           <div className="flex flex-wrap gap-1.5">
                             {detail.warehouse.other_niches.map((n) => (
-                              <span key={n} className="chip chip-mint" style={{ fontSize: 10.5 }}>{n}</span>
+                              <span
+                                key={n}
+                                className="chip chip-mint chip-sans max-w-full text-left"
+                                style={{ whiteSpace: "normal", overflowWrap: "anywhere", lineHeight: 1.35 }}
+                              >
+                                {n}
+                              </span>
                             ))}
                           </div>
                         </div>
@@ -481,7 +493,11 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                           <div className="mb-1 text-[10px] uppercase tracking-wider text-white/[0.40]">Источники</div>
                           <div className="flex flex-wrap gap-1.5">
                             {detail.warehouse.sources.map((s) => (
-                              <span key={s} className="chip" style={{ fontSize: 10.5 }}>
+                              <span
+                                key={s}
+                                className="chip max-w-full text-left"
+                                style={{ fontSize: 10.5, whiteSpace: "normal", overflowWrap: "anywhere" }}
+                              >
                                 {SOURCE_LABELS[s] ?? s}
                               </span>
                             ))}
