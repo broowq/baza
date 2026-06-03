@@ -1384,11 +1384,11 @@ def _try_auto_discover_slug(city_lower: str) -> str | None:
 
     try:
         with httpx.Client(timeout=5.0, follow_redirects=False) as client:
-            for cand in candidates[:5]:  # cap probes
+            for i, cand in enumerate(candidates[:5]):  # cap probes
                 try:
                     r = client.head(
                         f"https://2gis.ru/{cand}",
-                        headers={"User-Agent": _BROWSER_UA},
+                        headers={"User-Agent": _BROWSER_UAS[i % len(_BROWSER_UAS)]},
                     )
                     if r.status_code == 200:
                         _AUTO_SLUG_CACHE[city_lower] = cand
@@ -2427,8 +2427,6 @@ _BROWSER_UAS = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 "
     "(KHTML, like Gecko) Version/17.6 Safari/605.1.15",
 )
-# Keep the old name as the first UA so legacy callers still work.
-_BROWSER_UA = _BROWSER_UAS[0]
 # Russian phone numbers: +7 or 8-prefix. The first 3-digit group MUST be a real
 # Russian area code (mobile 9xx, fixed-line 3xx/4xx/8xx) — this filters out
 # phantom matches from coordinate floats (84.85134...) and hash strings in URLs
