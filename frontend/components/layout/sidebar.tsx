@@ -207,7 +207,7 @@ export function Sidebar() {
               className="mono"
               style={{ fontSize: 10, color: "var(--t-48)" }}
             >
-              <span className="truncate inline-block max-w-[160px] align-bottom">
+              <span className="truncate block">
                 {userEmail || "—"}
               </span>
             </div>

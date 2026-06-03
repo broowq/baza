@@ -201,7 +201,7 @@ export default function AdminPage() {
                   <div className="tnum text-white" style={{ fontSize: 28, fontWeight: 300 }}>
                     {s.value.toLocaleString("ru-RU")}
                   </div>
-                  <p className="text-[11px] mono t-48 mt-1">{s.sub}</p>
+                  <p className="text-[11px] mono t-48 mt-1 truncate" title={s.sub}>{s.sub}</p>
                 </div>
               ))}
             </div>
@@ -266,8 +266,12 @@ export default function AdminPage() {
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-[var(--line)] last:border-0">
-                      <td className="py-3 text-[13px] text-white">{u.email}</td>
-                      <td className="py-3 text-[13px] t-84">{u.full_name || "—"}</td>
+                      <td className="py-3 text-[13px] text-white">
+                        <span className="block max-w-[240px] truncate" title={u.email}>{u.email}</span>
+                      </td>
+                      <td className="py-3 text-[13px] t-84">
+                        <span className="block max-w-[180px] truncate">{u.full_name || "—"}</span>
+                      </td>
                       <td className="py-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
                           <span className={`dot ${u.is_admin ? "dot-mt" : "dot-am"}`} />
@@ -352,7 +356,7 @@ export default function AdminPage() {
                     <button
                       type="button"
                       onClick={() => saveLimits(org.id)}
-                      className="btn-brand rounded-full px-4 py-2 text-[13px]"
+                      className="btn btn-brand rounded-full px-4 py-2 text-[13px]"
                     >
                       Сохранить
                     </button>
@@ -383,8 +387,12 @@ export default function AdminPage() {
                 <tbody>
                   {jobs.map((j) => (
                     <tr key={j.id} className="border-b border-[var(--line)] last:border-0">
-                      <td className="py-3 text-[13px] text-white">{j.project_name}</td>
-                      <td className="py-3 text-[13px] t-56">{j.org_name}</td>
+                      <td className="py-3 text-[13px] text-white">
+                        <span className="block max-w-[180px] truncate" title={j.project_name}>{j.project_name}</span>
+                      </td>
+                      <td className="py-3 text-[13px] t-56">
+                        <span className="block max-w-[160px] truncate" title={j.org_name}>{j.org_name}</span>
+                      </td>
                       <td className="py-3">
                         <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
                           <span

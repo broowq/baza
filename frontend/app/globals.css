@@ -892,8 +892,14 @@ table.lt tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
     0 0 0 1px rgba(168, 197, 192, 0.10),
     0 32px 80px -30px rgba(168, 197, 192, 0.30),
     0 24px 60px -28px rgba(0, 0, 0, 0.7);
-  transform: translateY(-6px);
+  transform: none;
+  margin-top: 16px;
   position: relative;
+}
+@media (min-width: 768px) {
+  /* Lift only when cards sit side-by-side; stacked on mobile the -6px shift +
+     the "популярный" tag (top:-12px) would collide with the card above. */
+  .pro-card { transform: translateY(-6px); margin-top: 0; }
 }
 .pro-tag {
   position: absolute; left: 50%; top: -12px;
@@ -1443,8 +1449,7 @@ table.lt-v3 tbody tr:hover td { background: rgba(255, 255, 255, 0.025); }
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: nowrap;
-  overflow: hidden;
+  flex-wrap: wrap;
   margin-top: 9px;
 }
 .lead-card__badges .badge {

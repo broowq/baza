@@ -587,10 +587,10 @@ export function LeadsTable({
                         />
                       </TableCell>
                       <TableCell className="max-w-[192px] px-4 py-3.5">
-                        <div>
-                          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-white" title={lead.company}>
+                        <div className="min-w-0">
+                          <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-white" title={lead.company}>
                             <SourceBadge source={lead.source} externalId={lead.external_id} />
-                            <span className="truncate">{lead.company}</span>
+                            <span className="truncate min-w-0">{lead.company}</span>
                           </p>
                           {lead.enriched ? (
                             <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-white/[0.48]">

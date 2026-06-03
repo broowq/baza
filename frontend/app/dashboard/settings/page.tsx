@@ -338,8 +338,8 @@ export default function SettingsPage() {
                   key={tab.value}
                   type="button"
                   onClick={() => setActiveTab(tab.value)}
-                  className={`nav-item ${isActive ? "active" : ""}`}
-                  style={{ width: "100%", justifyContent: "flex-start" }}
+                  className={`nav-item w-auto md:w-full ${isActive ? "active" : ""}`}
+                  style={{ justifyContent: "flex-start" }}
                 >
                   <Icon className="ic" />
                   <span>{tab.label}</span>
@@ -565,11 +565,11 @@ export default function SettingsPage() {
                                 >
                                   {getInitials(member.full_name)}
                                 </div>
-                                <div className="min-w-0">
-                                  <p className="text-[13px] text-white truncate">
+                                <div className="min-w-0 max-w-[240px]">
+                                  <p className="text-[13px] text-white truncate" title={member.full_name}>
                                     {member.full_name}
                                   </p>
-                                  <p className="text-[11px] mono t-48 truncate">
+                                  <p className="text-[11px] mono t-48 truncate" title={member.email}>
                                     {member.email}
                                   </p>
                                 </div>
@@ -742,7 +742,9 @@ export default function SettingsPage() {
                                 className="border-b border-[var(--line)] last:border-0"
                               >
                                 <td className="py-3 text-[13px] text-white">
-                                  {invite.email}
+                                  <span className="block max-w-[240px] truncate" title={invite.email}>
+                                    {invite.email}
+                                  </span>
                                 </td>
                                 <td className="py-3">
                                   <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">

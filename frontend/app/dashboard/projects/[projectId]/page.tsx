@@ -365,7 +365,13 @@ export default function ProjectDetailsPage() {
         {project && (project.segments.length > 0 || (project.okved_codes?.length ?? 0) > 0) && (
           <div className="flex items-center gap-2 flex-wrap">
             {project.segments.slice(0, 8).map((seg) => (
-              <span key={seg} className="chip chip-sans">{seg}</span>
+              <span
+                key={seg}
+                className="chip chip-sans max-w-full"
+                style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}
+              >
+                {seg}
+              </span>
             ))}
             {project.okved_codes?.map((o) => (
               <span key={o.code} className="chip chip-okv" title={o.label}>

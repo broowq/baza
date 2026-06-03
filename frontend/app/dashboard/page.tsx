@@ -346,7 +346,7 @@ export default function DashboardPage() {
                     }
                   }}
                 >
-                  <SelectTrigger className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[26px] font-light tracking-tight text-white outline-none focus:border-white/[0.24] h-auto">
+                  <SelectTrigger className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[26px] font-light tracking-tight text-white outline-none focus:border-white/[0.24] h-auto max-w-[70vw] sm:max-w-sm">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -425,14 +425,14 @@ export default function DashboardPage() {
 
       {/* Quota warning */}
       {usagePercent >= 80 && (
-        <div className="rounded-2xl p-4 flex items-center justify-between panel-flat"
+        <div className="rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 panel-flat"
              style={usagePercent >= 100 ? { borderColor: "rgba(244,63,94,0.18)", background: "rgba(40,28,28,0.65)" } : { borderColor: "rgba(251,191,36,0.18)", background: "rgba(40,32,18,0.55)" }}>
           <p className="text-sm t-84">
             {usagePercent >= 100
               ? "Квота лидов исчерпана. Обновите тариф для продолжения сбора."
               : `Использовано ${usagePercent}% квоты лидов. Рекомендуем обновить тариф.`}
           </p>
-          <Link href="/plans" className="ghost rounded-full px-4 py-1.5 text-[12.5px]">Обновить тариф</Link>
+          <Link href="/plans" className="ghost rounded-full px-4 py-1.5 text-[12.5px] shrink-0">Обновить тариф</Link>
         </div>
       )}
 
@@ -834,11 +834,11 @@ export default function DashboardPage() {
                 {/* Main content */}
                 <div className="min-w-0 flex-1">
                   <div className="lead-card__row" style={{ gap: 8, marginBottom: 4 }}>
-                    <span className="lead-card__name truncate">{project.name}</span>
-                    <span className={badgeClass}>{statusLabel}</span>
+                    <span className="lead-card__name truncate min-w-0">{project.name}</span>
+                    <span className={`${badgeClass} shrink-0`}>{statusLabel}</span>
                   </div>
 
-                  <div className="lead-card__meta truncate">
+                  <div className="lead-card__meta">
                     <span>{project.niche}</span>
                     <span className="mx-1.5 t-28">·</span>
                     <span>{project.geography}</span>
@@ -856,7 +856,7 @@ export default function DashboardPage() {
                     )}
                   </div>
 
-                  <div className="lead-card__sub truncate">
+                  <div className="lead-card__sub">
                     {latestJob ? (
                       <span className="flex items-center gap-3 flex-wrap">
                         <span>

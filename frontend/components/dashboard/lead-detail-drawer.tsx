@@ -310,10 +310,12 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                         href={detail.website}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="lead-card__sub mt-1 inline-flex items-center gap-1 hover:text-white"
+                        className="lead-card__sub mt-1 flex min-w-0 max-w-full items-center gap-1 hover:text-white"
                         style={{ textDecoration: "none" }}
                       >
-                        {detail.domain || detail.website.replace(/^https?:\/\//, "").split("/")[0]}
+                        <span className="truncate min-w-0">
+                          {detail.domain || detail.website.replace(/^https?:\/\//, "").split("/")[0]}
+                        </span>
                         <ExternalLink size={10} className="shrink-0 opacity-60" />
                       </a>
                     ) : detail.website ? (

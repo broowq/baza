@@ -505,7 +505,7 @@ function HeroLiveCard() {
             <span className="text-[12px] t-72">демо-база · реальный пример</span>
           </div>
         </div>
-        <div className="h1 tnum hero-bignum" style={{ fontSize: 84 }}>
+        <div className="h1 tnum hero-bignum" style={{ fontSize: "clamp(48px, 16vw, 84px)" }}>
           {count.toLocaleString("ru-RU")}
         </div>
         <div className="text-[12px] t-72 mt-1">лидов в демо-базе</div>

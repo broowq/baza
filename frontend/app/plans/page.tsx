@@ -108,7 +108,7 @@ export default function PlansPage() {
         {/* Header */}
         <div className="mb-12 sm:mb-20 text-center">
           <div className="eyebrow mb-4">тарифы</div>
-          <h1 className="h1 mb-4" style={{ fontSize: 56, lineHeight: 1.05 }}>
+          <h1 className="h1 mb-4" style={{ fontSize: "clamp(34px, 8vw, 56px)", lineHeight: 1.05 }}>
             Выберите тариф <span className="serif-i c-mint">под ваш рост.</span>
           </h1>
           <p className="mx-auto max-w-[560px] caption">
