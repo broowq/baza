@@ -2567,27 +2567,168 @@ def _fetch_2gis_html(url: str, *, _is_enrich: bool = False) -> str:
     return ""
 
 
+# Company-name stop-words ignored when matching an API search result to a lead.
+_NAME_STOP = {
+    "ооо", "оао", "зао", "ип", "пао", "нпо", "ао", "тд", "торговый", "дом",
+    "компания", "фирма", "группа", "group", "ltd", "llc", "inc",
+}
+
+
+def _name_tokens(s: str) -> set[str]:
+    """Meaningful lowercased tokens of a company name (for fuzzy matching)."""
+    toks = re.findall(r"[a-zа-яё0-9]+", (s or "").lower())
+    return {t for t in toks if len(t) >= 3 and t not in _NAME_STOP}
+
+
+def _fetch_2gis_contacts_api(company: str, city: str = "", firm_id: str = "") -> dict:
+    """Fetch contacts for ONE company from the official 2GIS Catalog (Places) API.
+
+    This is the paid, structured, captcha-free path — preferred over scraping
+    2gis.ru. Returns {"emails","phones","addresses"[,"website"]} with normalized
+    phones, or an empty result if the API has no key, is rejected, or finds no
+    confident match for this company.
+    """
+    global _TWOGIS_DEAD_KEY
+    empty = {"emails": [], "phones": [], "addresses": []}
+    settings = get_settings()
+    api_key = settings.twogis_api_key
+    if not api_key or _TWOGIS_DEAD_KEY:
+        return empty
+    company = (company or "").strip()
+    firm_id = (firm_id or "").strip()
+    if not company and not firm_id:
+        return empty
+
+    params: dict = {
+        "key": api_key,
+        "fields": "items.contact_groups,items.address_name,items.full_name,items.org",
+        "page_size": 5,
+    }
+    if firm_id:
+        params["id"] = firm_id
+    else:
+        params["q"] = company
+        city_id = _resolve_2gis_city_id(city) if city else None
+        if city_id:
+            params["city_id"] = city_id
+        elif city:
+            params["q"] = f"{company} {city}"
+
+    try:
+        with httpx.Client(timeout=8.0) as client:
+            resp = client.get("https://catalog.api.2gis.com/3.0/items", params=params)
+    except Exception:
+        logger.debug("2GIS contacts API request failed for %r", company, exc_info=True)
+        return empty
+    if resp.status_code != 200:
+        return empty
+    try:
+        data = resp.json()
+    except Exception:
+        return empty
+
+    meta = data.get("meta") or {}
+    code = meta.get("code")
+    if code and code != 200:
+        err = meta.get("error") or {}
+        # Auth/quota failure → flip the shared breaker + alert ops (same handling
+        # as _search_2gis) so we stop hammering a dead key and the operator sees
+        # it. The enrich task surfaces this to the user as a "ключ 2GIS" issue.
+        if code in (401, 403, 429):
+            _TWOGIS_DEAD_KEY = True
+            logger.error("2GIS contacts API blocked: code=%s msg=%s", code, err.get("message"))
+            try:
+                from app.services.notifications import send_alert
+                send_alert(
+                    "critical",
+                    f"2GIS API blocked: {err.get('type', code)}",
+                    f"Code {code}: {err.get('message', '')[:200]}",
+                    key=f"2gis_api_{code}",
+                    throttle_seconds=3600,
+                )
+            except Exception:
+                pass
+        return empty
+
+    items = data.get("result", {}).get("items", []) or []
+    if not items:
+        return empty
+
+    # With a firm_id the result is exact. With a name search, pick the item whose
+    # name shares the MOST tokens with the lead — so we never paste a different
+    # company's phone onto this lead.
+    if firm_id:
+        chosen = items[0]
+    else:
+        q_tokens = _name_tokens(company)
+        chosen, best = None, 0
+        for it in items:
+            score = len(q_tokens & _name_tokens(it.get("name") or it.get("full_name") or ""))
+            if score > best:
+                chosen, best = it, score
+        if best < 1:
+            return empty
+
+    phones: list[str] = []
+    emails: list[str] = []
+    website = ""
+    org_info = chosen.get("org") or {}
+    if org_info.get("website"):
+        website = org_info["website"]
+    for group in chosen.get("contact_groups", []) or []:
+        for contact in group.get("contacts", []) or []:
+            ctype = contact.get("type")
+            cval = (contact.get("text") or contact.get("value") or "").strip()
+            if not cval:
+                continue
+            if ctype == "phone":
+                np = _normalize_phone(cval)
+                if np and np not in phones:
+                    phones.append(np)
+            elif ctype == "email":
+                low = cval.lower()
+                if low not in emails:
+                    emails.append(low)
+            elif ctype == "website" and not website:
+                website = cval
+
+    if not phones and not emails:
+        return empty
+    address = (chosen.get("address_name") or chosen.get("full_name") or "").strip()
+    res: dict = {"emails": emails[:5], "phones": phones[:5], "addresses": [address] if address else []}
+    if website:
+        res["website"] = website
+    return res
+
+
 def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
-    """Fetch phones/emails for a 2GIS lead from the public 2gis.ru site.
+    """Fetch phones/emails/address for a 2GIS lead.
 
     Strategy (best signal first):
-      1. If firm_id provided — hit firm page directly (/firm/{id}).
-      2. Otherwise — search page (/search/{company} {city}) + take results
-         shown in the server-rendered HTML.
+      1. Official 2GIS Catalog (Places) API — paid, structured, no captcha.
+         Used whenever a key is configured and the company is found there.
+      2. Fallback: scrape the public 2gis.ru site (firm page by id, else search
+         by name+city) — captcha-prone, used only if the API yields nothing.
 
     Returns dict with keys emails/phones/addresses (same shape as
     enrich_website_contacts).
     """
-    # Fix #5 [robustness]: check the enrichment-specific breaker (separate from
-    # the search breaker) so that captchas here don't disable search scraping.
-    global _TWOGIS_SCRAPE_BLOCKED_ENRICH
-    if _TWOGIS_SCRAPE_BLOCKED_ENRICH:
-        return {"emails": [], "phones": [], "addresses": []}
-
-    result: dict = {"emails": [], "phones": [], "addresses": []}
     company = (company or "").strip()
     if not company and not firm_id:
-        return result
+        return {"emails": [], "phones": [], "addresses": []}
+
+    # 1) Official API first — paid, structured, no captcha.
+    api_contacts = _fetch_2gis_contacts_api(company, city, firm_id)
+    if api_contacts.get("phones") or api_contacts.get("emails"):
+        return api_contacts
+
+    # 2) Fallback: scrape 2gis.ru. Honour the enrichment scrape breaker (captcha)
+    # — if it's tripped, return whatever (possibly empty) the API gave.
+    global _TWOGIS_SCRAPE_BLOCKED_ENRICH
+    if _TWOGIS_SCRAPE_BLOCKED_ENRICH:
+        return api_contacts or {"emails": [], "phones": [], "addresses": []}
+
+    result: dict = {"emails": [], "phones": [], "addresses": []}
 
     def _extract_phones(html: str) -> list[str]:
         plus_phones = _PHONE_RE.findall(html)

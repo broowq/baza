@@ -14,6 +14,7 @@ import httpx
 import pytest
 
 from app.services.lead_collection import enrich_website_contacts
+from app.services import lead_collection as lc
 
 
 # --- HTML fixtures ------------------------------------------------------------
@@ -203,3 +204,64 @@ def test_footer_header_paths_not_requested(respx_mock: respx.MockRouter) -> None
     assert root.called, "root / must still be fetched"
     assert not footer.called, "/footer must no longer be in candidate_paths"
     assert not header.called, "/header must no longer be in candidate_paths"
+
+
+# --- 2GIS contact enrichment via the official Catalog (Places) API ------------
+
+_2GIS_ITEMS_URL = r"https://catalog\.api\.2gis\.com/3\.0/items.*"
+
+
+@pytest.fixture
+def twogis_api_on(monkeypatch):
+    """Enable the 2GIS Catalog API path with a fake key + reset breakers."""
+    s = lc.get_settings()
+    monkeypatch.setattr(s, "twogis_api_key", "TESTKEY", raising=False)
+    monkeypatch.setattr(lc, "_TWOGIS_DEAD_KEY", False, raising=False)
+    monkeypatch.setattr(lc, "_TWOGIS_SCRAPE_BLOCKED_ENRICH", False, raising=False)
+    yield
+
+
+def _items(items):
+    return {"meta": {"code": 200}, "result": {"items": items}}
+
+
+@respx.mock
+def test_2gis_contacts_api_returns_phone_by_firm_id(respx_mock: respx.MockRouter, twogis_api_on) -> None:
+    """The paid 2GIS Catalog API path returns phone/email from contact_groups —
+    no 2gis.ru scrape, no captcha."""
+    respx_mock.get(url__regex=_2GIS_ITEMS_URL).mock(return_value=httpx.Response(200, json=_items([
+        {"name": "Звягель", "address_name": "Партизанская ул., 9/2",
+         "contact_groups": [{"contacts": [
+             {"type": "phone", "text": "+7 (3822) 11-22-33"},
+             {"type": "email", "text": "INFO@Zvyagel.ru"},
+         ]}]},
+    ])))
+    res = lc._fetch_2gis_contacts_api("Звягель", "Томск", firm_id="70000001")
+    assert any("3822" in p for p in res["phones"]), res
+    assert "info@zvyagel.ru" in res["emails"], res
+
+
+@respx.mock
+def test_2gis_contacts_api_skips_wrong_company(respx_mock: respx.MockRouter, twogis_api_on) -> None:
+    """Name-search must not paste a different company's phone onto the lead:
+    if the returned firm shares no name token, return nothing."""
+    respx_mock.get(url__regex=_2GIS_ITEMS_URL).mock(return_value=httpx.Response(200, json=_items([
+        {"name": "Мастер-колор", "contact_groups": [{"contacts": [
+            {"type": "phone", "text": "+7 (3822) 99-99-99"},
+        ]}]},
+    ])))
+    res = lc._fetch_2gis_contacts_api("Звягель", city="")  # no token overlap → reject
+    assert res["phones"] == [] and res["emails"] == [], res
+
+
+@respx.mock
+def test_enrich_2gis_lead_prefers_api_over_scrape(respx_mock: respx.MockRouter, twogis_api_on) -> None:
+    """enrich_2gis_lead uses the API result and never falls through to scraping
+    2gis.ru (which here is unmocked — respx would raise if it were called)."""
+    respx_mock.get(url__regex=_2GIS_ITEMS_URL).mock(return_value=httpx.Response(200, json=_items([
+        {"name": "Звягель", "contact_groups": [{"contacts": [
+            {"type": "phone", "text": "+7 3822 112233"},
+        ]}]},
+    ])))
+    res = lc.enrich_2gis_lead("Звягель", "Томск", firm_id="70000001")
+    assert any("3822" in p for p in res["phones"]), res
