@@ -265,3 +265,21 @@ def test_enrich_2gis_lead_prefers_api_over_scrape(respx_mock: respx.MockRouter, 
     ])))
     res = lc.enrich_2gis_lead("Звягель", "Томск", firm_id="70000001")
     assert any("3822" in p for p in res["phones"]), res
+
+
+@respx.mock
+def test_enrich_2gis_scrapes_company_site_from_api_website(respx_mock: respx.MockRouter, twogis_api_on) -> None:
+    """When the 2GIS API returns the company's own website but no direct phone
+    (tier excludes contacts), enrichment scrapes that site for the phone/email —
+    legit (the company's own public contacts), no captcha, no 2gis.ru scrape."""
+    respx_mock.get(url__regex=_2GIS_ITEMS_URL).mock(return_value=httpx.Response(200, json=_items([
+        {"name": "Звягель", "address_name": "Партизанская, 9/2",
+         "org": {"website": "https://zvyagel-wood.ru"}},
+    ])))
+    # The company's own site exposes the phone/email in its footer.
+    respx_mock.get("https://zvyagel-wood.ru/").mock(return_value=httpx.Response(
+        200, text=_FOOTER_WITH_CONTACTS, headers={"content-type": "text/html"}))
+    respx_mock.get(url__regex=r"https?://zvyagel-wood\.ru/.+").mock(return_value=httpx.Response(404))
+
+    res = lc.enrich_2gis_lead("Звягель", "Томск", firm_id="70000001")
+    assert res.get("phones"), f"phone should come from the company's own site: {res}"

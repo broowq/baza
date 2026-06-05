@@ -2692,8 +2692,9 @@ def _fetch_2gis_contacts_api(company: str, city: str = "", firm_id: str = "") ->
             elif ctype == "website" and not website:
                 website = cval
 
-    if not phones and not emails:
-        return empty
+    # Return whatever we got — including a website-only result (no direct
+    # phone/email). The caller uses that website to scrape the company's own
+    # site for contacts when the API tier doesn't expose phones.
     address = (chosen.get("address_name") or chosen.get("full_name") or "").strip()
     res: dict = {"emails": emails[:5], "phones": phones[:5], "addresses": [address] if address else []}
     if website:
@@ -2721,6 +2722,20 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
     api_contacts = _fetch_2gis_contacts_api(company, city, firm_id)
     if api_contacts.get("phones") or api_contacts.get("emails"):
         return api_contacts
+
+    # 1b) The API often returns the company's own website but no direct contacts
+    # (e.g. when the API tier excludes phones). Scrape THAT site for phone/email
+    # — fully legit: it's the company's own public contacts, no captcha.
+    api_site = api_contacts.get("website")
+    if api_site:
+        try:
+            site = enrich_website_contacts(api_site)
+        except Exception:
+            site = {}
+        if site.get("phones") or site.get("emails"):
+            if not site.get("addresses") and api_contacts.get("addresses"):
+                site["addresses"] = api_contacts["addresses"]
+            return site
 
     # 2) Fallback: scrape 2gis.ru. Honour the enrichment scrape breaker (captcha)
     # — if it's tripped, return whatever (possibly empty) the API gave.
