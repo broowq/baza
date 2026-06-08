@@ -61,6 +61,11 @@ celery.conf.update(
             "task": "periodic.reset_monthly_quotas",
             "schedule": crontab(minute=5, hour=0, day_of_month=1),
         },
+        # Revert entitlements when a paid subscription period lapses (nightly).
+        "downgrade-expired-subscriptions": {
+            "task": "periodic.downgrade_expired_subscriptions",
+            "schedule": crontab(minute=30, hour=2),
+        },
         "cleanup-expired-invites": {
             "task": "periodic.cleanup_expired_invites",
             "schedule": crontab(minute=0, hour=3),

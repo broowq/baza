@@ -94,3 +94,54 @@ def ai_cost_remaining_kopecks(organization: Organization) -> int:
     limit = organization.ai_cost_limit_kopecks_per_month or 0
     used = organization.ai_cost_used_kopecks_current_month or 0
     return max(0, limit - used)
+
+
+# Tier order — used to pick the best plan when an org has several overlapping
+# active subscriptions (e.g. mid-cycle upgrade) and one of them lapses/refunds.
+_PLAN_TIER = {PlanType.free: 0, PlanType.starter: 1, PlanType.pro: 2, PlanType.team: 3}
+
+
+def _plan_from_id(plan_id: str):
+    try:
+        return PlanType(plan_id)
+    except (ValueError, TypeError):
+        return None
+
+
+def reconcile_org_plan(organization_db, organization, *, now=None, exclude_sub_id=None):
+    """Set the org's plan to the highest tier it STILL actively pays for, then
+    re-apply limits. Returns the resulting PlanType.
+
+    "Actively pays for" = a Subscription row with status='active' whose
+    current_period_end is in the future (excluding `exclude_sub_id` — the row
+    that just lapsed/was refunded; needed because autoflush is off, so its
+    new status may not be visible to this query yet). If nothing covers the org,
+    it drops to free. This keeps an org with multiple overlapping subscriptions
+    on exactly the plan it's entitled to — never wrongly downgraded while another
+    paid subscription is live, never left on a plan it no longer pays for.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import select
+    from app.models import Subscription
+
+    db = organization_db
+    if now is None:
+        now = datetime.now(timezone.utc)
+    q = select(Subscription).where(
+        Subscription.organization_id == organization.id,
+        Subscription.status == "active",
+        Subscription.current_period_end.is_not(None),
+        Subscription.current_period_end >= now,
+    )
+    if exclude_sub_id is not None:
+        q = q.where(Subscription.id != exclude_sub_id)
+    covering = db.execute(q).scalars().all()
+
+    new_plan = PlanType.free
+    plans = [p for p in (_plan_from_id(s.plan_id) for s in covering) if p is not None]
+    if plans:
+        new_plan = max(plans, key=lambda p: _PLAN_TIER.get(p, 0))
+
+    organization.plan = new_plan
+    apply_plan_limits(organization)
+    return new_plan

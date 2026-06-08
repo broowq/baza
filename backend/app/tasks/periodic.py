@@ -40,6 +40,77 @@ def reset_monthly_quotas() -> None:
         db.close()
 
 
+@celery.task(name="periodic.downgrade_expired_subscriptions")
+def downgrade_expired_subscriptions() -> None:
+    """Downgrade orgs whose paid subscription period has lapsed.
+
+    Without this, an org that paid once (or was bumped to a paid plan) keeps the
+    elevated plan + quotas FOREVER — nothing reverted entitlements after
+    Subscription.current_period_end. Runs nightly via Celery beat.
+
+    Idempotent: each lapsed subscription flips active → expired once. The org is
+    downgraded to free only if NO other still-valid active subscription covers
+    it (so renewals/upgrades, which create a fresh subscription row, are safe).
+    """
+    from app.models import Subscription, PlanType
+    from app.services.quota import reconcile_org_plan
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        lapsed = db.execute(
+            select(Subscription).where(
+                Subscription.status == "active",
+                Subscription.current_period_end.is_not(None),
+                Subscription.current_period_end < now,
+            )
+        ).scalars().all()
+        changed = 0
+        for sub in lapsed:
+            try:
+                sub.status = "expired"
+                org = db.get(Organization, sub.organization_id)
+                if org and org.plan != PlanType.free:
+                    before = org.plan
+                    # Reconcile to whatever the org STILL actively pays for
+                    # (free if nothing), excluding this just-lapsed row.
+                    after = reconcile_org_plan(db, org, now=now, exclude_sub_id=sub.id)
+                    if after != before:
+                        changed += 1
+                        logger.info(
+                            "Subscription lapsed: org=%s %s → %s (sub=%s, period_end=%s)",
+                            org.id, before.value, after.value, sub.id, sub.current_period_end,
+                        )
+                # Commit per row so one bad row can't roll back the whole sweep.
+                db.commit()
+            except Exception:
+                logger.exception("downgrade_expired_subscriptions: failed on sub=%s", sub.id)
+                db.rollback()
+        # Observability: active subs with NULL period_end are invisible to the
+        # lapse query above — surface them so a plan can't silently persist.
+        orphan_null = db.scalar(
+            select(func.count(Subscription.id)).where(
+                Subscription.status == "active",
+                Subscription.current_period_end.is_(None),
+            )
+        ) or 0
+        if orphan_null:
+            logger.warning(
+                "downgrade_expired_subscriptions: %d active subs have NULL period_end "
+                "(invisible to expiry sweep — investigate)", orphan_null,
+            )
+        if lapsed:
+            logger.info(
+                "downgrade_expired_subscriptions: %d lapsed, %d orgs reconciled",
+                len(lapsed), changed,
+            )
+    except Exception:
+        logger.exception("downgrade_expired_subscriptions failed")
+        db.rollback()
+    finally:
+        db.close()
+
+
 @celery.task(name="periodic.send_reminder_emails")
 def send_reminder_emails() -> None:
     """Send daily digest of leads with reminder_at <= now per project owner.

@@ -14,7 +14,11 @@ engine = create_engine(
     pool_pre_ping=True,
     echo=False,
     connect_args={
-        "options": "-c statement_timeout=30000 -c lock_timeout=5000"
+        # Pin the session TimeZone to UTC so comparisons between naive timestamp
+        # columns (stored as UTC wall-clock) and aware UTC params are unambiguous
+        # regardless of the server's TimeZone GUC (matters for billing-period and
+        # retention boundaries). Prod is already Etc/UTC; this makes it safe.
+        "options": "-c statement_timeout=30000 -c lock_timeout=5000 -c timezone=UTC"
     },
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

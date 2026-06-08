@@ -211,7 +211,12 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
 
     event_type = payload.get("event") or ""
     obj = payload.get("object") or {}
-    payment_id = obj.get("id")
+    # For refund events the object IS a refund; the original payment id (which
+    # carries our checkout metadata) is in object.payment_id. Re-fetch THAT
+    # payment so org/subscription resolution + IP auth work exactly as for a
+    # normal payment event.
+    is_refund = event_type == "refund.succeeded"
+    payment_id = obj.get("payment_id") if is_refund else obj.get("id")
     if not payment_id:
         raise HTTPException(status_code=400, detail="Webhook missing object.id")
 
@@ -250,6 +255,29 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="Организация не найдена")
 
     payment_status = payment.get("status")  # pending / waiting_for_capture / succeeded / canceled
+
+    # Возврат средств → немедленно откатываем доступ на free (не ждём конца
+    # оплаченного периода). Без этого вернувший деньги клиент сохранял бы Pro.
+    if is_refund:
+        from app.services.quota import reconcile_org_plan
+
+        subscription.status = "refunded"
+        # Reconcile to the plan the org STILL actively pays for (free if none).
+        # Another active subscription (e.g. after a mid-cycle upgrade) may still
+        # cover the org, so we must NOT blindly downgrade to free. Exclude the
+        # just-refunded row (its status change isn't flushed yet under autoflush=off).
+        new_plan = reconcile_org_plan(db, org, exclude_sub_id=subscription.id)
+        log_action(
+            db,
+            user_id=metadata.get("user_id") or "",
+            organization_id=organization_id,
+            action="billing.refund.succeeded",
+            meta={"payment_id": payment_id, "subscription_id": subscription_id, "plan_after": new_plan.value},
+        )
+        db.commit()
+        logger.info("Refund processed: org=%s plan now %s (payment=%s)",
+                    organization_id, new_plan.value, payment_id)
+        return {"status": "ok", "refunded": True}
 
     # Идемпотентность: если уже активировали этим же платежом — выходим.
     if (
@@ -309,8 +337,7 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
         db.commit()
         return {"status": "ok"}
 
-    # pending / waiting_for_capture / refund.succeeded — пока не обрабатываем,
-    # ЮKassa повторит, если что.
+    # pending / waiting_for_capture — пока не обрабатываем, ЮKassa повторит.
     logger.info("YooKassa webhook ignored: event=%s status=%s payment=%s",
                 event_type, payment_status, payment_id)
     return {"status": "ignored", "event": event_type, "payment_status": payment_status}
