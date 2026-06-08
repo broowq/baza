@@ -13,7 +13,7 @@ import type { Lead, LeadDetail } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
-  contacted: "Контакт",
+  contacted: "Связались",
   qualified: "Квалифицирован",
   rejected: "Отклонён",
 };
@@ -36,7 +36,7 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "new",       label: "Новый" },
-  { value: "contacted", label: "Контакт" },
+  { value: "contacted", label: "Связались" },
   { value: "qualified", label: "Квалифицирован" },
   { value: "rejected",  label: "Отклонён" },
 ];

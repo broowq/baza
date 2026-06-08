@@ -665,3 +665,19 @@ def test_enrich_reprocesses_contactless_lead_and_flags_dead_source(db, monkeypat
         db.execute(delete(Project).where(Project.id == proj.id))
         db.execute(delete(Organization).where(Organization.id == org.id))
         db.commit()
+
+
+def test_clear_reminder_via_null_patch(api_env, db):
+    """The clear-reminder × button sends {"reminder_at": null}; the endpoint must
+    actually clear it. The old `is not None` guard silently ignored null, so the
+    button was a no-op and the reminder reappeared on refresh."""
+    client, _state, lead_id, _ = api_env
+    r = client.patch(f"/api/leads/{lead_id}", json={"reminder_at": "2026-12-01T09:00:00+00:00"})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(Lead, lead_id).reminder_at is not None, "reminder should be set"
+
+    r = client.patch(f"/api/leads/{lead_id}", json={"reminder_at": None})
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    assert db.get(Lead, lead_id).reminder_at is None, "explicit null must clear the reminder"

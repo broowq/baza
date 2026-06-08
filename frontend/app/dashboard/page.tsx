@@ -29,6 +29,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { getOrgId, setOrgId } from "@/lib/auth";
+import { formatPlan } from "@/lib/plans";
 import { useAuthGuard } from "@/lib/hooks";
 import type { CollectionJob, Organization, Project, PromptEnhanceResponse } from "@/lib/types";
 
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [projects, setProjects] = useState<Project[]>([]);
   const [latestJobs, setLatestJobs] = useState<Record<string, CollectionJob | null>>({});
+  const [allJobs, setAllJobs] = useState<CollectionJob[]>([]);
   const [projectForm, setProjectForm] = useState<ProjectForm>(initialProject);
   const [creating, setCreating] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -141,13 +143,16 @@ export default function DashboardPage() {
           if (membership) setOrgRole(membership.role);
           if (prs) {
             setProjects(prs);
-            const jobEntries = await Promise.all(
+            const jobLists = await Promise.all(
               prs.map(async (p) => {
                 const jobs = await api<CollectionJob[]>(`/leads/jobs/project/${p.id}`).catch(() => []);
-                return [p.id, jobs[0] ?? null] as const;
+                return [p.id, jobs] as const;
               })
             );
-            setLatestJobs(Object.fromEntries(jobEntries));
+            // latestJobs = most-recent job per project (for per-card display);
+            // allJobs = every job across every project (for org-level totals).
+            setLatestJobs(Object.fromEntries(jobLists.map(([id, jobs]) => [id, jobs[0] ?? null])));
+            setAllJobs(jobLists.flatMap(([, jobs]) => jobs));
           }
         }
       }
@@ -295,22 +300,18 @@ export default function DashboardPage() {
   const canManage = orgRole === "owner" || orgRole === "admin";
   const usagePercent = org ? Math.min(100, Math.round(((org.leads_used_current_month ?? 0) / (org.leads_limit_per_month || 1)) * 100)) : 0;
 
-  const planLabel: Record<string, string> = {
-    starter: "Starter",
-    pro: "Pro",
-    team: "Business",
-  };
-
   const roleLabel: Record<string, string> = {
     owner: "Владелец",
     admin: "Админ",
     member: "Участник",
   };
 
-  // Derive aggregate metrics from already-fetched data — no new API calls
-  const totalLeads = Object.values(latestJobs).reduce((acc, job) => acc + (job?.added_count ?? 0), 0);
-  const totalEnriched = Object.values(latestJobs).reduce((acc, job) => acc + (job?.enriched_count ?? 0), 0);
-  const activeJobs = Object.values(latestJobs).filter((j) => j?.status === "running").length;
+  // Derive aggregate metrics from already-fetched data — no new API calls.
+  // Sum across ALL jobs of ALL projects (not just the latest per project) so
+  // the «по всем проектам» totals reflect the full collection history.
+  const totalLeads = allJobs.reduce((acc, job) => acc + (job.added_count ?? 0), 0);
+  const totalEnriched = allJobs.reduce((acc, job) => acc + (job.enriched_count ?? 0), 0);
+  const activeJobs = allJobs.filter((j) => j.status === "running").length;
 
   return (
     <motion.main
@@ -361,7 +362,7 @@ export default function DashboardPage() {
               {org?.plan && (
                 <span className="chip chip-mint" style={{ padding: "4px 10px" }}>
                   <span className="dot dot-mt" style={{ width: 5, height: 5 }} />
-                  {planLabel[org.plan] ?? org.plan}
+                  {formatPlan(org.plan)}
                 </span>
               )}
               <span className="chip">{roleLabel[orgRole] ?? orgRole}</span>

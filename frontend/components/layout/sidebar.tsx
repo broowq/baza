@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { formatPlan } from "@/lib/plans";
 import type { Organization } from "@/lib/types";
 
 type NavItem = {
@@ -162,12 +163,9 @@ export function Sidebar() {
               className="chip chip-mint"
               style={{ padding: "2px 8px", fontSize: "9.5px" }}
             >
-              {org.plan}
+              {formatPlan(org.plan)}
             </span>
           )}
-          <svg className="car shrink-0" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 10l4 4 4-4" />
-          </svg>
         </div>
       </div>
 

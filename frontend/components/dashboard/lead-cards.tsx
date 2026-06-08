@@ -12,7 +12,7 @@ import type { Lead } from "@/lib/types";
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
-  contacted: "Контакт",
+  contacted: "Связались",
   qualified: "Квалифицирован",
   rejected: "Отклонён",
 };

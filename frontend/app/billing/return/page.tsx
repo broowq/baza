@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { ArrowRight, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 import { api } from "@/lib/api";
+import { formatPlan } from "@/lib/plans";
 
 type SubscriptionResp = {
   id?: string;
@@ -107,7 +108,7 @@ function ReturnBody() {
               </h1>
               <p className="caption mb-6">
                 {planId
-                  ? `Тариф «${planId}» активирован, лимиты подняты.`
+                  ? `Тариф «${formatPlan(planId)}» активирован, лимиты подняты.`
                   : "Тариф активирован, лимиты подняты."}
               </p>
               <Link href="/dashboard" className="btn btn-brand inline-flex" style={{ height: 42 }}>

@@ -48,7 +48,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/api";
-import { setOrgId } from "@/lib/auth";
+import { clearToken, setOrgId } from "@/lib/auth";
+import { formatPlan } from "@/lib/plans";
 import { useAuthGuard } from "@/lib/hooks";
 import type { Organization } from "@/lib/types";
 
@@ -450,10 +451,10 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-2">
                       <span className="dot dot-mt" />
                       <span
-                        className="text-white capitalize"
+                        className="text-white"
                         style={{ fontSize: 18, fontWeight: 300 }}
                       >
-                        {organization?.plan ?? "---"}
+                        {formatPlan(organization?.plan) || "---"}
                       </span>
                     </div>
                   </div>
@@ -980,7 +981,7 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
       // После DELETE серверный access-токен ещё в localStorage — чистим,
       // чтобы не показывать «зомби»-состояние UI авторизованным.
       if (typeof window !== "undefined") {
-        localStorage.removeItem("lid_access_token");
+        clearToken();
         window.location.href = "/?deleted=1";
       }
     } catch (e) {

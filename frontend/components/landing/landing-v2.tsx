@@ -162,7 +162,7 @@ const PULSE_FEED: Array<{
 
 const HEATMAP_SOURCES: Array<{ name: string; curve: number[] }> = [
   { name: "реестр", curve: [0.2, 0.15, 0.1, 0.08, 0.06, 0.08, 0.18, 0.42, 0.65, 0.78, 0.85, 0.82, 0.78, 0.74, 0.7, 0.62, 0.55, 0.48, 0.42, 0.36, 0.32, 0.28, 0.24, 0.22] },
-  { name: "СПАРК", curve: [0.12, 0.08, 0.06, 0.05, 0.04, 0.06, 0.14, 0.32, 0.55, 0.7, 0.78, 0.74, 0.7, 0.66, 0.6, 0.52, 0.45, 0.38, 0.32, 0.28, 0.24, 0.2, 0.16, 0.14] },
+  { name: "Rusprofile", curve: [0.12, 0.08, 0.06, 0.05, 0.04, 0.06, 0.14, 0.32, 0.55, 0.7, 0.78, 0.74, 0.7, 0.66, 0.6, 0.52, 0.45, 0.38, 0.32, 0.28, 0.24, 0.2, 0.16, 0.14] },
   { name: "каталоги", curve: [0.08, 0.06, 0.05, 0.04, 0.04, 0.06, 0.12, 0.22, 0.38, 0.5, 0.58, 0.55, 0.52, 0.5, 0.46, 0.4, 0.34, 0.3, 0.26, 0.22, 0.2, 0.18, 0.14, 0.1] },
   { name: "парс", curve: [0.32, 0.28, 0.22, 0.18, 0.16, 0.14, 0.18, 0.22, 0.28, 0.32, 0.36, 0.4, 0.42, 0.45, 0.42, 0.38, 0.34, 0.32, 0.36, 0.42, 0.5, 0.55, 0.48, 0.4] },
 ];
@@ -655,7 +655,7 @@ function HeroSection() {
                 </a>
               </Magnetic>
               <span className="ml-2 text-[12px] t-48">
-                от <span className="text-white mono">2 ₽</span> за обогащённый контакт
+                тарифы от <span className="text-white mono">3 900 ₽/мес</span>
               </span>
             </div>
 
@@ -664,11 +664,11 @@ function HeroSection() {
               style={{ animationDelay: "0.4s" }}
             >
               {[
-                "ЕГРЮЛ · 4.7M записей",
-                "2GIS · 1.8M точек",
-                "СПАРК · API",
-                "ФНС · открытые данные",
-                "отраслевые каталоги",
+                "ЕГРЮЛ / Rusprofile",
+                "2ГИС",
+                "Яндекс Карты",
+                "SearXNG",
+                "Bing",
               ].map((t) => (
                 <span key={t} className="flex items-center gap-2 mono">
                   <span className="dot dot-mt" />
@@ -700,7 +700,7 @@ function PromptDemo() {
   const stats = useStats();
   // Real pipeline figures where the endpoint backs them; the two raw funnel
   // counts (12 410 → 384 → 217) have no source and stay illustrative.
-  const srcCount = stats?.sources.length ?? 8;            // 01 · парсинг
+  const srcCount = stats?.sources.length ?? 5;            // 01 · парсинг
   const smtpPct = stats ? Math.round(stats.rates.email * 100) : 78; // 04 · SMTP+MX
   const finalLeads = stats?.funnel.added ?? 134;          // 05 · готово
   const regionCount = stats?.by_city.length ?? 9;         // subtitle
@@ -797,7 +797,7 @@ function PromptDemo() {
             </p>
             <ul className="mt-7 space-y-3 text-[13px] t-72">
               <li className="flex items-start gap-3"><span className="mono t-40 mt-0.5">01</span>распознаём ОКВЭД и регионы по смыслу</li>
-              <li className="flex items-start gap-3"><span className="mono t-40 mt-0.5">02</span>матчим к источникам — ЕГРЮЛ, 2GIS, СПАРК, отраслевые</li>
+              <li className="flex items-start gap-3"><span className="mono t-40 mt-0.5">02</span>матчим к источникам — ЕГРЮЛ, 2ГИС, Яндекс Карты</li>
               <li className="flex items-start gap-3"><span className="mono t-40 mt-0.5">03</span>обогащаем контактами и оцениваем релевантность</li>
             </ul>
           </div>
@@ -807,7 +807,7 @@ function PromptDemo() {
               <div className="flex items-center gap-2 mb-4 px-1">
                 <span className="dot dot-em" />
                 <span className="text-[12px] t-72">собирает</span>
-                <span className="ml-auto t-40 text-[10px] mono">prompt → leads · 8.2s</span>
+                <span className="ml-auto t-40 text-[10px] mono">prompt → leads</span>
               </div>
               <div className="panel-flat p-5 prompt-box" style={{ borderRadius: 14, position: "relative" }}>
                 <div className="text-[11px] t-40 mono mb-2">/задача</div>
@@ -846,9 +846,9 @@ function PromptDemo() {
               <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
                 {[
                   ["01 · парсинг", `${srcCount} источников`, 100, "var(--mint)"],
-                  // 02/03 raw funnel counts are illustrative (no endpoint source).
-                  ["02 · матчинг", "12 410 → 384", 100, "var(--mint)"],
-                  ["03 · дедуп", "→ 217", 100, "var(--mint)"],
+                  // 02/03 raw funnel counts have no endpoint source → labelled демо.
+                  ["02 · матчинг · демо", "12 410 → 384", 100, "var(--mint)"],
+                  ["03 · дедуп · демо", "→ 217", 100, "var(--mint)"],
                   ["04 · обогащение", "SMTP+MX", smtpPct, "var(--mint)"],
                   ["05 · готово", `${phase === "parsed" ? finalLeads : 0} лидов`, 100, "var(--green)"],
                 ].map(([label, val, w], i) => (
@@ -864,8 +864,6 @@ function PromptDemo() {
 
               <div className="mt-5 flex items-center gap-3 t-48 text-[11px] hairline pt-4">
                 <span className="mono">{regionCount} регионов · ОКВЭД 01.4*</span>
-                <span className="mx-2">·</span>
-                <span>отбор по выручке &gt; 60M ₽</span>
                 <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-white transition-colors">
                   смотреть результат
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -947,7 +945,12 @@ function ProductFrame() {
               <span className="text-white">{crumb}</span>
             </div>
             <div className="ml-auto flex items-center gap-2">
-              <button className="ghost rounded-full px-3 py-1 text-[11.5px] flex items-center gap-2">
+              <button
+                className="ghost rounded-full px-3 py-1 text-[11.5px] flex items-center gap-2 opacity-50 cursor-not-allowed"
+                disabled
+                title="доступно в приложении"
+                style={{ pointerEvents: "none" }}
+              >
                 <span>⌘K</span>
                 <span className="t-48">поиск</span>
               </button>
@@ -1094,11 +1097,11 @@ const SRC_SPARK_PATHS = [
 
 // Original hardcoded source-mix rows — fallback when stats aren't loaded.
 const DEMO_SOURCE_ROWS: Array<{ name: string; pct: number; num: string }> = [
-  { name: "ЕГРЮЛ / ФНС", pct: 42, num: "59 884" },
-  { name: "СПАРК / API", pct: 26, num: "37 070" },
-  { name: "Отраслевые", pct: 18, num: "25 664" },
-  { name: "Парс сайтов", pct: 9, num: "12 832" },
-  { name: "Импорт CSV", pct: 5, num: "7 130" },
+  { name: "2ГИС", pct: 34, num: "48 467" },
+  { name: "Яндекс Карты", pct: 27, num: "38 487" },
+  { name: "ЕГРЮЛ / Rusprofile", pct: 21, num: "29 935" },
+  { name: "SearXNG", pct: 12, num: "17 102" },
+  { name: "Bing", pct: 6, num: "8 551" },
 ];
 
 // Original hardcoded leads-table rows — fallback when no real samples exist.
@@ -1174,13 +1177,15 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
     <section id={panelId} role="tabpanel" aria-labelledby={tabId} className={"view" + (active ? " active" : "")}>
       <div className="flex items-end justify-between mb-6 flex-wrap gap-6">
         <div>
-          <div className="eyebrow">live · последние 24ч</div>
+          <div className="flex items-center gap-2">
+            <span className="eyebrow">live · последние 24ч</span>
+            {!stats && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>}
+          </div>
           <div className="h1 tnum mt-2" style={{ fontSize: 84 }}>
             <span ref={liveRef} className="count-num">0</span>
           </div>
           <div className="text-[13px] t-72 mt-1">
-            кандидатов прошло через очередь ·{" "}
-            <span style={{ color: "var(--green)" }}>+18%</span> vs вчера
+            кандидатов прошло через очередь
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 w-full sm:w-[340px] flex-none">
@@ -1404,7 +1409,10 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
 
           <div className="panel-flat mt-5 p-5">
             <div className="flex items-center justify-between mb-3">
-              <div className="eyebrow">распределение по ОКВЭД</div>
+              <div className="flex items-center gap-2">
+                <span className="eyebrow">распределение по ОКВЭД</span>
+                <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
+              </div>
               <span className="t-40 mono text-[10px]">5 групп</span>
             </div>
             <div className="space-y-2.5 text-[12px]">
@@ -1439,8 +1447,22 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
               {!tableRows && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>}
             </div>
             <div className="seg" style={{ padding: 2 }}>
-              <button className="seg-btn active" style={{ padding: "4px 10px", fontSize: 11 }}>Все</button>
-              <button className="seg-btn" style={{ padding: "4px 10px", fontSize: 11 }}>Q · {stats?.totals.qualified ?? 17}</button>
+              <button
+                className="seg-btn active cursor-not-allowed"
+                style={{ padding: "4px 10px", fontSize: 11, pointerEvents: "none" }}
+                disabled
+                title="доступно в приложении"
+              >
+                Все
+              </button>
+              <button
+                className="seg-btn cursor-not-allowed"
+                style={{ padding: "4px 10px", fontSize: 11, pointerEvents: "none" }}
+                disabled
+                title="доступно в приложении"
+              >
+                Q · {stats?.totals.qualified ?? 17}
+              </button>
             </div>
           </div>
           <table className="lt">
@@ -1664,7 +1686,7 @@ function BubbleChart() {
 function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string; panelId?: string }) {
   const stats = useStats();
   // Drive the lead card from the top real sample when available. Identity +
-  // score are real; sub-scores, ЛПР, address, timeline & notes have no
+  // score are real; sub-scores, признаки, address, timeline & notes have no
   // endpoint source and stay as labelled demo data. Contacts are masked to
   // ✓/— from has_email/has_phone — never synthesised into fake addresses.
   const lead = stats?.samples[0];
@@ -1722,11 +1744,14 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
               style={{ width: `${leadScore}%`, background: "var(--mint)", boxShadow: "0 0 12px rgba(168,197,192,0.45)" }}
             />
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-4 text-[11px]">
+          <div className="flex items-center gap-2 mt-4">
+            <span className="t-40 text-[10px] mono">суб-оценки</span>
+            <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mt-2 text-[11px]">
             {[
               ["соответствие", "98"],
               ["контактность", "94"],
-              ["платёжесп.", "86"],
             ].map(([l, v]) => (
               <div key={l} className="panel-flat px-3 py-2">
                 <div className="t-40 mb-0.5">{l}</div>
@@ -1735,9 +1760,12 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
             ))}
           </div>
           <div className="hairline mt-5 pt-4">
-            <div className="eyebrow mb-2">признаки</div>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="eyebrow">признаки</span>
+              <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
+            </div>
             <div className="flex flex-wrap gap-2">
-              {["ОКВЭД 01.47 ✓", "штат 200+", "выручка 320M", "сайт активен", "тендеры ✓"].map((t) => (
+              {["ОКВЭД 01.47 ✓", "сайт активен"].map((t) => (
                 <span key={t} className="panel-thin px-2.5 py-0.5 text-[11px]">{t}</span>
               ))}
             </div>
@@ -1767,11 +1795,6 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
               <span className="mono">{lead ? "сайт — демо" : "ptf-yug.ru"}</span>
               <span className="ml-auto t-40 text-[10px]">{lead ? "демо-данные" : "site online"}</span>
             </div>
-          </div>
-          <div className="hairline mt-5 pt-4">
-            <div className="eyebrow mb-2">ЛПР</div>
-            <div className="text-[13px]">Сергей Ковалёв</div>
-            <div className="t-48 text-[11.5px]">директор по закупкам · подтверждено LinkedIn</div>
           </div>
           <div className="hairline mt-5 pt-4">
             <div className="eyebrow mb-2">адрес</div>
@@ -1818,7 +1841,8 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
 
 function FeaturesSection() {
   const stats = useStats();
-  // Real rates for the KPI tiles; deliver→email, контактность(ЛПР)→phone,
+  const real = !!stats;
+  // Real rates for the KPI tiles; deliver→email, телефон→phone,
   // совпадение→enrichment. Fall back to the original demo percentages.
   const deliverPct = stats ? Math.round(stats.rates.email * 100) : 94;
   const matchPct = stats ? Math.round(stats.rates.enrichment * 100) : 88;
@@ -1837,33 +1861,40 @@ function FeaturesSection() {
             </h2>
           </div>
           <div className="col-span-1 lg:col-span-6 lg:pt-10 text-[15px] t-72 light leading-[1.55]">
-            База подключена к 8 верифицированным источникам, обновляется ежедневно и работает
-            как единая поверхность. Никаких CSV из неизвестных папок.
+            База подключена к 5 источникам, данные собираются в реальном времени при запуске
+            сбора и работают как единая поверхность. Никаких CSV из неизвестных папок.
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
           <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">обогащение</div><span className="mono t-40 text-[10px]">01</span></div>
-            <h3 className="h3 mt-3" style={{ fontSize: 24 }}>Email, телефон, ЛПР, выручка — для каждой компании.</h3>
-            <p className="t-72 text-[13px] mt-3 leading-[1.55]">SMTP+MX-проверка, валидация по ФНС, сопоставление ЛПР с открытыми профилями.</p>
-            <div className="mt-5 hairline pt-4 grid grid-cols-3 gap-2">
-              {[
-                ["deliver", `${deliverPct}%`],
-                ["match", `${matchPct}%`],
-                ["ЛПР", `${lprPct}%`],
-              ].map(([label, val]) => (
-                <div key={label} className="stat-tile" style={{ padding: "8px 10px" }}>
-                  <div className="stat-tile__label">{label}</div>
-                  <div className="stat-tile__value tnum" style={{ fontSize: 16 }}>{val}</div>
+            <h3 className="h3 mt-3" style={{ fontSize: 24 }}>Email с проверкой доставляемости, телефон, сайт — для каждой компании.</h3>
+            <p className="t-72 text-[13px] mt-3 leading-[1.55]">SMTP+MX-проверка email, нормализация телефонов, контакты с сайта и 2ГИС.</p>
+            <div className="mt-5 hairline pt-4">
+              {!real && (
+                <div className="mb-2">
+                  <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>
                 </div>
-              ))}
+              )}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["deliver", `${deliverPct}%`],
+                  ["match", `${matchPct}%`],
+                  ["телефон", `${lprPct}%`],
+                ].map(([label, val]) => (
+                  <div key={label} className="stat-tile" style={{ padding: "8px 10px" }}>
+                    <div className="stat-tile__label">{label}</div>
+                    <div className="stat-tile__value tnum" style={{ fontSize: 16 }}>{val}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
           <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">scoring</div><span className="mono t-40 text-[10px]">02</span></div>
             <h3 className="h3 mt-3" style={{ fontSize: 24 }}>100-балльный скоринг под ваш промпт.</h3>
-            <p className="t-72 text-[13px] mt-3 leading-[1.55]">Соответствие, контактность, платёжеспособность — три оси, прозрачные веса, объяснение для каждого балла.</p>
+            <p className="t-72 text-[13px] mt-3 leading-[1.55]">Соответствие и контактность — две оси, прозрачные веса, объяснение для каждого балла.</p>
             <div className="mt-5 hairline pt-4">
               <div className="flex items-center justify-between text-[11px] t-48 mb-2"><span>средний</span><span className="mono">{avgScore} / 100</span></div>
               <div className="score-bar" style={{ "--score": avgScore / 100 } as React.CSSProperties}>
@@ -1873,10 +1904,10 @@ function FeaturesSection() {
           </div>
           <div className="col-span-1 md:col-span-4 panel-flat elev-1 p-6 transition-shadow duration-200 hover:shadow-elev-2">
             <div className="flex items-center justify-between"><div className="eyebrow">экспорт</div><span className="mono t-40 text-[10px]">03</span></div>
-            <h3 className="h3 mt-3" style={{ fontSize: 24 }}>CSV, API, webhook прямо в CRM.</h3>
-            <p className="t-72 text-[13px] mt-3 leading-[1.55]">Bitrix24, amoCRM, Pipedrive — нативные коннекторы. По API — 50 запросов в секунду.</p>
+            <h3 className="h3 mt-3" style={{ fontSize: 24 }}>CSV и webhook прямо в CRM.</h3>
+            <p className="t-72 text-[13px] mt-3 leading-[1.55]">Исходящий webhook: POST каждого лида в Bitrix24 / amoCRM.</p>
             <div className="mt-5 hairline pt-4 flex flex-wrap gap-2 text-[11px]">
-              {["Bitrix24", "amoCRM", "Pipedrive", "webhook"].map((c) => (
+              {["Bitrix24", "amoCRM", "webhook"].map((c) => (
                 <span key={c} className="badge badge--source">{c}</span>
               ))}
             </div>
@@ -1901,7 +1932,7 @@ function CtaSection() {
             посмотрите, что мы найдём.
           </h2>
           <p className="mt-6 max-w-[520px] mx-auto t-72 text-[15px] light">
-            2 ₽ за обогащённый контакт. Бесплатные первые 100 — без карты.
+            Помесячная подписка — тарифы от 3 900 ₽/мес.
           </p>
           <div className="mt-9 flex items-center justify-center gap-3 flex-wrap">
             <Link href="/register" className="brand rounded-full px-6 py-3 text-[14px] flex items-center gap-2">
@@ -1980,13 +2011,13 @@ function FooterSection() {
 function MarqueeBand() {
   const tokens = [
     "лидогенерация без перекупщиков",
-    "ЕГРЮЛ · СПАРК · 2ГИС · Yandex Maps · SearXNG",
+    "ЕГРЮЛ · 2ГИС · Яндекс Карты · SearXNG · Bing",
     "обогащение в фоне",
     "AI-фильтр покупателей",
-    "интеграция Bitrix24 · AmoCRM",
+    "интеграция Bitrix24 · amoCRM",
     "хранение данных в РФ",
-    "оплата в копейках",
-    "от 2 ₽ за обогащённый контакт",
+    "помесячная подписка",
+    "тарифы от 3 900 ₽/мес",
   ];
   // Duplicate the tokens so the -50% translate at the end of the loop
   // lands on a visually identical frame — seam disappears.

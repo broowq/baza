@@ -637,7 +637,10 @@ def update_lead(
         lead.tags = cleaned_tags
     if payload.last_contacted_at is not None:
         lead.last_contacted_at = payload.last_contacted_at
-    if payload.reminder_at is not None:
+    # Use model_fields_set so an explicit {"reminder_at": null} CLEARS the
+    # reminder (the × button sends null); an omitted field leaves it untouched.
+    # The old `is not None` guard silently ignored the clear → dead button.
+    if "reminder_at" in payload.model_fields_set:
         lead.reminder_at = payload.reminder_at
     if payload.mark_contacted:
         # Convenience flag — sets last_contacted_at=now() and bumps status to "contacted"
