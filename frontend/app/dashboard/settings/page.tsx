@@ -457,6 +457,17 @@ export default function SettingsPage() {
                         {formatPlan(organization?.plan) || "---"}
                       </span>
                     </div>
+                    {(organization?.ai_cost_limit_kopecks_per_month ?? 0) > 0 && (
+                      <p className="tnum t-72 text-[11px] mt-2">
+                        AI-бюджет:{" "}
+                        <span className="text-white">
+                          {((organization?.ai_cost_used_kopecks_current_month ?? 0) / 100).toLocaleString("ru-RU")} ₽
+                        </span>
+                        <span className="t-48">
+                          {" "}из {((organization?.ai_cost_limit_kopecks_per_month ?? 0) / 100).toLocaleString("ru-RU")} ₽
+                        </span>
+                      </p>
+                    )}
                   </div>
                   <div className="panel-flat p-4">
                     <div className="eyebrow mb-1">лиды в месяце</div>

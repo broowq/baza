@@ -734,17 +734,23 @@ export default function DashboardPage() {
             <div className="eyebrow">пример результата</div>
             <span className="badge badge--source">демо-данные</span>
           </div>
-          <p className="t-56 text-[13px] mb-5">
+          <p className="t-56 text-[13px] mb-3">
             Так выглядит собранная база. Создайте проект — и БАЗА найдёт реальные компании по вашей нише.
           </p>
+          <div className="mono-cap t-40 text-[10px] mb-3 flex items-center gap-3 flex-wrap">
+            <span>в колонках «Тел.?» и «Email?»:</span>
+            <span><span style={{ color: "var(--mint)" }}>✓</span> — есть</span>
+            <span className="sep-dot" />
+            <span><span style={{ color: "rgba(255,255,255,0.34)" }}>—</span> — нет</span>
+          </div>
           <div className="overflow-x-auto -mx-1 px-1">
             <table className="w-full text-left" style={{ borderCollapse: "collapse", minWidth: 560 }}>
               <thead>
                 <tr className="mono-cap text-[10px] t-40">
                   <th className="pb-2 pr-3 font-normal">Компания</th>
                   <th className="pb-2 pr-3 font-normal">Город</th>
-                  <th className="pb-2 pr-3 font-normal">Телефон</th>
-                  <th className="pb-2 pr-3 font-normal">Email</th>
+                  <th className="pb-2 pr-3 font-normal">Тел.?</th>
+                  <th className="pb-2 pr-3 font-normal">Email?</th>
                   <th className="pb-2 font-normal text-right">Score</th>
                 </tr>
               </thead>
@@ -775,7 +781,7 @@ export default function DashboardPage() {
             </table>
           </div>
           <p className="mono-cap mt-4 t-40 text-[10px]">
-            реальные данные из демо-проекта БАЗА · контакты скрыты (✓ — найден)
+            реальные данные из демо-проекта БАЗА · сами контакты скрыты (✓ — есть · — нет)
           </p>
         </div>
         </motion.div>
@@ -822,13 +828,18 @@ export default function DashboardPage() {
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.28, delay: 0.05 + idx * 0.04 }}
-              className="lead-card group"
+              className="lead-card group relative"
             >
+              {/* Navigation overlay — sibling of the action buttons so we never
+                  nest a <button> inside an <a> (invalid HTML). */}
               <Link
                 href={`/dashboard/projects/${project.id}`}
-                className="lead-card__row"
+                className="absolute inset-0 z-0"
+                aria-label={`Открыть проект «${project.name}»`}
                 style={{ textDecoration: "none" }}
-              >
+              />
+
+              <div className="lead-card__row relative z-10 pointer-events-none">
                 {/* Status dot */}
                 <span className={`dot ${dotClass} shrink-0`} />
 
@@ -891,22 +902,23 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Action buttons */}
+                {/* Action buttons — siblings of the Link overlay; re-enable
+                    pointer events since the row wrapper disables them. */}
                 <div className="flex items-center gap-1.5 shrink-0">
                   {canManage && (
                     <>
                       <button
                         type="button"
-                        className="btn-icon"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditDialog(project); }}
+                        className="btn-icon pointer-events-auto relative z-10"
+                        onClick={() => openEditDialog(project)}
                         aria-label="Редактировать"
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
                       <button
                         type="button"
-                        className="btn-icon hover:!text-[var(--rose)]"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(project); }}
+                        className="btn-icon pointer-events-auto relative z-10 hover:!text-[var(--rose)]"
+                        onClick={() => setDeleteTarget(project)}
                         aria-label="Удалить"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -917,7 +929,7 @@ export default function DashboardPage() {
                     <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
                   </span>
                 </div>
-              </Link>
+              </div>
             </motion.div>
           );
         })}

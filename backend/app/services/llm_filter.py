@@ -4,12 +4,57 @@ Uses unified llm_client which tries the primary provider (YandexGPT by default),
 then cascades through the others on failure. Falls back to rule-based competitor
 detection if all LLMs are unavailable.
 """
+import hashlib
 import logging
 import re
 
+import redis as _redis
+
+from app.core.config import get_settings
 from app.services import llm_client
 
 logger = logging.getLogger(__name__)
+
+# ── Per-candidate LLM-verdict cache (Redis) ──────────────────────────────────
+# The AI filter used to re-classify every candidate on every collection run. We
+# cache each LLM keep/drop verdict keyed on (project-config hash, candidate
+# identity) for ~7 days, so repeat candidates for the same niche skip the LLM —
+# saving the org's monthly AI budget + latency. Only REAL LLM verdicts are
+# cached, never the rule-based fallback. A change to niche/geo/segments/prompt
+# changes the hash and naturally invalidates.
+_CACHE_TTL_SECONDS = 7 * 24 * 3600
+_redis_singleton: "_redis.Redis | None" = None
+
+
+def _get_filter_redis() -> "_redis.Redis | None":
+    global _redis_singleton
+    if _redis_singleton is None:
+        try:
+            _redis_singleton = _redis.Redis.from_url(
+                get_settings().redis_url, decode_responses=True, socket_timeout=2
+            )
+        except Exception:
+            return None
+    return _redis_singleton
+
+
+def _filter_config_hash(niche: str, geography: str, segments: list[str], prompt: str) -> str:
+    canon = "|".join([
+        (niche or "").strip().lower(),
+        (geography or "").strip().lower(),
+        ",".join(sorted((s or "").strip().lower() for s in (segments or []))),
+        (prompt or "").strip().lower(),
+    ])
+    return hashlib.sha1(canon.encode("utf-8")).hexdigest()[:16]
+
+
+def _candidate_cache_key(c: dict) -> str:
+    dom = (c.get("domain") or "").strip().lower()
+    if dom and "." in dom:
+        return dom
+    name = (c.get("company") or "").strip().lower()
+    city = (c.get("city") or "").strip().lower()
+    return f"{name}|{city}" if name else ""
 
 
 def filter_candidates_llm(
@@ -101,37 +146,82 @@ def _ai_filter(
     results have been accumulated yet, preserving the cost-cap short-circuit
     behaviour — the caller's rule-based path then handles all candidates.
     """
-    BATCH_SIZE = 30
-    all_kept = []
+    cfg = _filter_config_hash(niche, geography, segments, prompt)
+    r = _get_filter_redis()
 
-    for batch_start in range(0, len(candidates), BATCH_SIZE):
-        batch = candidates[batch_start:batch_start + BATCH_SIZE]
+    # 1. Look up cached verdicts (config + candidate identity).
+    rkey_for: dict[int, str] = {}
+    for c in candidates:
+        ck = _candidate_cache_key(c)
+        rkey_for[id(c)] = f"llmf:{cfg}:{ck}" if ck else ""
+    cached: dict[int, "bool | None"] = {id(c): None for c in candidates}
+    if r:
+        uniq = [k for k in {rkey_for[id(c)] for c in candidates} if k]
+        if uniq:
+            try:
+                got = dict(zip(uniq, r.mget(uniq)))
+                for c in candidates:
+                    v = got.get(rkey_for[id(c)])
+                    if v in ("0", "1"):
+                        cached[id(c)] = (v == "1")
+            except Exception:
+                pass
+
+    kept_ids: set[int] = {id(c) for c in candidates if cached[id(c)] is True}
+    to_classify = [c for c in candidates if cached[id(c)] is None]
+    cache_hits = len(candidates) - len(to_classify)
+
+    if not to_classify:
+        result = [c for c in candidates if id(c) in kept_ids]
+        logger.info("AI filter: %d candidates, all cached → %d kept", len(candidates), len(result))
+        return result
+
+    # 2. Classify only the uncached remainder; cache fresh LLM verdicts.
+    BATCH_SIZE = 30
+    to_cache: dict[str, str] = {}
+    llm_ok = False
+    for batch_start in range(0, len(to_classify), BATCH_SIZE):
+        batch = to_classify[batch_start:batch_start + BATCH_SIZE]
         kept = _ai_filter_batch(batch, niche, geography, segments, prompt,
                                 organization_id=organization_id)
         if kept is None:
-            if batch_start == 0:
-                # No prior results yet — signal full failure so the caller can
-                # run its own rule-based path over the complete candidate list.
-                # This also preserves the cost-cap abort behaviour (chat() returns
-                # None on cap-exhaustion, _ai_filter_batch propagates it as None).
+            if batch_start == 0 and not llm_ok and not kept_ids:
+                # Total failure (e.g. cost-cap) with nothing accumulated → signal
+                # full failure so the caller runs rule-based over all candidates.
                 return None
-            # At least one earlier batch succeeded: fall back to rule-based for
-            # this batch only, keeping accumulated approvals from earlier batches.
             logger.warning(
-                "AI filter batch starting at %d failed; applying rule-based "
-                "fallback for this batch (%d candidates), keeping %d already approved",
-                batch_start, len(batch), len(all_kept),
+                "AI filter batch at %d failed; rule-based fallback for this batch "
+                "(%d candidates)", batch_start, len(batch),
             )
-            rule_kept = _rule_based_competitor_filter(batch, prompt, niche, segments)
-            all_kept.extend(rule_kept)
-            continue
-        all_kept.extend(kept)
+            for c in _rule_based_competitor_filter(batch, prompt, niche, segments):
+                kept_ids.add(id(c))
+            continue  # never cache rule-based verdicts
+        llm_ok = True
+        batch_kept_ids = {id(c) for c in kept}
+        for c in batch:
+            keep = id(c) in batch_kept_ids
+            if keep:
+                kept_ids.add(id(c))
+            rk = rkey_for[id(c)]
+            if rk:
+                to_cache[rk] = "1" if keep else "0"
 
+    if r and to_cache:
+        try:
+            pipe = r.pipeline()
+            for k, v in to_cache.items():
+                pipe.set(k, v, ex=_CACHE_TTL_SECONDS)
+            pipe.execute()
+        except Exception:
+            pass
+
+    # Preserve original candidate order in the kept result.
+    result = [c for c in candidates if id(c) in kept_ids]
     logger.info(
-        f"AI filter: {len(candidates)} candidates -> {len(all_kept)} kept "
-        f"({len(candidates) - len(all_kept)} rejected)"
+        "AI filter: %d candidates (%d cached, %d classified) → %d kept",
+        len(candidates), cache_hits, len(to_classify), len(result),
     )
-    return all_kept
+    return result
 
 
 def _ai_filter_batch(batch, niche, geography, segments, prompt, *, organization_id: str | None = None) -> list[dict] | None:

@@ -335,9 +335,7 @@ export default function ProjectDetailsPage() {
       <div className="space-y-5">
         {/* Breadcrumb */}
         <div className="mono-cap" style={{ fontSize: "10.5px" }}>
-          <Link href="/dashboard" className="t-40 hover:text-white transition-colors">дашборд</Link>
-          <span className="t-28 mx-1.5">/</span>
-          <span className="t-40">проекты</span>
+          <Link href="/dashboard" className="t-40 hover:text-white transition-colors">Проекты</Link>
           <span className="t-28 mx-1.5">/</span>
           <span className="t-72">{project?.name ?? "—"}</span>
         </div>
@@ -398,12 +396,13 @@ export default function ProjectDetailsPage() {
           <button
             className="btn btn-ghost"
             disabled={running || enrichBusy || !canManage}
+            title="Обогатить лиды без контактов (до 200 за раз)"
             onClick={() => queueJob("enrich", 200)}
           >
             {enrichBusy ? (
               <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
             ) : (
-              <><Sparkles size={12} /> Обогатить</>
+              <><Sparkles size={12} /> Обогатить новые</>
             )}
           </button>
           <button

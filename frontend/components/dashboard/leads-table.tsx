@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -313,6 +314,7 @@ export function LeadsTable({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [runningBulk, setRunningBulk] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [openLeadId, setOpenLeadId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (hideInternalFilters) return leads;
@@ -590,7 +592,14 @@ export function LeadsTable({
                         <div className="min-w-0">
                           <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-white" title={lead.company}>
                             <SourceBadge source={lead.source} externalId={lead.external_id} />
-                            <span className="truncate min-w-0">{lead.company}</span>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setOpenLeadId(lead.id); }}
+                              className="truncate min-w-0 text-left hover:underline decoration-white/40 underline-offset-2"
+                              title="Открыть карточку компании"
+                            >
+                              {lead.company}
+                            </button>
                           </p>
                           {lead.enriched ? (
                             <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-white/[0.48]">
@@ -717,6 +726,12 @@ export function LeadsTable({
         Показано {filtered.length} из {leads.length}
         {selectedIds.length > 0 && ` · Выбрано: ${selectedIds.length}`}
       </p>
+
+      <LeadDetailDrawer
+        leadId={openLeadId}
+        onClose={() => setOpenLeadId(null)}
+        onLeadUpdate={onLeadUpdate}
+      />
     </div>
   );
 }
