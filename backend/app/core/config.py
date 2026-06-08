@@ -34,9 +34,6 @@ class Settings(BaseSettings):
     frontend_app_url: str = "http://localhost:3000"
     log_level: str = "INFO"
     log_file: str = "logs/app.log"
-    stripe_secret_key: str = ""
-    stripe_public_key: str = ""
-    stripe_webhook_secret: str = ""
     # ── ЮKassa (РФ-провайдер платежей) ─────────────────────────────────
     # shop_id и секретный ключ из ЛК ЮKassa → Настройки → API.
     # Секретный ключ — в .env на сервере, в репо НЕ коммитим.
@@ -83,6 +80,10 @@ class Settings(BaseSettings):
     # Folder ID is required because the modelUri embeds it: gpt://<folder>/...
     yandex_gpt_api_key: str = ""
     yandex_gpt_folder_id: str = ""
+    # Optional per-model LLM price overrides (kopecks per 1M tokens), e.g.
+    # LLM_PRICES_KOPECKS_PER_MTOK='{"anthropic_in":25000}'. Empty → built-in
+    # defaults in llm_client._DEFAULT_PRICES.
+    llm_prices_kopecks_per_mtok: dict[str, int] = {}
     yandex_gpt_model: str = "yandexgpt-lite/latest"   # yandexgpt-lite | yandexgpt | yandexgpt-32k
     yandex_gpt_endpoint: str = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
     # Default provider order is yandex → anthropic → gigachat. Override via env

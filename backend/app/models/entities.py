@@ -47,7 +47,7 @@ class Organization(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
     plan: Mapped[PlanType] = mapped_column(Enum(PlanType), default=PlanType.free, nullable=False)
     leads_used_current_month: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    leads_limit_per_month: Mapped[int] = mapped_column(Integer, default=1000, nullable=False)
+    leads_limit_per_month: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     projects_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     users_limit: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     can_invite_members: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

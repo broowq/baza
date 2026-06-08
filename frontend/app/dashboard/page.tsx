@@ -298,7 +298,7 @@ export default function DashboardPage() {
   const planLabel: Record<string, string> = {
     starter: "Starter",
     pro: "Pro",
-    team: "Team",
+    team: "Business",
   };
 
   const roleLabel: Record<string, string> = {
