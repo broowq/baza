@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     # using-api/webhooks). Дополнительно к этому, обработчик в любом случае
     # перезапрашивает платёж по id → подделать webhook нельзя.
     yookassa_verify_ip: bool = True
+    # no_contacts_penalty: «контакт» = email | телефон | домен (адрес — не контакт, только свои +8; см. scoring.py)
     scoring_weights_json: str = (
         '{"base":35,"domain":10,"email":20,"phone":10,"address":8,'
         '"no_contacts_penalty":-12,"demo_penalty":-20,"aggregator_penalty":-25,"keyword_bonus":12}'

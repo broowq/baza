@@ -323,7 +323,8 @@ def api_env(db):
         ],
         niche="окна",
     )
-    # Bump it under ANOTHER niche so 'other_niches' is non-empty in the detail.
+    # Bump it under ANOTHER niche — the detail endpoint must NOT expose it
+    # (other orgs' search niches are cross-tenant data).
     cw.upsert_companies(
         db, [_cand(company="Деталь Тест", domain=f"{_PFX}detail.ru", city="Томск")], niche="двери"
     )
@@ -374,9 +375,8 @@ def test_lead_detail_returns_full_lead_with_warehouse_and_description(api_env):
     assert wh["times_seen"] >= 2
     assert wh["twogis_firm_id"] == "70000777"
     assert "Окна" in wh["categories"]
-    # 'двери' surfaced elsewhere; 'окна' (this project's niche) is excluded.
-    assert "двери" in wh["other_niches"]
-    assert "окна" not in [n.lower() for n in wh["other_niches"]]
+    # Warehouse niches are other orgs' search intents — must not be exposed.
+    assert "other_niches" not in wh
 
 
 def test_lead_detail_description_composed_when_no_notes(api_env, db):
@@ -488,6 +488,7 @@ def test_dosed_collection_no_repeats_and_warehouse_first(db, monkeypatch):
         return [dict(c) for c in pool]
 
     monkeypatch.setattr(jobs_mod, "search_leads", fake_search_leads)
+    monkeypatch.setattr(jobs_mod, "filter_candidates_llm", lambda cands, *a, **k: cands)
     monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
     monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
 
@@ -548,6 +549,7 @@ def test_enhance_prompt_cached_per_project(db, monkeypatch):
     monkeypatch.setattr(pe, "enhance_prompt", fake_enhance)
     monkeypatch.setattr(jobs_mod, "search_leads",
                         lambda *a, **k: [_cand(company=f"{prefix} {i}", domain=f"{prefix}{i}.ru", city="Томск") for i in range(15)])
+    monkeypatch.setattr(jobs_mod, "filter_candidates_llm", lambda cands, *a, **k: cands)
     monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
     monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
 
@@ -592,6 +594,7 @@ def test_zero_quota_skips_live_seed_and_not_exhausted(db, monkeypatch):
         return [_cand(company=f"{prefix} {i}", domain=f"{prefix}{i}.ru", city="Томск") for i in range(10)]
 
     monkeypatch.setattr(jobs_mod, "search_leads", fake_search_leads)
+    monkeypatch.setattr(jobs_mod, "filter_candidates_llm", lambda cands, *a, **k: cands)
     monkeypatch.setattr(jobs_mod, "send_telegram", lambda *a, **k: None)
     monkeypatch.setattr(jobs_mod.enrich_leads_task, "delay", lambda *a, **k: None)
 

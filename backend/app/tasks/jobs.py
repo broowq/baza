@@ -12,7 +12,8 @@ from app.db.session import SessionLocal
 from app.core.config import get_settings
 from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
 from app.services import company_warehouse
-from app.services.lead_collection import enrich_2gis_lead, enrich_website_contacts, search_leads
+from app.services.lead_collection import _NATIONWIDE_GEOS, enrich_2gis_lead, enrich_website_contacts, search_leads
+from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
 from app.tasks.celery_app import celery
@@ -23,6 +24,46 @@ from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_d
 _MAX_CONCURRENT_JOBS_PER_ORG = 3
 
 logger = logging.getLogger(__name__)
+
+
+# Sources whose results can be a real B2B lead WITHOUT a website/domain:
+# map cards (2GIS / Yandex), our own warehouse, and rusprofile registry rows.
+# rusprofile rows are name-only at collect time, but they are verified legal
+# entities and enrichment's 2GIS-by-name fallback can fill contacts later.
+_NO_DOMAIN_OK_SOURCES = {"2gis", "yandex_maps", "warehouse", "rusprofile"}
+
+
+def _has_rusprofile_id(c: dict) -> bool:
+    return bool(str(c.get("rusprofile_id") or "").strip())
+
+
+def _candidate_saveable(c: dict) -> bool:
+    """True when a candidate can pass the save-loop checks in collect_leads_task.
+
+    _take() uses this so unsaveable rows never occupy a dose slot. Without it,
+    rows that can never be persisted (e.g. name-only registry rows) fill the
+    dose, the deficit gate sees no deficit, live search never runs, added==0 —
+    and the user gets a permanent, false «всё доступное уже собрано».
+
+    KEEP IN SYNC with the save loop in collect_leads_task.
+    """
+    if not (c.get("company") or "").strip():
+        return False
+    website = normalize_url(c.get("website") or "")
+    domain = (extract_domain(website) if website else "") or (c.get("domain") or "").strip().lower()
+    if domain and (not is_real_domain(domain) or is_aggregator_domain(domain)):
+        return False
+    if not domain:
+        if c.get("source", "") not in _NO_DOMAIN_OK_SOURCES:
+            return False
+        phone_val = (c.get("phone") or "").strip()
+        address_val = (c.get("address") or "").strip()
+        # Contact-less rows are only useful when enrichment can recover the
+        # contacts later — which it can for rusprofile-identified entities
+        # (2GIS-by-name fallback in enrich_leads_task).
+        if not phone_val and not address_val and not _has_rusprofile_id(c):
+            return False
+    return True
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -162,6 +203,10 @@ def collect_leads_task(job_id: str) -> None:
             db.commit()
             return
         job.status = JobStatus.running
+        # Heartbeat: bump updated_at on the queued→running transition so the
+        # 30-min reaper in periodic.health_check doesn't measure staleness from
+        # the row's creation time and kill a job that only just started.
+        job.updated_at = datetime.now(timezone.utc)
         db.commit()
 
         # Search terms. The project already stores the enhanced geo/segments (set
@@ -180,10 +225,20 @@ def collect_leads_task(job_id: str) -> None:
                 from app.services.prompt_enhancer import enhance_prompt
                 enhanced = enhance_prompt(user_prompt, organization_id=str(job.organization_id))
                 sq = (enhanced.get("search_queries_niche") or enhanced.get("niche") or "").strip()
-                if sq:
+                # Cache the enhanced query ONLY when it came from the real LLM
+                # ("source" absent defaults to "llm" for backward compat).
+                # Caching a rule-based fallback would permanently lock the
+                # project on degraded terms after a single LLM outage.
+                if sq and enhanced.get("source", "llm") == "llm":
                     project.search_query = sq[:300]
                     db.commit()
-                logger.info("AI enhanced search (cached): niche='%s'", project.search_query)
+                    logger.info("AI enhanced search (cached): niche='%s'", project.search_query)
+                elif sq:
+                    effective_niche = sq[:300]
+                    logger.info(
+                        "AI enhancer fallback (source=%s): using terms for this run only, not caching",
+                        enhanced.get("source"),
+                    )
             except Exception:
                 logger.warning("Prompt enhancement failed in job, using stored niche", exc_info=True)
 
@@ -206,6 +261,14 @@ def collect_leads_task(job_id: str) -> None:
         seed_limit = int(getattr(settings, "warehouse_seed_limit", 150))
         cooldown_h = int(getattr(settings, "collect_exhaust_cooldown_hours", 12))
         batch_size = max(1, min(int(job.requested_limit or 10), 200))
+        # Clamp the dose to the org's remaining monthly quota at selection time:
+        # selecting candidates the save loop will refuse anyway only burns
+        # warehouse rows and LLM-filter calls. May clamp to 0 → nothing is
+        # selected and the job reports the quota stop honestly below.
+        org_remaining_quota = (
+            max(0, org.leads_limit_per_month - org.leads_used_current_month) if org else 0
+        )
+        batch_size = min(batch_size, org_remaining_quota)
 
         # Companies already collected for THIS project — excluded so every dose
         # brings genuinely NEW businesses (no repeats on re-run).
@@ -221,6 +284,14 @@ def collect_leads_task(job_id: str) -> None:
                     break
                 k = company_warehouse.candidate_key(r)
                 if not k or k in chosen:
+                    continue
+                # Mirror the save-loop viability rules: a candidate that can
+                # never be persisted must not occupy a dose slot, or unsaveable
+                # rows re-served by best_score DESC brick the dose forever
+                # (deficit gate falsely False → live never runs → «всё собрано»).
+                # Mark it chosen anyway so warehouse re-selects skip it this run.
+                if not _candidate_saveable(r):
+                    chosen.add(k)
                     continue
                 chosen.add(k)
                 candidates.append(r)
@@ -271,6 +342,16 @@ def collect_leads_task(job_id: str) -> None:
                     organization_id=str(job.organization_id),
                 )
                 live_count = len(live)
+                # Web rows (searxng/bing) carry no city → their warehouse rows
+                # would have empty city/region/address and the geo-filtered
+                # re-select below could never surface them. Stamp the project
+                # geo onto city-less rows before write-through — but only when
+                # the geo is specific (skip «Россия»-style nationwide geos).
+                geo_backfill = (effective_geo or "").strip()
+                if geo_backfill and geo_backfill.lower() not in _NATIONWIDE_GEOS:
+                    for r in live:
+                        if not (r.get("city") or "").strip():
+                            r["city"] = geo_backfill
                 stored = 0
                 if warehouse_on:
                     try:
@@ -290,22 +371,91 @@ def collect_leads_task(job_id: str) -> None:
                     except Exception:
                         logger.warning("warehouse re-select after seed failed", exc_info=True)
                         db.rollback()
-                # Fall back to raw live rows ONLY when the warehouse couldn't be the
-                # source (disabled, or nothing was written through) — otherwise the
-                # re-select above is the single, consistently-ranked source and
-                # mixing raw live rows would inflate found_count.
-                if not warehouse_on or stored == 0:
+                # Fall back to the raw live rows whenever the dose is still
+                # under-filled. (Previously gated on `stored == 0`, which sent
+                # paid live finds to the customer ZERO times when the rows
+                # upserted fine but the geo re-select couldn't surface them.)
+                # Strictly safe: _take dedups via `chosen`, so nothing already
+                # delivered by the re-select is taken twice.
+                if len(candidates) < batch_size:
                     _take(live)
+
+        # ─── Buyer-vs-competitor LLM filter on the assembled dose ────────
+        # The only other filter_candidates_llm call lives inside search_leads
+        # (live path) — doses served from the WAREHOUSE used to reach the
+        # project with no competitor check at all, so customer B could receive
+        # competitors that merely passed customer A's filter. Filter the whole
+        # dose here (the 7-day Redis verdict cache makes repeats nearly free)
+        # and top the dose back up from the warehouse if it shrank.
+        if candidates:
+            try:
+                kept = filter_candidates_llm(
+                    candidates, effective_niche, effective_geo, effective_segments,
+                    prompt=user_prompt, organization_id=str(job.organization_id),
+                )
+            except Exception:
+                logger.warning("dose LLM filter failed — delivering unfiltered dose", exc_info=True)
+                kept = candidates
+            dropped = len(candidates) - len(kept)
+            if dropped > 0:
+                logger.info("dose filter: dropped %d/%d candidate(s)", dropped, len(candidates))
+            candidates = kept
+            topup_round = 0
+            while (
+                dropped > 0 and warehouse_on
+                and len(candidates) < batch_size and topup_round < 3
+            ):
+                topup_round += 1
+                try:
+                    rows = company_warehouse.search_warehouse(
+                        db, niche=effective_niche, geography=effective_geo,
+                        segments=effective_segments, limit=batch_size,
+                        exclude_keys=chosen,
+                    )
+                except Exception:
+                    logger.warning("warehouse top-up select failed", exc_info=True)
+                    db.rollback()
+                    break
+                # Stage viable, novel rows; mark their keys chosen so the next
+                # round skips them whether or not they survive the filter.
+                staged: list[dict] = []
+                for r in rows:
+                    if len(candidates) + len(staged) >= batch_size:
+                        break
+                    k = company_warehouse.candidate_key(r)
+                    if not k or k in chosen:
+                        continue
+                    chosen.add(k)
+                    if not _candidate_saveable(r):
+                        continue
+                    staged.append(r)
+                if not staged:
+                    break  # warehouse exhausted for this niche+geo
+                try:
+                    staged = filter_candidates_llm(
+                        staged, effective_niche, effective_geo, effective_segments,
+                        prompt=user_prompt, organization_id=str(job.organization_id),
+                    )
+                except Exception:
+                    logger.warning("top-up LLM filter failed — keeping unfiltered top-up", exc_info=True)
+                candidates.extend(staged[: max(0, batch_size - len(candidates))])
 
         logger.info(
             "dosed collect: dose=%d delivered=%d (warehouse=%d, live_seed=%d, did_live=%s)",
             batch_size, len(candidates), wh_used, live_count, did_live,
         )
         job.found_count = len(candidates)
+        # Heartbeat after the (potentially slow) search + filter phase so the
+        # 30-min reaper sees progress before the first save-loop commit.
+        job.updated_at = datetime.now(timezone.utc)
         db.commit()
 
         added = 0
-        quota_stopped = False
+        charged = 0  # usage already booked to the org in per-chunk commits
+        new_lead_ids: list[str] = []  # passed to the auto-enrich task below
+        # When the dose was clamped to 0 by the remaining quota, report the
+        # quota stop honestly instead of «новых компаний не найдено».
+        quota_stopped = org_remaining_quota <= 0
         for c in candidates:
             # Re-check quota every 10 leads using SELECT FOR UPDATE
             if added % 10 == 0:
@@ -350,14 +500,17 @@ def collect_leads_task(job_id: str) -> None:
             # 2GIS/Yandex and our own warehouse can yield a real B2B lead with no
             # domain (address/phone only) — keep those; a bare web URL that never
             # resolved to a domain is dropped.
-            is_maps = source in {"2gis", "yandex_maps", "warehouse"}
+            is_maps = source in _NO_DOMAIN_OK_SOURCES
             if not domain and not is_maps:
                 continue
-            # Maps lead without website needs at least address or phone to be useful
+            # Maps lead without website needs at least address or phone to be
+            # useful — UNLESS it carries a rusprofile id: those are verified
+            # legal entities and the enrichment 2GIS-by-name fallback can fill
+            # contacts later. (Keep in sync with _candidate_saveable above.)
             phone_val = (c.get("phone") or "").strip()
             address_val = (c.get("address") or "").strip()
             email_val = (c.get("email") or "").strip()
-            if not domain and not phone_val and not address_val:
+            if not domain and not phone_val and not address_val and not _has_rusprofile_id(c):
                 continue
 
             # Dedup: by website/domain if present, else by (company+city) to avoid duplicates of same shop
@@ -433,39 +586,81 @@ def collect_leads_task(job_id: str) -> None:
                 # in this transaction are still intact.  Do NOT increment 'added'.
                 continue
             added += 1
+            new_lead_ids.append(str(lead.id))
             if added % 10 == 0:
+                # Quota integrity: book the usage for THIS chunk inside the same
+                # transaction as the chunk's leads, so a worker death mid-run
+                # can't hand out free leads / leave the counter behind. The org
+                # row is already locked by _check_quota_with_lock at the start
+                # of the chunk (same transaction), so this re-select is instant
+                # and the FOR UPDATE is never held across chunk boundaries.
+                org_locked = db.execute(
+                    select(Organization)
+                    .where(Organization.id == job.organization_id)
+                    .with_for_update()
+                ).scalar_one_or_none()
+                if org_locked:
+                    org_locked.leads_used_current_month += added - charged
+                charged = added
                 job.added_count = added
                 job.updated_at = datetime.now(timezone.utc)
                 db.commit()
+        # Respect the reaper: health_check flips jobs with no heartbeat for
+        # >30 min to 'failed'. Re-read the row (the in-session attribute still
+        # holds the cached 'running' value!) and never overwrite failed → done.
+        db.refresh(job)
+        reaped = job.status == JobStatus.failed
         job.added_count = added
         # SELECT FOR UPDATE to prevent race when two collect jobs finish at the
         # same time and both read+write leads_used_current_month concurrently
         # (lost-update would let them collectively bypass the monthly cap).
+        # Charge only the tail not yet booked by the per-chunk commits above.
         organization = db.execute(
             select(Organization)
             .where(Organization.id == job.organization_id)
             .with_for_update()
         ).scalar_one_or_none()
         if organization:
-            organization.leads_used_current_month += added
-        # Exhaustion cooldown: if we PAID for a live seed this run and still added
-        # nothing new, the sources are tapped out for this niche+geo relative to
-        # what's already collected — back off live seeding for a while so repeat
-        # clicks don't burn API calls returning the same set. Any successful add
-        # clears the flag (new businesses may keep appearing).
-        if did_live and added == 0 and not quota_stopped:
+            organization.leads_used_current_month += added - charged
+        # Exhaustion cooldown: only when the live search ACTUALLY RETURNED rows and
+        # still nothing new was added is the niche+geo truly tapped out. A live
+        # run that returned zero rows is indistinguishable from an outage
+        # (search_leads swallows source errors and returns []) — never stamp
+        # the cooldown for it, or a temporary outage masquerades as «всё
+        # собрано» for cooldown_h hours. Any successful add clears the flag.
+        if live_count > 0 and added == 0 and not quota_stopped:
             project.leads_exhausted_at = datetime.now(timezone.utc)
         elif added > 0:
             project.leads_exhausted_at = None
-        job.status = JobStatus.done
-        if quota_stopped:
-            job.error = "Остановлено: месячная квота лидов исчерпана"
-        elif added == 0:
-            job.error = (
-                "Новых компаний не найдено: всё доступное по этому запросу уже собрано. "
-                "Измените нишу/гео/сегменты или включите автосбор для новых со временем."
-            )
-        job.updated_at = datetime.now(timezone.utc)
+        if not reaped:
+            job.status = JobStatus.done
+            if quota_stopped:
+                job.error = "Остановлено: месячная квота лидов исчерпана"
+            elif did_live and live_count == 0 and added == 0:
+                # Sources down (or returned nothing) — honest, distinct message
+                # instead of the misleading «всё уже собрано». Name the known
+                # culprits cheaply via the breaker flags (same pattern as the
+                # enrich-task reporting below).
+                issues: list[str] = []
+                try:
+                    from app.services import lead_collection as _lc
+                    if getattr(_lc, "_TWOGIS_DEAD_KEY", False):
+                        issues.append("2GIS API (ошибка ключа)")
+                    if getattr(_lc, "_YANDEX_DEAD_KEY", False):
+                        issues.append("Yandex Maps API (ошибка ключа)")
+                    if getattr(_lc, "_TWOGIS_SCRAPE_BLOCKED", False):
+                        issues.append("2GIS веб-поиск (защита от ботов)")
+                except Exception:
+                    pass
+                job.error = "Источники временно недоступны — попробуйте позже" + (
+                    f" ({', '.join(issues)})" if issues else "."
+                )
+            elif added == 0:
+                job.error = (
+                    "Новых компаний не найдено: всё доступное по этому запросу уже собрано. "
+                    "Измените нишу/гео/сегменты или включите автосбор для новых со временем."
+                )
+            job.updated_at = datetime.now(timezone.utc)
         db.commit()
         send_telegram(f"Lead collection finished. Job={job.id} Added={job.added_count}")
 
@@ -476,7 +671,7 @@ def collect_leads_task(job_id: str) -> None:
         # Idempotency: collect_leads_task may be retried by Celery on transient
         # errors (ConnectionError/TimeoutError). Use SELECT FOR UPDATE to avoid
         # queueing a 2nd auto-enrich job when the first retry already queued one.
-        if added > 0 and not quota_stopped:
+        if added > 0 and not quota_stopped and not reaped:
             try:
                 # Bug #4 fix: check org-level concurrency before auto-queuing so
                 # auto-enrich doesn't bypass the same MAX_CONCURRENT_JOBS_PER_ORG
@@ -520,7 +715,10 @@ def collect_leads_task(job_id: str) -> None:
                         )
                         db.add(enrich_job)
                         db.commit()
-                        enrich_leads_task.delay(str(enrich_job.id))
+                        # Pass the EXACT ids collected this run so auto-enrich
+                        # works on the fresh leads instead of whatever the
+                        # unordered project-wide select happens to return.
+                        enrich_leads_task.delay(str(enrich_job.id), new_lead_ids)
                         logger.info("Auto-enrich queued after collect: project=%s enrich_job=%s",
                                     job.project_id, enrich_job.id)
             except Exception:
@@ -596,6 +794,8 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             logger.info("enrich_leads_task: job %s already %s — skip redelivery", job_id, job.status)
             return
         job.status = JobStatus.running
+        # Heartbeat for the 30-min reaper (see collect_leads_task).
+        job.updated_at = datetime.now(timezone.utc)
         db.commit()
 
         # Bug #5 fix: when specific lead_ids are requested, track which leads
@@ -634,6 +834,14 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 for lead in all_requested:
                     if lead.id not in enrichable_ids:
                         skipped_already_enriched.append(str(lead.id))
+        # Never-enriched newest leads first. Without an order_by the select
+        # returned arbitrary rows while limit == the dose size, so permanently
+        # contactless leads (email='' AND phone='', re-eligible forever) could
+        # monopolize every run and freshly collected leads never got enriched.
+        # TODO: an attempts-cap column would let us stop re-scraping leads that
+        # repeatedly yield no contacts, but that needs a migration — for now
+        # they merely sort behind never-enriched ones.
+        query = query.order_by(Lead.enriched.asc(), Lead.created_at.desc())
         query = query.limit(job.requested_limit)
         leads = db.execute(query).scalars().all()
         project = db.get(Project, job.project_id)
@@ -780,9 +988,14 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 job.enriched_count = enriched
                 job.updated_at = datetime.now(timezone.utc)
                 db.commit()
+        # Respect the reaper: re-read the row (the in-session attribute still
+        # holds the cached 'running' value) and never overwrite failed → done.
+        db.refresh(job)
+        reaped = job.status == JobStatus.failed
         job.enriched_count = enriched
-        job.status = JobStatus.done
-        job.updated_at = datetime.now(timezone.utc)
+        if not reaped:
+            job.status = JobStatus.done
+            job.updated_at = datetime.now(timezone.utc)
         # Non-fatal informational messages surfaced to the user via job.error
         # (shown in История задач + a completion toast). Same convention as the
         # quota_stopped note in collect_leads_task.
@@ -812,7 +1025,7 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             messages.append(
                 f"Пропущено уже обогащённых: {len(skipped_already_enriched)} лид(ов)."
             )
-        if messages:
+        if messages and not reaped:
             job.error = " ".join(messages)
         db.commit()
         send_telegram(f"Lead enrichment finished. Job={job.id} Enriched={job.enriched_count}")
@@ -900,12 +1113,26 @@ def schedule_auto_collection() -> None:
             ).scalar_one_or_none()
             if existing_running:
                 continue
+            # Clamp the auto-dose to the org's remaining monthly quota: a job
+            # the save loop will fully refuse only burns a worker slot and
+            # spams «квота исчерпана». Skip entirely at zero remaining. (Do
+            # NOT call ensure_lead_quota here — it raises HTTPException.)
+            org = db.get(Organization, project.organization_id)
+            remaining = (
+                max(0, org.leads_limit_per_month - org.leads_used_current_month) if org else 0
+            )
+            if remaining <= 0:
+                logger.info(
+                    "auto-collect skipped: org=%s out of monthly lead quota",
+                    project.organization_id,
+                )
+                continue
             job = CollectionJob(
                 organization_id=project.organization_id,
                 project_id=project.id,
                 status=JobStatus.queued,
                 kind="collect",
-                requested_limit=auto_dose,
+                requested_limit=min(auto_dose, remaining),
             )
             db.add(job)
             db.flush()

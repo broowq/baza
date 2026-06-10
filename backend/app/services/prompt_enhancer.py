@@ -7,6 +7,7 @@ not competitors.
 import json
 import logging
 import re
+from functools import lru_cache
 
 import pymorphy3
 
@@ -16,6 +17,15 @@ logger = logging.getLogger(__name__)
 
 # Module-level morph analyzer (thread-safe, caches parses internally).
 _morph = pymorphy3.MorphAnalyzer()
+
+
+@lru_cache(maxsize=8192)
+def _normal(word: str) -> str:
+    """Нормальная форма слова через pymorphy (ё→е). При ошибке — слово как есть."""
+    try:
+        return _morph.parse(word)[0].normal_form.replace("ё", "е")
+    except Exception:
+        return word
 
 
 def _lemmatize_phrase(phrase: str) -> str:
@@ -41,16 +51,26 @@ def _lemmatize_phrase(phrase: str) -> str:
 
 
 def _normalize_segments(segments: list[str]) -> list[str]:
-    """Lemmatize and dedupe a list of segment phrases returned by an LLM."""
+    """Dedupe a list of segment phrases by their LEMMA key.
+
+    ВАЖНО: сохраняем сегменты в ЕСТЕСТВЕННОЙ форме («строительные компании»,
+    а не «строительный компания») — эти строки пишутся в project.segments и
+    дословно подставляются в поисковые запросы (кавычки SearXNG, 2GIS/Яндекс)
+    и показываются клиенту в UI. Лемматизация используется ТОЛЬКО как ключ
+    дедупликации («Ресторанам» и «ресторан» — один сегмент).
+    """
     seen: set[str] = set()
     out: list[str] = []
     for seg in segments or []:
         if not isinstance(seg, str):
             continue
-        norm = _lemmatize_phrase(seg.strip())
-        if norm and norm not in seen:
-            seen.add(norm)
-            out.append(norm)
+        natural = seg.strip()
+        if not natural:
+            continue
+        key = _lemmatize_phrase(natural)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(natural)
     return out
 
 
@@ -74,12 +94,22 @@ _PRODUCT_TO_CUSTOMERS = [
     },
     # HoReCa equipment — kitchen / bar / hotel equipment
     # Matches both "оборудование для ресторанов" and "оборудования для кафе"
-    # by using root stems. Requires at least 2 keywords (equipment + venue).
+    # by using root stems. Requires at least 2 keywords (equipment + venue) —
+    # enforced via keyword_groups: одного «ресторан» недостаточно, нужно ещё
+    # слово про оборудование, иначе любой HoReCa-промт улетает в эту ветку.
     {
         "keywords": ["оборудован", "кухонн", "барн", "ресторан",
                       "кафе", "столов", "пекарн", "общепит",
                       "horeca", "хорека", "фаст-фуд", "фастфуд",
                       "ресторанное", "гостиничн"],
+        "keyword_groups": [
+            # equipment-слово…
+            ["оборудован"],
+            # …И venue/контекст-слово
+            ["кухонн", "барн", "ресторан", "кафе", "столов", "пекарн",
+             "общепит", "horeca", "хорека", "фаст-фуд", "фастфуд",
+             "ресторанное", "гостиничн"],
+        ],
         "niche": "рестораны, кафе, столовые, отели",
         "segments": ["ресторан", "кафе", "столовая", "отель", "гостиница",
                      "пекарня", "кондитерская", "бар", "пиццерия", "фастфуд"],
@@ -511,6 +541,9 @@ def enhance_prompt(raw_prompt: str, *, organization_id: str | None = None) -> di
             # field), derive from segments using the rule-based map.
             if not result.get("okved_codes"):
                 result["okved_codes"] = _okved_from_segments(result.get("segments") or [])
+            # Маркер происхождения: вызывающий код должен отличать LLM-стратегию
+            # от rule-based фолбэка (см. _smart_fallback → "fallback"/"fallback_generic").
+            result["source"] = "llm"
             return result
 
     # Fallback to smart rule-based enhancement
@@ -624,8 +657,10 @@ def _augment_with_2gis_categories(
                 name = unquote(c).replace("+", " ").strip().lower()
                 if not name or len(name) > 80 or name in seen_lower:
                     continue
-                # Filter competitors (contain user's product words)
-                if any(pw in name for pw in product_words):
+                # Filter competitors (contain user's product words).
+                # Сравнение по границе слова + леммам, НЕ по подстроке:
+                # префикс «клини» (из «клининговые») убивал категорию «клиника».
+                if _name_echoes_product(name, product_words):
                     continue
                 if name in _GENERIC_CATEGORY_BLOCKLIST:
                     continue
@@ -656,25 +691,45 @@ def _augment_with_2gis_categories(
     return merged
 
 
-def _strip_product_echoes(segments: list[str], product_words: list[str]) -> list[str]:
+def _strip_product_echoes(
+    segments: list[str],
+    product_words: list[str],
+    buyer_words: list[str] | None = None,
+) -> list[str]:
     """Drop segments whose words substantially overlap the user's own products.
 
     A segment "echoes the product" if at least one of its >=4-char word stems
     appears in product_words. We keep segments that describe distinct customer
     types even if they share a word (e.g. prompt "мебельный магазин" →
     segment "ресторан": no echo, keep).
+
+    `buyer_words` — леммы покупателей, которых пользователь назвал ЯВНО
+    («корм для ПТИЦЕФАБРИК»): сегменты с этими словами никогда не вырезаем,
+    даже если они формально совпадают со словами промта.
     """
     if not product_words:
         return segments
     product_set = {pw for pw in product_words if len(pw) >= 4}
+    buyer_set = {bw for bw in (buyer_words or []) if len(bw) >= 4}
     kept: list[str] = []
     for seg in segments:
-        seg_lower = seg.lower()
+        seg_lower = seg.lower().replace("ё", "е")
         # If ANY word in segment is a product-word, consider it an echo
         seg_words = re.findall(r"[а-яa-z]{4,}", seg_lower)
         if not seg_words:
             kept.append(seg)
             continue
+        # Белый список: пользователь сам назвал этих покупателей — оставляем.
+        if buyer_set:
+            seg_forms = set(seg_words)
+            for sw in seg_words:
+                seg_forms.add(_normal(sw))
+            if any(
+                sf == bw or sf.startswith(bw) or bw.startswith(sf)
+                for sf in seg_forms for bw in buyer_set
+            ):
+                kept.append(seg)
+                continue
         # An echo is: every (or most) segment words match a product word.
         # Segments with mostly non-product words are real customer types.
         echo_hits = sum(
@@ -687,6 +742,77 @@ def _strip_product_echoes(segments: list[str], product_words: list[str]) -> list
     return kept
 
 
+# Глаголы-действия пользователя: не продукт и не покупатель.
+_ACTION_STOPWORDS = frozenset({
+    "продаю", "продаем", "предлагаю", "оказываю", "оказываем",
+    "производим", "производу", "произвожу", "поставляем", "поставляю",
+    "делаем", "делаю", "занимаюсь", "занимаемся", "работаю", "работаем", "ищем",
+})
+
+# Маркеры, после которых пользователь называет ПОКУПАТЕЛЕЙ, а не продукт:
+# «корм ДЛЯ птицефабрик», «клиентам: рестораны», «поставляем в магазины».
+_BUYER_MARKER_RE = re.compile(
+    r"\bдля\b"
+    r"|\bклиент(?:ы|ам|ов|а|у|е|ах)?\b"
+    r"|\bпоставля(?:ем|ю)\s+во?\b"
+    r"|\bпрода[ёе]м\s+во?\b"
+    r"|\bпродаю\s+во?\b"
+)
+
+# Служебные слова BUY-части, которые не являются типом покупателя.
+_BUYER_STOPWORDS = frozenset({
+    "или", "также", "том", "числе", "это", "эти", "наш", "ваш", "весь", "все",
+    "другой", "прочий", "разный", "клиент", "заказчик", "покупатель",
+    "россия", "город", "регион", "область", "край",
+})
+
+
+def _split_sell_buy_clauses(prompt: str) -> tuple[str, str]:
+    """Делит промт на SELL-часть (продукт пользователя) и BUY-часть (покупатели).
+
+    «Продаю корм для птицефабрик» → ("продаю корм ", " птицефабрик").
+    Слова BUY-части — это типы клиентов, которых пользователь назвал явно:
+    их НЕЛЬЗЯ считать словами продукта и нельзя вырезать из сегментов как эхо.
+    """
+    text = (prompt or "").lower().replace("ё", "е")
+    for m in _BUYER_MARKER_RE.finditer(text):
+        tail = text[m.end():]
+        # «продаём в Казани …» — это география, а не покупатель: пропускаем
+        # глагольный маркер, если сразу после него идёт город.
+        if m.group().startswith(("поставля", "прода")):
+            first = re.search(r"[а-яa-z]+", tail)
+            if first and (first.group() in _CITY_TOKEN_NORMALS
+                          or _normal(first.group()) in _CITY_TOKEN_NORMALS):
+                continue
+        return text[:m.start()], tail
+    return text, ""
+
+
+def _extract_prompt_buyer_words(prompt: str) -> list[str]:
+    """Леммы типов покупателей, явно названных в промте («для птицефабрик»).
+
+    Города («…для ресторанов в Казани») и служебные слова отбрасываются.
+    """
+    _, buy_text = _split_sell_buy_clauses(prompt)
+    if not buy_text:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for w in re.findall(r"[а-яa-z0-9]{3,}", buy_text):
+        if w in _BUYER_STOPWORDS:
+            continue
+        lemma = _normal(w)
+        if lemma in _BUYER_STOPWORDS:
+            continue
+        # «в Казани» в BUY-части — география, не покупатель
+        if lemma in _CITY_TOKEN_NORMALS or w in _CITY_TOKEN_NORMALS:
+            continue
+        if lemma not in seen:
+            seen.add(lemma)
+            out.append(lemma)
+    return out[:10]
+
+
 def _extract_prompt_product_words(prompt: str) -> list[str]:
     """Extract product/service lemmas from a business description.
 
@@ -694,40 +820,31 @@ def _extract_prompt_product_words(prompt: str) -> list[str]:
     lemmatization so "пиломатериалы" / "пиломатериалов" / "пиломатериал" all
     reduce to the same stem — letting us match "магазин пиломатериалов" as a
     competitor even when the prompt says "пиломатериалы".
+
+    Берём только SELL-часть промта: покупатели после «для …» — это клиенты
+    («корм для ПТИЦЕФАБРИК»), их нельзя записывать в слова продукта, иначе
+    эхо-фильтр выкидывает сегменты, которые пользователь сам же и назвал.
+    Города в косвенных падежах («в Казани») отсекаются по нормальной форме.
     """
-    text = (prompt or "").lower().replace("ё", "е")
-    # Strip action verbs and prepositions
-    for w in ("продаю", "продаем", "продаём", "предлагаю", "оказываю", "оказываем",
-              "производим", "производу", "поставляем", "поставляю", "делаем", "делаю",
-              "занимаюсь", "занимаемся", "работаю", "работаем", "ищем",
-              "мы ", "мой ", "моя ", "наш ", "наша ", "в ", "для ", "и ", "с ", "на ",
-              "по ", "из ", "под ", "через "):
-        text = text.replace(w, " ")
-    for city in _CITY_STRIP:
-        text = text.replace(city.lower(), " ")
+    sell_text, _ = _split_sell_buy_clauses(prompt)
 
-    # Lemmatize with pymorphy3 — same analyzer used in lead_collection.
-    try:
-        from app.services.lead_collection import _morph
-    except Exception:
-        _morph = None
-
-    words = re.findall(r"[а-яa-z]{4,}", text)
+    words = re.findall(r"[а-яa-z]{4,}", sell_text)
     result: list[str] = []
     seen: set[str] = set()
     for w in words:
-        # Generate multiple matching forms for robust substring check
+        if w in _ACTION_STOPWORDS:
+            continue
+        lemma = _normal(w)
+        # Город («казани» → «казань») — не продукт.
+        if lemma in _CITY_TOKEN_NORMALS:
+            continue
+        # Generate multiple matching forms for robust prefix check
         candidates = {w, w[:5] if len(w) >= 6 else w, w[:6] if len(w) >= 7 else w}
-        if _morph is not None:
-            try:
-                lemma = _morph.parse(w)[0].normal_form.replace("ё", "е")
-                candidates.add(lemma)
-                if len(lemma) >= 6:
-                    candidates.add(lemma[:6])
-                if len(lemma) >= 5:
-                    candidates.add(lemma[:5])
-            except Exception:
-                pass
+        candidates.add(lemma)
+        if len(lemma) >= 6:
+            candidates.add(lemma[:6])
+        if len(lemma) >= 5:
+            candidates.add(lemma[:5])
         for c in candidates:
             if c and c not in seen:
                 seen.add(c)
@@ -737,18 +854,202 @@ def _extract_prompt_product_words(prompt: str) -> list[str]:
     return result[:15]
 
 
-# Pre-built set of Russian city names (lowercased) to strip from product-word
-# extraction. Used by _extract_prompt_product_words.
-_CITY_STRIP = (
-    "москва", "спб", "санкт-петербурге", "санкт-петербург", "петербург",
-    "новосибирск", "екатеринбург", "казань", "красноярск", "нижний новгород",
-    "челябинск", "самара", "омск", "уфа", "пермь", "волгоград", "воронеж",
-    "краснодар", "ростов", "саратов", "тюмень", "томск", "барнаул", "иркутск",
-    "ярославль", "владивосток", "хабаровск", "кемерово", "тула", "пенза",
-    "рязань", "калининград", "астрахань", "липецк", "курск", "брянск",
-    "белгород", "тверь", "сургут", "архангельск", "владимир", "смоленск",
-    "калуга", "чита", "орел", "вологда", "якутск",
+def _name_echoes_product(name: str, product_words: list[str]) -> bool:
+    """True, если название категории 2GIS содержит слово ПРОДУКТА пользователя.
+
+    Сравнение по границе слова и леммам, а не по подстроке: иначе префикс
+    «клини» (из «клининговые») убивает категорию «клиника». Основы короче
+    6 символов матчатся только как ЦЕЛОЕ слово/лемма.
+    """
+    name_words = re.findall(r"[а-яa-z]{3,}", name.lower().replace("ё", "е"))
+    if not name_words:
+        return False
+    name_forms = set(name_words)
+    for w in name_words:
+        name_forms.add(_normal(w))
+    for pw in product_words:
+        if len(pw) >= 6:
+            # Основа достаточной длины — допускаем суффиксы в начале слова
+            if any(nf.startswith(pw) for nf in name_forms):
+                return True
+        elif len(pw) >= 3:
+            # Короткая основа — только точное совпадение слова/леммы
+            if pw in name_forms:
+                return True
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# География: города РФ + регионы
+# ──────────────────────────────────────────────────────────────────────────
+
+# Region-form roots: "томской области" → "Томск", "пермском крае" → "Пермь",
+# "ленинградской области" → "Санкт-Петербург", etc. The user often writes
+# the region instead of the city; we extract the root as the city anyway —
+# the geo-tier cascade will widen to the region/country if needed.
+_REGION_TO_CITY = {
+    "московск": "Москва",
+    "ленинградск": "Санкт-Петербург",
+    "новосибирск": "Новосибирск",  # area uses same root
+    "свердловск": "Екатеринбург",
+    "татарстан": "Казань",
+    "нижегородск": "Нижний Новгород",
+    "челябинск": "Челябинск",
+    "красноярск": "Красноярск",
+    "самарск": "Самара",
+    "омск": "Омск",
+    "башкортостан": "Уфа",
+    "башкирск": "Уфа",
+    "ростовск": "Ростов-на-Дону",
+    "пермск": "Пермь",
+    "волгоградск": "Волгоград",
+    "воронежск": "Воронеж",
+    "краснодарск": "Краснодар",
+    "саратовск": "Саратов",
+    "тюменск": "Тюмень",
+    "удмуртск": "Ижевск",
+    "удмурти": "Ижевск",
+    "алтайск": "Барнаул",
+    "ульяновск": "Ульяновск",
+    "иркутск": "Иркутск",
+    "хабаровск": "Хабаровск",
+    "ярославск": "Ярославль",
+    "приморск": "Владивосток",
+    "дагестан": "Махачкала",
+    "томск": "Томск",
+    "оренбургск": "Оренбург",
+    "кемеровск": "Кемерово",
+    "кузбасс": "Кемерово",
+    "рязанск": "Рязань",
+    "астраханск": "Астрахань",
+    "пензенск": "Пенза",
+    "липецк": "Липецк",
+    "тульск": "Тула",
+    "кировск": "Киров",
+    "чувашск": "Чебоксары",
+    "чувашия": "Чебоксары",
+    "калининградск": "Калининград",
+    "брянск": "Брянск",
+    "курск": "Курск",
+    "ивановск": "Иваново",
+    "тверск": "Тверь",
+    "белгородск": "Белгород",
+    "архангельск": "Архангельск",
+    "владимирск": "Владимир",
+    "ставропольск": "Ставрополь",
+    "крым": "Симферополь",
+    "карелия": "Петрозаводск",
+    "коми": "Сыктывкар",
+    "якутия": "Якутск",
+    "саха": "Якутск",
+    "забайкальск": "Чита",
+    "забайкалье": "Чита",
+    "вологодск": "Вологда",
+    "костромск": "Кострома",
+    "новгородск": "Великий Новгород",
+    "псковск": "Псков",
+    "сахалинск": "Южно-Сахалинск",
+    "сахалин": "Южно-Сахалинск",
+    "камчатск": "Петропавловск-Камчатский",
+    "камчатка": "Петропавловск-Камчатский",
+    "магаданск": "Магадан",
+    "мурманск": "Мурманск",
+    "тамбовск": "Тамбов",
+    "хмао": "Сургут",
+    "ямало": "Салехард",
+    "янао": "Салехард",
+}
+
+# Города РФ >100 тыс. населения + региональные столицы. Раньше список знал
+# ~60 городов — «в Ставрополе», «в Севастополе», «в Грозном» падали в «Россия»
+# (federal fan-out → бесполезные лиды для локального бизнеса).
+_RU_CITIES: tuple[str, ...] = (
+    "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань",
+    "Нижний Новгород", "Челябинск", "Красноярск", "Самара", "Уфа",
+    "Ростов-на-Дону", "Краснодар", "Омск", "Воронеж", "Пермь", "Волгоград",
+    "Саратов", "Тюмень", "Тольятти", "Барнаул", "Ижевск", "Махачкала",
+    "Хабаровск", "Ульяновск", "Иркутск", "Владивосток", "Ярославль",
+    "Кемерово", "Томск", "Набережные Челны", "Ставрополь", "Оренбург",
+    "Новокузнецк", "Рязань", "Балашиха", "Пенза", "Чебоксары", "Липецк",
+    "Калининград", "Астрахань", "Тула", "Киров", "Сочи", "Курск",
+    "Севастополь", "Улан-Удэ", "Тверь", "Магнитогорск", "Сургут", "Брянск",
+    "Иваново", "Якутск", "Владимир", "Симферополь", "Нижний Тагил", "Калуга",
+    "Чита", "Грозный", "Смоленск", "Волжский", "Курган", "Орёл", "Череповец",
+    "Архангельск", "Вологда", "Владикавказ", "Саранск", "Мурманск", "Тамбов",
+    "Белгород", "Стерлитамак", "Кострома", "Петрозаводск", "Нижневартовск",
+    "Йошкар-Ола", "Новороссийск", "Дзержинск", "Таганрог", "Химки",
+    "Комсомольск-на-Амуре", "Сыктывкар", "Нижнекамск", "Шахты", "Энгельс",
+    "Благовещенск", "Великий Новгород", "Подольск", "Королёв",
+    "Южно-Сахалинск", "Псков", "Бийск", "Прокопьевск", "Армавир", "Балаково",
+    "Рыбинск", "Абакан", "Северодвинск", "Норильск", "Орск", "Мытищи",
+    "Люберцы", "Сызрань", "Волгодонск", "Новочеркасск", "Уссурийск",
+    "Каменск-Уральский", "Златоуст", "Электросталь", "Альметьевск", "Салават",
+    "Миасс", "Находка", "Копейск", "Пятигорск", "Хасавюрт", "Рубцовск",
+    "Березники", "Майкоп", "Коломна", "Ковров", "Красногорск", "Одинцово",
+    "Кисловодск", "Нефтекамск", "Домодедово", "Нефтеюганск", "Батайск",
+    "Новочебоксарск", "Серпухов", "Щёлково", "Дербент", "Назрань",
+    "Раменское", "Кызыл", "Октябрьский", "Новомосковск", "Каспийск",
+    "Долгопрудный", "Невинномысск", "Первоуральск", "Ессентуки", "Жуковский",
+    "Реутов", "Пушкино", "Артём", "Обнинск", "Арзамас", "Бердск", "Элиста",
+    "Ногинск", "Новый Уренгой", "Железногорск", "Зеленодольск", "Тобольск",
+    "Камышин", "Муром", "Новошахтинск", "Северск", "Ачинск", "Сергиев Посад",
+    "Великие Луки", "Магадан", "Салехард", "Петропавловск-Камчатский",
+    "Ханты-Мансийск", "Черкесск", "Нальчик", "Биробиджан", "Горно-Алтайск",
+    "Анадырь", "Нарьян-Мар", "Магас",
 )
+
+# Полный список для матчинга: города >100k + значения карты регионов
+# (региональные столицы, которых нет в списке выше).
+_ALL_CITIES: tuple[str, ...] = tuple(
+    dict.fromkeys((*_RU_CITIES, *_REGION_TO_CITY.values()))
+)
+
+# Нормальные формы, совпадающие с частотными нарицательными: для таких городов
+# матчим только сырую форму названия, иначе «оборудование для шахт» → «Шахты».
+_AMBIGUOUS_CITY_NORMALS = frozenset({"шахта"})
+
+
+def _normalize_city_phrase(name_lc: str) -> str:
+    """«набережные челны» → «набережный челны» — та же нормализация,
+    что применяется к токенам входного текста (двусторонняя, см. FIX гео)."""
+    toks = re.findall(r"[а-яё]+(?:-[а-яё]+)*", name_lc)
+    return " ".join(_normal(t) for t in toks)
+
+
+def _build_city_match_forms() -> list[tuple[str, str]]:
+    """[(форма_для_поиска, каноническое_имя)], длинные формы первыми.
+
+    Каждый город представлен сырой формой («набережные челны») И нормальной
+    («набережный челны») — без нормализации ОБЕИХ сторон «в Набережных Челнах»
+    не матчится никогда (вход нормализуется в «набережный челны»).
+    """
+    forms: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for city in _ALL_CITIES:
+        raw = city.lower().replace("ё", "е")
+        cand = {raw}
+        norm = _normalize_city_phrase(city.lower())
+        if norm not in _AMBIGUOUS_CITY_NORMALS:
+            cand.add(norm)
+        for f in cand:
+            if f and f not in seen:
+                seen.add(f)
+                forms.append((f, city))
+    forms.sort(key=lambda fc: -len(fc[0]))
+    return forms
+
+
+_CITY_MATCH_FORMS: list[tuple[str, str]] = _build_city_match_forms()
+
+# Нормальные формы отдельных токенов городов — для отсечения городов в
+# косвенных падежах («в Казани» → «казань») из слов продукта/покупателей.
+_CITY_TOKEN_NORMALS: set[str] = set()
+for _city in _ALL_CITIES:
+    for _tok in re.findall(r"[а-яё]+", _city.lower()):
+        if len(_tok) >= 3:
+            _CITY_TOKEN_NORMALS.add(_tok.replace("ё", "е"))
+            _CITY_TOKEN_NORMALS.add(_normal(_tok))
+del _city, _tok
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -883,6 +1184,30 @@ def _normalize_okved(raw: list) -> list[dict]:
     return out[:6]
 
 
+# Ключи, которые обязаны матчиться только как ЦЕЛОЕ слово: иначе «сто»
+# находит «СТОловая»/«СТОматология» (→ 45.20 авторемонт), «тц»/«бц» — куски слов.
+_OKVED_FULLWORD_KEYS = frozenset({"сто", "тц", "бц"})
+
+
+@lru_cache(maxsize=512)
+def _okved_kw_pattern(kw: str) -> "re.Pattern[str]":
+    """Скомпилированный паттерн для ключа _SEGMENT_OKVED_MAP.
+
+    Граница начала слова для всех ключей (подстрочный поиск давал
+    «зоомагазин» → «магазин»); спец-случаи:
+      «сто»/«тц»/«бц» — только целое слово;
+      «банк» — слово, начинающееся с «банк», но не «банкетн…» (банкетный зал).
+    """
+    if kw == "банк":
+        return re.compile(r"(?<![а-яёa-z])банк(?!етн)")
+    base = r"(?<![а-яёa-z])" + r"[а-яёa-z]*\s+".join(
+        re.escape(p) for p in kw.split()
+    )
+    if kw in _OKVED_FULLWORD_KEYS:
+        base += r"(?![а-яёa-z])"
+    return re.compile(base)
+
+
 def _okved_from_segments(segments: list[str]) -> list[dict]:
     """Rule-based fallback when LLM didn't emit okved_codes. Looks up each
     segment in _SEGMENT_OKVED_MAP, aggregates confidences."""
@@ -891,7 +1216,7 @@ def _okved_from_segments(segments: list[str]) -> list[dict]:
     blob = " ".join(segments).lower().replace("ё", "е")
     buckets: dict[str, dict] = {}
     for keywords, codes in _SEGMENT_OKVED_MAP:
-        if any(kw in blob for kw in keywords):
+        if any(_okved_kw_pattern(kw).search(blob) for kw in keywords):
             for entry in codes:
                 current = buckets.get(entry["code"])
                 if current is None or entry["confidence"] > current["confidence"]:
@@ -1032,18 +1357,21 @@ search_queries_niche — это то, что будет искаться на к
         if isinstance(result.get("segments"), str):
             result["segments"] = [s.strip() for s in result["segments"].split(",")]
 
-        # Normalize segments to nominative case so downstream substring match in
-        # llm_filter is robust to genitive/accusative forms the LLM may return.
+        # Dedupe segments by lemma key, keeping NATURAL form: these strings are
+        # saved to project.segments and used verbatim in search queries + UI.
         if isinstance(result.get("segments"), list):
             result["segments"] = _normalize_segments(result["segments"])
             # Post-LLM guard: strip segments that echo the user's PRODUCT words.
             # LLMs occasionally return `"segments": ["кормовая добавка"]` when the
             # prompt is "Продаю кормовые добавки" — that makes us search for
             # SELLERS of feed additives (competitors). Filter them out.
+            # Покупателей, названных явно («для птицефабрик»), защищает whitelist.
             product_words = _extract_prompt_product_words(raw_prompt)
             if product_words:
                 result["segments"] = _strip_product_echoes(
-                    result["segments"], product_words
+                    result["segments"],
+                    product_words,
+                    _extract_prompt_buyer_words(raw_prompt),
                 )
 
         # Normalize ОКВЭД codes: validate shape, clamp confidence to [0,1].
@@ -1061,12 +1389,58 @@ search_queries_niche — это то, что будет искаться на к
         return None
 
 
+@lru_cache(maxsize=2048)
+def _fallback_kw_pattern(kw: str) -> "re.Pattern[str]":
+    """Граница начала слова для ключа _PRODUCT_TO_CUSTOMERS (не подстрока)."""
+    return re.compile(
+        r"(?<![а-яёa-z])" + r"[а-яёa-z]*\s+".join(re.escape(p) for p in kw.split())
+    )
+
+
+def _keyword_matches(
+    keyword: str,
+    prompt_norm: str,
+    prompt_words: frozenset[str] | set[str],
+    prompt_lemmas: frozenset[str] | set[str],
+) -> bool:
+    """Матчинг ключа _PRODUCT_TO_CUSTOMERS по границе слова, а не подстроке.
+
+    Раньше bare substring давал «колеса и шины» → лесо-строительство (через
+    «леса») и «брусчатка» → «дома из бруса» (через «брус»). Lookbehind сам по
+    себе «брусчатку» не чинит — слово НАЧИНАЕТСЯ с «брус», поэтому короткие
+    основы (≤4 симв.) матчим только как целое слово/лемму с окончанием ≤2 симв.
+    """
+    kw = keyword.strip().rstrip("-").replace("ё", "е")
+    if not kw:
+        return False
+    if " " in kw:
+        return _fallback_kw_pattern(kw).search(prompt_norm) is not None
+    if len(kw) <= 4:
+        forms = {kw, _normal(kw)}
+        for f in forms:
+            for w in (*prompt_words, *prompt_lemmas):
+                # целое слово или словоформа с коротким (≤2) окончанием:
+                # «брус»→«бруса» ✓, «брус»→«брусчатка» ✗ (хвост 5 символов)
+                if w == f or (w.startswith(f) and len(w) - len(f) <= 2):
+                    return True
+        return False
+    return _fallback_kw_pattern(kw).search(prompt_norm) is not None
+
+
 def _smart_fallback(raw_prompt: str) -> dict:
     """Smart rule-based fallback: maps product/service → target customers."""
     prompt_lower = raw_prompt.lower().strip()
+    prompt_norm = prompt_lower.replace("ё", "е")
 
     # Extract geography
     geography = _extract_geography(prompt_lower)
+
+    # Слова и леммы промта — для точного матчинга коротких основ («брус», «жби»).
+    prompt_words = set(re.findall(r"[а-яa-z0-9]+", prompt_norm))
+    prompt_lemmas: set[str] = set()
+    for w in prompt_words:
+        if re.match(r"^[а-я]{3,}$", w):
+            prompt_lemmas.add(_normal(w))
 
     # Try to match against known product → customer mappings.
     # Scoring: longer phrases weigh more (a 2-word phrase match is ~4x stronger
@@ -1076,9 +1450,18 @@ def _smart_fallback(raw_prompt: str) -> dict:
     best_score = 0.0
 
     for mapping in _PRODUCT_TO_CUSTOMERS:
+        # keyword_groups: маппинг срабатывает, только если есть совпадение в
+        # КАЖДОЙ группе (HoReCa: оборудование-слово И venue-слово).
+        groups = mapping.get("keyword_groups")
+        if groups and not all(
+            any(_keyword_matches(kw, prompt_norm, prompt_words, prompt_lemmas)
+                for kw in group)
+            for group in groups
+        ):
+            continue
         score = 0.0
         for keyword in mapping["keywords"]:
-            if keyword in prompt_lower:
+            if _keyword_matches(keyword, prompt_norm, prompt_words, prompt_lemmas):
                 # Score proportional to keyword length (longer = more specific)
                 # 3-char stem = 1.0, 10-char word = 3.0, 20-char phrase = 5.0
                 word_count = max(1, len(keyword.strip().split()))
@@ -1104,148 +1487,65 @@ def _smart_fallback(raw_prompt: str) -> dict:
             "project_name": f"Клиенты: {project_name[:40]}",
             "niche": best_match["niche"],
             "geography": geography,
-            "segments": best_match["segments"],
+            "segments": _normalize_segments(best_match["segments"]),
             "target_customer_types": best_match["target_types"],
             "search_queries_niche": best_match["search_niche"],
             "explanation": f"Ищем потенциальных покупателей: {', '.join(best_match['target_types'][:4])}",
             "raw_prompt": raw_prompt,
+            "source": "fallback",
         }
 
-    # No match — generic fallback
+    # No match — generic fallback.
+    # ВАЖНО: raw_prompt — это ПРОДУКТ пользователя; подставлять его в niche /
+    # search_queries_niche нельзя — поиск по тексту продукта находит
+    # КОНКУРЕНТОВ, а не клиентов. Если пользователь явно назвал покупателей
+    # («… для ресторанов»), берём их; иначе оставляем поля пустыми — UI
+    # попросит уточнить нишу вручную (см. explanation).
+    buyer_words = _extract_prompt_buyer_words(raw_prompt)
+    neutral_niche = ", ".join(buyer_words[:5])[:120]
+    neutral_query = " ".join(buyer_words[:5])[:120]
     return {
         "enhanced_prompt": raw_prompt,
         "project_name": raw_prompt[:50],
-        "niche": raw_prompt[:120],
+        "niche": neutral_niche,
         "geography": geography,
         "segments": [],
         "target_customer_types": [],
-        "search_queries_niche": raw_prompt[:120],
+        "search_queries_niche": neutral_query,
         "explanation": "Не удалось автоматически определить целевых клиентов. Уточните нишу вручную.",
         "raw_prompt": raw_prompt,
+        "source": "fallback_generic",
     }
 
 
 def _extract_geography(text: str) -> str:
-    """Extract city name from Russian text."""
-    cities = [
-        "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань",
-        "Нижний Новгород", "Челябинск", "Самара", "Омск", "Ростов-на-Дону",
-        "Уфа", "Красноярск", "Воронеж", "Пермь", "Волгоград", "Краснодар",
-        "Саратов", "Тюмень", "Тольятти", "Ижевск", "Барнаул", "Ульяновск",
-        "Иркутск", "Хабаровск", "Ярославль", "Владивосток", "Махачкала",
-        "Томск", "Оренбург", "Кемерово", "Новокузнецк", "Рязань", "Астрахань",
-        "Пенза", "Липецк", "Тула", "Киров", "Чебоксары", "Калининград",
-        "Брянск", "Курск", "Иваново", "Магнитогорск", "Тверь", "Белгород",
-        "Сочи", "Сургут", "Владимир", "Нижний Тагил", "Архангельск",
-        "Чита", "Калуга", "Смоленск", "Волжский", "Якутск", "Саранск",
-        "Вологда", "Комсомольск-на-Амуре", "Мурманск", "Тамбов",
-    ]
+    """Extract city name from Russian text.
 
-    # Normalize each word in the text to nominative form via pymorphy3,
-    # then look for exact city name matches. Robust against all Russian
-    # case endings including compound cities (Санкт-Петербурге, Ростове-на-Дону).
-    city_set = {c.lower() for c in cities}
-    city_by_lc = {c.lower(): c for c in cities}
+    Normalize each word in the text to nominative form via pymorphy3, then
+    look for city matches against BOTH the raw and the normalized form of
+    every city name (см. _CITY_MATCH_FORMS). Двусторонняя нормализация
+    обязательна: «в Набережных Челнах» → «набережный челны» матчится только
+    против нормализованного «Набережные Челны», а не против сырого имени.
+    """
+    text_lc = text.lower()
 
-    # Tokenize preserving hyphenated compounds
-    tokens = re.findall(r"[а-яё]+(?:-[а-яё]+)*", text.lower())
-    normalized_tokens: list[str] = []
-    for tok in tokens:
-        try:
-            normalized_tokens.append(_morph.parse(tok)[0].normal_form)
-        except Exception:
-            normalized_tokens.append(tok)
+    # Tokenize preserving hyphenated compounds (Санкт-Петербурге, Ростове-на-Дону)
+    tokens = re.findall(r"[а-яё]+(?:-[а-яё]+)*", text_lc)
+    normalized_tokens = [_normal(tok) for tok in tokens]
 
     # Also keep the raw (non-normalized) tokens for compound cities where
     # pymorphy may not normalize "ростове-на-дону" as a whole unit.
-    combined = " ".join(normalized_tokens) + " " + " ".join(tokens)
+    combined = (" ".join(normalized_tokens) + " " + " ".join(tokens)).replace("ё", "е")
 
-    # Try longest cities first so "Санкт-Петербург" wins over "Петербург"
-    for city_lc in sorted(city_set, key=len, reverse=True):
-        # Word-boundary match
-        pattern = rf"(?<![а-яё]){re.escape(city_lc)}(?![а-яё])"
+    # Longest forms first so "Санкт-Петербург" wins over shorter names
+    for form, city in _CITY_MATCH_FORMS:
+        pattern = rf"(?<![а-яa-z]){re.escape(form)}(?![а-яa-z])"
         if re.search(pattern, combined):
-            return city_by_lc[city_lc]
+            return city
 
-    # Region-form fallback: "томской области" → "Томск", "пермском крае" → "Пермь",
-    # "ленинградской области" → "Санкт-Петербург", etc. The user often writes
-    # the region instead of the city; we extract the root as the city anyway —
-    # the geo-tier cascade will widen to the region/country if needed.
-    region_to_city = {
-        "московск": "Москва",
-        "ленинградск": "Санкт-Петербург",
-        "новосибирск": "Новосибирск",  # area uses same root
-        "свердловск": "Екатеринбург",
-        "татарстан": "Казань",
-        "нижегородск": "Нижний Новгород",
-        "челябинск": "Челябинск",
-        "красноярск": "Красноярск",
-        "самарск": "Самара",
-        "омск": "Омск",
-        "башкортостан": "Уфа",
-        "башкирск": "Уфа",
-        "ростовск": "Ростов-на-Дону",
-        "пермск": "Пермь",
-        "волгоградск": "Волгоград",
-        "воронежск": "Воронеж",
-        "краснодарск": "Краснодар",
-        "саратовск": "Саратов",
-        "тюменск": "Тюмень",
-        "удмуртск": "Ижевск",
-        "удмурти": "Ижевск",
-        "алтайск": "Барнаул",
-        "ульяновск": "Ульяновск",
-        "иркутск": "Иркутск",
-        "хабаровск": "Хабаровск",
-        "ярославск": "Ярославль",
-        "приморск": "Владивосток",
-        "дагестан": "Махачкала",
-        "томск": "Томск",
-        "оренбургск": "Оренбург",
-        "кемеровск": "Кемерово",
-        "кузбасс": "Кемерово",
-        "рязанск": "Рязань",
-        "астраханск": "Астрахань",
-        "пензенск": "Пенза",
-        "липецк": "Липецк",
-        "тульск": "Тула",
-        "кировск": "Киров",
-        "чувашск": "Чебоксары",
-        "чувашия": "Чебоксары",
-        "калининградск": "Калининград",
-        "брянск": "Брянск",
-        "курск": "Курск",
-        "ивановск": "Иваново",
-        "тверск": "Тверь",
-        "белгородск": "Белгород",
-        "архангельск": "Архангельск",
-        "владимирск": "Владимир",
-        "ставропольск": "Ставрополь",
-        "крым": "Симферополь",
-        "карелия": "Петрозаводск",
-        "коми": "Сыктывкар",
-        "якутия": "Якутск",
-        "саха": "Якутск",
-        "забайкальск": "Чита",
-        "забайкалье": "Чита",
-        "вологодск": "Вологда",
-        "костромск": "Кострома",
-        "новгородск": "Великий Новгород",
-        "псковск": "Псков",
-        "сахалинск": "Южно-Сахалинск",
-        "сахалин": "Южно-Сахалинск",
-        "камчатск": "Петропавловск-Камчатский",
-        "камчатка": "Петропавловск-Камчатский",
-        "магаданск": "Магадан",
-        "мурманск": "Мурманск",
-        "тамбовск": "Тамбов",
-        "хмао": "Сургут",
-        "ямало": "Салехард",
-        "янао": "Салехард",
-    }
-    text_lower = text.lower()
-    for region_root, city in sorted(region_to_city.items(), key=lambda x: -len(x[0])):
-        if region_root in text_lower:
+    # Region-form fallback: «томской области» → «Томск» (см. _REGION_TO_CITY).
+    for region_root, city in sorted(_REGION_TO_CITY.items(), key=lambda x: -len(x[0])):
+        if region_root in text_lc:
             return city
 
     return "Россия"

@@ -180,42 +180,48 @@ _SOURCE_WEIGHTS = {
 # segments don't explicitly include online stores / distributors). Previously
 # a single monolithic list dinged projects whose target customer is literally
 # "интернет-магазины одежды" — the seller negatives killed the target audience.
-_NEGATIVE_CORE = (
-    "-wikipedia -википедия -погода -форум -блог -рецепт -словарь "
-    "-реферат -скачать -рейтинг -лучшие -лучших -топ -обзор -отзывы -сравнение -список "
-    "-вакансия -вакансии -работа -резюме -hh.ru -superjob "
-    "-ликвидирован -ликвидация -банкрот -inn -огрн "
-    "-sravni.ru -e-ecolog.ru -rusprofile.ru -list-org.com "
-    "-yell.ru -zoon.ru -flamp.ru -2gis.ru "
-    "-avito.ru -ozon.ru -wildberries.ru -market.yandex.ru"
-)
+#
+# Fix [searx-query-len]: поисковые движки за SearXNG режут запрос на ~32 словах.
+# Старые хвосты негативов раздували запрос до 45-65 слов — ВСЕ исключения
+# молча отбрасывались движком и не работали. Новый бюджет: ≤10 токенов
+# негативов на запрос, самые ценные — первыми. Доменные негативы (-2gis.ru,
+# -avito.ru, …) убраны полностью: домены-агрегаторы и так режутся после
+# выдачи через is_aggregator_domain()/_EDITORIAL_OR_DIRECTORY_DOMAINS.
+# «-inn» удран отдельно (fix [inn-negative]): он выкидывал отели с «Inn»
+# в названии; страницы реестров отфильтровываются доменными фильтрами.
+_NEGATIVE_CORE = "-вакансии -работа -форум -отзывы -рейтинг -википедия"
 
-_NEGATIVE_SELLER_EXTRA = (
-    "-продажа -продаем -продаём -купить -заказать -интернет-магазин -магазин "
-    "-поставщик -дистрибьютор -оптовик -опт -оптом "
-    "-прайс-лист -каталог-товаров -каталог "
-    "-скидка -акция -распродажа -ассортимент -в-наличии"
-)
+# Seller-исключения идут ПЕРВЫМИ в комбинированной строке — если движок всё же
+# обрежет хвост, переживут самые важные для buyer-hunt токены.
+_NEGATIVE_SELLER_EXTRA = "-купить -интернет-магазин -оптом -поставщик"
 
 # Kept for backward compat with callers that haven't migrated yet.
-_NEGATIVE_KEYWORDS = f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
+_NEGATIVE_KEYWORDS = f"{_NEGATIVE_SELLER_EXTRA} {_NEGATIVE_CORE}"
 
 
 def _pick_negatives(*, has_prompt: bool, segments: list[str] | None) -> str:
-    """Choose CORE only (safe) or CORE+SELLER_EXTRA (when we're hunting buyers).
+    """Choose CORE only (safe) or SELLER_EXTRA+CORE (when we're hunting buyers).
 
-    If segments mention online-store / marketplace / distributor keywords,
+    If segments mention shop / marketplace / distributor keywords,
     we stay with CORE only — the seller-negatives would kill the target.
+
+    Fix [neg-per-segment]: решение принимается ПО СЕГМЕНТУ — вызывающий код
+    передаёт [seg] внутри цикла. Раньше решение принималось один раз по блобу
+    ВСЕХ сегментов, и один seller-сегмент отключал seller-негативы для всего
+    проекта.
     """
     if not has_prompt:
         return _NEGATIVE_CORE  # Direct niche search: don't over-filter
     if not segments:
         return _NEGATIVE_CORE  # Unknown segments: play safe
     seg_blob = " ".join(segments).lower()
-    for word in ("магазин", "интернет", "маркетплейс", "дистрибьютор", "поставщик", "оптов"):
+    # Fix [neg-per-segment]: голое «интернет» больше не триггер — сегмент типа
+    # «интернет-провайдер» (легитимный покупатель) отключал seller-негативы.
+    # «интернет-магазин» покрывается подстрокой «магазин».
+    for word in ("магазин", "маркетплейс", "дистрибьютор", "поставщик", "оптов"):
         if word in seg_blob:
             return _NEGATIVE_CORE  # Target audience IS a seller category
-    return f"{_NEGATIVE_CORE} {_NEGATIVE_SELLER_EXTRA}"
+    return f"{_NEGATIVE_SELLER_EXTRA} {_NEGATIVE_CORE}"
 
 # Signals that a candidate is a SELLER/competitor, not a buyer/customer
 _COMPETITOR_SIGNALS = [
@@ -669,7 +675,6 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
     """
     niche = niche.strip()
     geo = geo.strip()
-    neg = _pick_negatives(has_prompt=has_prompt, segments=segments)
 
     queries = []
 
@@ -681,6 +686,10 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
         for seg in segments[:24]:
             seg = seg.strip()
             if seg and len(seg) > 2:
+                # Fix [neg-per-segment]: негативы выбираем для КАЖДОГО сегмента
+                # отдельно — «магазин одежды» получает CORE, а «ресторан» в том
+                # же проекте получает SELLER_EXTRA+CORE.
+                neg = _pick_negatives(has_prompt=has_prompt, segments=[seg])
                 queries.extend([
                     f"{seg} {geo} контакты телефон {neg}",
                     f"{seg} {geo} официальный сайт {neg}",
@@ -688,17 +697,25 @@ def _build_discover_queries(niche: str, geo: str, segments: list[str], *, has_pr
                 ])
 
     # Also search by niche — but ONLY if no prompt (direct niche search).
-    # When prompt exists we NEVER search by niche — even if segments came back
-    # empty from the enhancer. Previously we fell back to niche here, which
-    # flooded results with sellers of the niche (the user's competitors), not
-    # buyers/customers. Empty segments → no SearXNG niche pass; collection will
-    # still run 2GIS/Yandex maps passes if they have fallback terms.
+    # When prompt exists we normally NEVER search by niche — that floods
+    # results with sellers of the niche (the user's competitors), not buyers.
     if not has_prompt:
+        neg = _pick_negatives(has_prompt=False, segments=None)
         queries.extend([
             f"{niche} {geo} контакты телефон {neg}",
             f"{niche} {geo} о компании {neg}",
             f"{niche} {geo} предприятие {neg}",
             f'"{niche}" "{geo}" ООО {neg}',
+        ])
+    elif not queries and niche:
+        # Fix [prompt-no-segments]: prompt есть, но энхансер не вернул ни одного
+        # сегмента. Раньше — ноль веб-запросов навсегда (а веб-проход — это
+        # единственный источник сайтов/email). Генерируем хотя бы минимальный
+        # запрос из ниши: хуже таргетинг, но лучше, чем гарантированный ноль.
+        neg = _pick_negatives(has_prompt=True, segments=None)
+        queries.extend([
+            f"{niche} {geo} контакты телефон {neg}",
+            f"{niche} {geo} официальный сайт {neg}",
         ])
 
     seen: set[str] = set()
@@ -781,14 +798,19 @@ def _format_bbox(bounds: list[list[float]] | None) -> str | None:
     return f"{first[0]},{first[1]}~{second[0]},{second[1]}"
 
 
-def _build_yandex_map_queries(
+def _build_yandex_map_query_groups(
     niche: str,
     geo: str,
     segments: list[str],
     *,
     has_prompt: bool = False,
-) -> list[str]:
-    """Build Yandex Places search queries.
+) -> list[list[str]]:
+    """Build Yandex Places search queries, grouped per segment.
+
+    Fix [yandex-budget]: возвращает СПИСОК ГРУПП — по одной группе запросов на
+    сегмент (в buyer-hunt режиме) либо группу нишевых запросов + группы
+    «ниша+сегмент». Группировка нужна _search_yandex_maps, чтобы делить бюджет
+    платных вызовов между сегментами, а не отдавать его весь первому.
 
     When `has_prompt=True`, user described their business — niche is THEIR
     product ("кормовые добавки"), segments are THEIR customers ("птицефабрика",
@@ -797,35 +819,59 @@ def _build_yandex_map_queries(
 
     When `has_prompt=False`, niche is the thing to search for directly.
     """
-    base_queries: list[str] = []
+    raw_groups: list[list[str]] = []
 
     if has_prompt and segments:
-        # Buyer-hunt mode: segment-only queries.
+        # Buyer-hunt mode: segment-only queries, one group per segment.
         for segment in segments[:24]:
             segment = segment.strip()
             if not segment:
                 continue
-            base_queries.append(f"{geo}, {segment}".strip(", "))
-            base_queries.append(f"{segment}, {geo}".strip(", "))
+            raw_groups.append([
+                f"{geo}, {segment}".strip(", "),
+                f"{segment}, {geo}".strip(", "),
+            ])
     else:
         # Direct niche search.
-        base_queries = [
+        raw_groups.append([
             f"{geo}, {niche}".strip(", "),
             f"{niche}, {geo}".strip(", "),
             f"{geo}, {niche} компания".strip(", "),
             f"{geo}, {niche} официальный сайт".strip(", "),
-        ]
+        ])
         for segment in segments[:24]:
             segment = segment.strip()
             if segment:
-                base_queries.append(f"{geo}, {niche} {segment}".strip(", "))
+                raw_groups.append([f"{geo}, {niche} {segment}".strip(", ")])
 
-    queries: list[str] = []
-    for query in base_queries:
-        cleaned = " ".join(query.split())
-        if cleaned and cleaned not in queries:
-            queries.append(cleaned)
-    return queries
+    # Глобальная дедупликация запросов + отбрасывание пустых групп.
+    seen: set[str] = set()
+    groups: list[list[str]] = []
+    for raw_group in raw_groups:
+        group: list[str] = []
+        for query in raw_group:
+            cleaned = " ".join(query.split())
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                group.append(cleaned)
+        if group:
+            groups.append(group)
+    return groups
+
+
+def _build_yandex_map_queries(
+    niche: str,
+    geo: str,
+    segments: list[str],
+    *,
+    has_prompt: bool = False,
+) -> list[str]:
+    """Flat view of _build_yandex_map_query_groups (kept for compat/tests)."""
+    return [
+        query
+        for group in _build_yandex_map_query_groups(niche, geo, segments, has_prompt=has_prompt)
+        for query in group
+    ]
 
 
 def _resolve_yandex_geo_bbox(client: httpx.Client, geo: str, settings) -> str | None:
@@ -934,6 +980,13 @@ _TWOGIS_SCRAPE_BLOCKED_ENRICH = False
 _RUSPROFILE_BLOCKED = False
 
 
+# Fix [yandex-budget]: bbox географии меняется разве что с релизом Яндекса —
+# кэшируем на время жизни процесса. Раньше bbox геокодился заново при КАЖДОМ
+# вызове (внутри цикла по term × городам): до 384 платных вызовов на
+# общероссийский проект только на геокодинг.
+_YANDEX_BBOX_CACHE: dict[str, str | None] = {}
+
+
 def _search_yandex_maps(
     niche: str,
     geo: str,
@@ -942,6 +995,17 @@ def _search_yandex_maps(
     *,
     has_prompt: bool = False,
 ) -> list[dict]:
+    """Search Yandex Places ONCE per geo with a budget shared across segments.
+
+    Fix [yandex-budget]: вызывается один раз на гео со ВСЕМ списком сегментов
+    и общим бюджетом `limit` (остаток oversample-окна). Бюджет делится между
+    группами запросов (группа = сегмент): первый проход даёт каждой группе
+    равную долю (limit // n_groups с минимальным полом), второй — раздаёт
+    невыбранный остаток. Раньше функция вызывалась внутри цикла по term (до
+    24× с ИДЕНТИЧНЫМ набором запросов), а внутренний ранний break отдавал весь
+    бюджет запросам первого сегмента — остальные сегменты получали ноль
+    покрытия, а триал-ключ выгорал в ~24 раза быстрее.
+    """
     global _YANDEX_DEAD_KEY
     if _YANDEX_DEAD_KEY:
         return []
@@ -949,39 +1013,54 @@ def _search_yandex_maps(
     if not settings.yandex_maps_api_key:
         return []
 
-    queries = _build_yandex_map_queries(niche, geo, segments, has_prompt=has_prompt)
+    query_groups = _build_yandex_map_query_groups(niche, geo, segments, has_prompt=has_prompt)
+    if not query_groups or limit <= 0:
+        return []
+
     results: list[dict] = []
     seen_domains: set[str] = set()
+    # query → следующий offset пагинации (-1 = исчерпан). Нужен, чтобы второй
+    # (leftover) проход не перезапрашивал уже оплаченные страницы.
+    query_skip: dict[str, int] = {}
 
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
-            try:
-                bbox = _resolve_yandex_geo_bbox(client, geo, settings) if geo else None
-            except httpx.HTTPStatusError as exc:
-                # 401/403 = dead key, 429 = rate limited; both → skip future calls
-                if exc.response.status_code in (401, 403, 429):
-                    _YANDEX_DEAD_KEY = True
-                    logger.warning(
-                        "Yandex Maps key DEAD (HTTP %s on bbox lookup) — disabling for process lifetime",
-                        exc.response.status_code,
-                    )
-                    try:
-                        from app.services.notifications import send_alert
-                        send_alert(
-                            "warning",
-                            f"Yandex Maps API dead (HTTP {exc.response.status_code})",
-                            "Disabling for this worker. Scrape sources still active.",
-                            key=f"yandex_api_{exc.response.status_code}",
-                            throttle_seconds=3600,
+            bbox: str | None = None
+            geo_key = geo.strip().lower()
+            if geo and geo_key in _YANDEX_BBOX_CACHE:
+                bbox = _YANDEX_BBOX_CACHE[geo_key]
+            elif geo:
+                try:
+                    bbox = _resolve_yandex_geo_bbox(client, geo, settings)
+                    _YANDEX_BBOX_CACHE[geo_key] = bbox
+                except httpx.HTTPStatusError as exc:
+                    # 401/403 = dead key, 429 = rate limited; both → skip future calls
+                    if exc.response.status_code in (401, 403, 429):
+                        _YANDEX_DEAD_KEY = True
+                        logger.warning(
+                            "Yandex Maps key DEAD (HTTP %s on bbox lookup) — disabling for process lifetime",
+                            exc.response.status_code,
                         )
-                    except Exception:
-                        pass
-                    return []
-                raise
-            for query in queries:
-                if len(results) >= limit:
-                    break
-                for skip in (0, 20, 40):
+                        try:
+                            from app.services.notifications import send_alert
+                            send_alert(
+                                "warning",
+                                f"Yandex Maps API dead (HTTP {exc.response.status_code})",
+                                "Disabling for this worker. Scrape sources still active.",
+                                key=f"yandex_api_{exc.response.status_code}",
+                                throttle_seconds=3600,
+                            )
+                        except Exception:
+                            pass
+                        return []
+                    raise
+
+            def _drain_query(query: str, target: int) -> bool:
+                """Тянуть страницы `query`, пока results не достигнет target
+                или запрос не исчерпается. False — ключ умер, всё остановить."""
+                global _YANDEX_DEAD_KEY
+                skip = query_skip.get(query, 0)
+                while 0 <= skip <= 40 and len(results) < target:
                     params = {
                         "apikey": settings.yandex_maps_api_key,
                         "text": query,
@@ -1001,24 +1080,57 @@ def _search_yandex_maps(
                         if exc.response.status_code in (401, 403, 429):
                             _YANDEX_DEAD_KEY = True
                             logger.warning("Yandex Maps key DEAD — disabling")
-                            return results
+                            query_skip[query] = -1
+                            return False
                         raise
                     features = response.json().get("features") or []
                     if not features:
+                        skip = -1
                         break
 
+                    # Страница уже оплачена — разбираем её целиком, даже если
+                    # слегка перевалим за target (лучше overshoot, чем потеря).
                     for feature in features:
                         item = _parse_yandex_business_feature(feature, query)
                         if not item:
                             continue
-                        base_domain = get_base_domain(item["domain"])
-                        if base_domain in seen_domains:
+                        if item["domain"]:
+                            dedup_key = get_base_domain(item["domain"])
+                        else:
+                            # Записи без сайта дедупим по имя|город — иначе все
+                            # они схлопывались по пустому base-домену в одну.
+                            dedup_key = f"{item['company'].lower()}|{(item.get('city') or '').lower()}"
+                        if dedup_key in seen_domains:
                             continue
-                        seen_domains.add(base_domain)
+                        seen_domains.add(dedup_key)
                         results.append(item)
-                        if len(results) >= limit:
-                            break
+                    skip += 20
                     time.sleep(0.2)
+                query_skip[query] = skip if 0 <= skip <= 40 else -1
+                return True
+
+            # Проход 1: каждой группе (сегменту) — равная доля бюджета, чтобы
+            # ранние сегменты не съели всё (см. fix [yandex-budget]).
+            per_group = max(limit // len(query_groups), 5)
+            for group in query_groups:
+                if len(results) >= limit:
+                    break
+                target = min(limit, len(results) + per_group)
+                for query in group:
+                    if len(results) >= target:
+                        break
+                    if not _drain_query(query, target):
+                        return results[:limit]
+            # Проход 2: раздаём невыбранный остаток бюджета (плотные сегменты
+            # добирают то, что не выбрали редкие).
+            for group in query_groups:
+                if len(results) >= limit:
+                    break
+                for query in group:
+                    if len(results) >= limit:
+                        break
+                    if not _drain_query(query, limit):
+                        return results[:limit]
     except Exception as exc:
         logger.warning("Yandex Maps search failed for '%s %s': %s", niche, geo, exc)
 
@@ -2082,6 +2194,21 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     skipped_irrelevant = 0
     oversample_limit = max(limit * 5, limit + 50)
 
+    # Fix [unique-cap]: oversample-кап считает только УНИКАЛЬНЫЕ ключи
+    # (base-домен либо имя|город — та же схема, что в _finalize_candidates).
+    # Дубли между источниками по-прежнему ДОБАВЛЯЮТСЯ в collected (они нужны
+    # _finalize_candidates для слияния полей), но кап больше не съедают:
+    # раньше maps+rusprofile, отработав ПЕРЕД SearXNG, забивали кап в т.ч.
+    # дублями, и веб-проход — единственный источник сайтов/email — получал
+    # ноль запросов («лиды без сайтов» в плотных нишах).
+    unique_keys: set[str] = set()
+    unique_count = 0
+    # Fix [web-reserve]: веб-проходу (SearXNG/Bing) гарантирован собственный
+    # бюджет — он добирает min(limit, 30) уникальных веб-кандидатов, даже
+    # если кап уже заполнен картами.
+    web_reserve = min(limit, 30)
+    web_unique = 0
+
     # Build list of specific search terms for maps (2GIS, Yandex)
     # When segments are specific business types (e.g. "птицефабрика", "ветклиника"),
     # search each one separately — much more effective than a combined query.
@@ -2105,16 +2232,42 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         else:
             map_search_terms = [effective_niche]
 
-    def collect_candidates(source_items: list[dict]) -> None:
-        nonlocal skipped_irrelevant
+    def _candidate_key(item: dict) -> str:
+        """Дедуп-ключ кандидата — зеркало логики _finalize_candidates."""
+        domain = item.get("domain") or extract_domain(item.get("website", ""))
+        bd = get_base_domain(domain) if domain else ""
+        if bd:
+            return bd
+        name = (item.get("company") or "").lower().strip()
+        if not name:
+            return ""
+        city = (item.get("city") or "").lower().strip()
+        return f"{name}|{city}" if city else name
+
+    def _cap_full() -> bool:
+        return unique_count >= oversample_limit
+
+    def collect_candidates(source_items: list[dict], *, is_web: bool = False) -> None:
+        nonlocal skipped_irrelevant, unique_count, web_unique
         for item in source_items:
             scored = _score_candidate(item, effective_niche, effective_geo, effective_segments)
             if scored.get("relevance_score", -999) < _MIN_RELEVANCE_SCORE:
                 skipped_irrelevant += 1
                 continue
+            key = _candidate_key(scored)
+            is_dup = bool(key) and key in unique_keys
+            if not is_dup and _cap_full():
+                # Кап полон. Веб-источникам разрешаем добор в счёт резерва —
+                # см. fix [web-reserve].
+                if not (is_web and web_unique < web_reserve):
+                    break
             collected.append(scored)
-            if len(collected) >= oversample_limit:
-                break
+            if not is_dup:
+                if key:
+                    unique_keys.add(key)
+                unique_count += 1
+                if is_web:
+                    web_unique += 1
 
     # Search maps with each segment separately for better results
     per_term_limit = max(oversample_limit // max(len(map_search_terms), 1), 20)
@@ -2132,10 +2285,10 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     # more cities to reach target.
     maps_geo_targets = _maps_geo_targets(effective_geo)
     for map_geo in maps_geo_targets:
-        if len(collected) >= oversample_limit:
+        if _cap_full():
             break
         for term in map_search_terms:
-            if len(collected) >= oversample_limit:
+            if _cap_full():
                 break
             # 2GIS: API first (licensed, stable, legally clean), public-scrape
             # only as a last-resort fallback if the API key is missing or returns
@@ -2143,7 +2296,7 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
             # ToS and risks captcha/IP bans and a civil claim under ст.1334 ГК РФ
             # (database rights).
             try:
-                if len(collected) < oversample_limit:
+                if not _cap_full():
                     twogis_results: list[dict] = []
                     used_source = ""
                     if _twogis_api_available:
@@ -2173,7 +2326,7 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
             # Yandex Maps scrape — parallel free source. Adds coverage for firms
             # that Yandex indexes better than 2GIS (especially newer/smaller businesses).
             try:
-                if len(collected) < oversample_limit:
+                if not _cap_full():
                     yandex_scrape_results = _search_yandex_maps_scrape(term, map_geo, per_term_limit)
                     collect_candidates(yandex_scrape_results)
                     if yandex_scrape_results:
@@ -2182,21 +2335,6 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
             except Exception:
                 logger.warning("Yandex scrape error for '%s'", term, exc_info=True)
 
-            # Yandex Maps API — if the key is still valid (disabled by circuit
-            # breaker on 401/403/429 — see _search_yandex_maps).
-            if use_yandex:
-                try:
-                    if len(collected) < oversample_limit:
-                        yandex_results = _search_yandex_maps(
-                            term, map_geo, effective_segments, per_term_limit,
-                            has_prompt=has_prompt,
-                        )
-                        collect_candidates(yandex_results)
-                        if yandex_results:
-                            logger.info("Yandex Maps API returned %d results for '%s %s'", len(yandex_results), term, map_geo)
-                except Exception:
-                    logger.warning("Yandex Maps API error for '%s'", term, exc_info=True)
-
             # Rusprofile.ru — PRIMARY legal-entity source (not just supplementary).
             # Every term gets 20 entities. Real ФНС-registered ЮЛ/ИП → downstream
             # enrichment (website + 2GIS-card fallback) fills in contacts. This
@@ -2204,7 +2342,7 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
             # Previously this was gated behind `collected < limit // 3`, which
             # essentially disabled it for any decent-sized search.
             try:
-                if len(collected) < oversample_limit:
+                if not _cap_full():
                     rp_results = _search_rusprofile(term, map_geo, 20)
                     collect_candidates(rp_results)
                     if rp_results:
@@ -2217,14 +2355,43 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
 
             time.sleep(0.2)
 
+        # Yandex Maps API — fix [yandex-budget]: ОДИН вызов на гео со всем
+        # списком сегментов и бюджетом из остатка oversample-окна. Раньше
+        # вызов сидел внутри цикла по term — до 24 идентичных прогонов на
+        # город (билдер запросов игнорирует term в buyer-hunt режиме), где
+        # ранний break отдавал весь бюджет первому сегменту. Распределение
+        # бюджета по сегментам — внутри _search_yandex_maps; ключ отключается
+        # circuit-breaker'ом на 401/403/429 (см. _YANDEX_DEAD_KEY).
+        if use_yandex and map_search_terms and not _cap_full():
+            try:
+                yandex_budget = max(oversample_limit - unique_count, 20)
+                yandex_results = _search_yandex_maps(
+                    effective_niche, map_geo, effective_segments, yandex_budget,
+                    has_prompt=has_prompt,
+                )
+                collect_candidates(yandex_results)
+                if yandex_results:
+                    logger.info(
+                        "Yandex Maps API returned %d results for '%s' (%d segments, budget %d)",
+                        len(yandex_results), map_geo, len(effective_segments), yandex_budget,
+                    )
+            except Exception:
+                logger.warning("Yandex Maps API error for '%s'", map_geo, exc_info=True)
+
     try:
         queries = _build_discover_queries(effective_niche, effective_geo, effective_segments, has_prompt=bool(prompt))
         settings = get_settings()
         local_seen_domains: set[str] = set()
 
+        # Fix [web-reserve]: веб-проход не останавливается по капу, пока не
+        # доберёт свой резерв (min(limit, 30) уникальных веб-кандидатов) —
+        # это единственный источник сайтов и, значит, email.
+        def _web_pass_done() -> bool:
+            return _cap_full() and web_unique >= web_reserve
+
         with httpx.Client(timeout=settings.searxng_timeout_seconds, follow_redirects=True) as client:
             for search_query in queries:
-                if len(collected) >= oversample_limit:
+                if _web_pass_done():
                     break
                 for page_num in range(1, 4):
                     items = _searxng_fetch_page(client, search_query, page_num, settings)
@@ -2242,9 +2409,9 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
                     if not page_items:
                         break
 
-                    collect_candidates(page_items)
+                    collect_candidates(page_items, is_web=True)
                     time.sleep(0.3)
-                    if len(collected) >= oversample_limit:
+                    if _web_pass_done():
                         break
                 time.sleep(0.15)
         searxng_accessible = True
@@ -2252,40 +2419,47 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         logger.exception("SearXNG search failed")
 
     try:
-        if len(collected) < oversample_limit:
+        # Fix [web-reserve]: тот же резерв действует и для Bing-гейта.
+        if not _cap_full() or web_unique < web_reserve:
             # Bing backup — segment-aware when we have prompt-driven targets.
             # Previously we searched `{niche} компания {geo}` unconditionally,
             # which brings sellers of the niche for prompt-driven projects.
-            neg = _pick_negatives(has_prompt=has_prompt, segments=effective_segments)
             if has_prompt and effective_segments:
                 # Segment-driven: iterate first 3 segments.
+                # Fix [neg-per-segment]: негативы — по каждому сегменту отдельно.
                 bing_queries = [
-                    f"{seg.strip()} {effective_geo} {neg}".strip()
+                    f"{seg.strip()} {effective_geo} {_pick_negatives(has_prompt=True, segments=[seg])}".strip()
                     for seg in effective_segments[:3]
                     if seg and seg.strip()
                 ]
             else:
+                neg = _pick_negatives(has_prompt=has_prompt, segments=effective_segments)
                 bing_queries = [f"{effective_niche} компания {effective_geo} {neg}".strip()]
-            per_q_limit = max(5, (oversample_limit - len(collected)) // max(1, len(bing_queries)))
+            per_q_limit = max(5, (oversample_limit - unique_count) // max(1, len(bing_queries)))
             for bing_query in bing_queries:
-                if len(collected) >= oversample_limit:
+                if _cap_full() and web_unique >= web_reserve:
                     break
                 bing_results = _search_bing(bing_query, per_q_limit)
-                collect_candidates(bing_results)
+                collect_candidates(bing_results, is_web=True)
     except Exception:
         logger.warning("Bing search error", exc_info=True)
 
     if skipped_irrelevant:
         logger.info("Filtered out %d irrelevant results for niche='%s'", skipped_irrelevant, effective_niche)
 
-    ranked = _finalize_candidates(collected, limit)
+    # Fix [llm-refill]: финализируем с буфером 2×limit — LLM-фильтр срезает
+    # 30-40%, и раньше недобор никогда не пополнялся из отброшенного
+    # оверсэмпла (truncate ДО фильтра). Оба фильтра (_ai_filter и
+    # _rule_based_competitor_filter) сохраняют исходный порядок кандидатов
+    # (проверено), поэтому срез [:limit] ПОСЛЕ фильтра отдаёт тот же топ.
+    ranked = _finalize_candidates(collected, limit * 2)
     if ranked:
         from app.services.llm_filter import filter_candidates_llm
         ranked = filter_candidates_llm(
             ranked, effective_niche, effective_geo, effective_segments,
             prompt=prompt, organization_id=organization_id,
         )
-        return ranked
+        return ranked[:limit]
     # Never generate fake/synthetic leads — return empty list so callers see
     # real zero-result state and can act accordingly.
     return []
@@ -2440,7 +2614,11 @@ _PHONE_RE = re.compile(
     r"[\s\-()]{0,3}\d{3}[\s\-()]{0,3}\d{2}[\s\-()]{0,3}\d{2}"
     r"(?![\d.])"                                 # not before digit/dot (avoids coordinate floats)
 )
-_TEL_LINK_RE = re.compile(r'tel:\+?(\d{10,15})', re.IGNORECASE)
+# Fix [phones]: tel:-ссылки часто содержат ФОРМАТИРОВАННЫЙ номер
+# («tel:+7 (495) 123-45-67»), а не только слитные цифры — старый паттерн
+# `tel:\+?(\d{10,15})` такие пропускал. Захватываем форматированную строку
+# целиком и нормализуем ниже.
+_TEL_LINK_RE = re.compile(r'tel:([+\d][\d\s\-().]{6,24})', re.IGNORECASE)
 # Stricter email regex — requires TLD of 2-10 chars and forbids the dot-ending seen in fragment matches.
 _EMAIL_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9._%+\-]{0,63}@[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}\.[a-zA-Z]{2,10}\b")
 
@@ -2460,6 +2638,11 @@ def _normalize_phone(raw: str) -> str:
     # Russian 8-prefix → 7 canonicalisation
     if digits.startswith("8") and len(digits) == 11:
         digits = "7" + digits[1:]
+    # Fix [phones]: местный формат без префикса («(3822) 20-11-36») — 10
+    # значащих цифр; код страны 7 подставляем сами (RU по умолчанию). Коды
+    # городов/мобильных РФ начинаются с 3/4/8/9 — остальное не трогаем.
+    elif len(digits) == 10 and digits[0] in "3489":
+        digits = "7" + digits
     return "+" + digits
 
 
@@ -2578,6 +2761,65 @@ def _name_tokens(s: str) -> set[str]:
     """Meaningful lowercased tokens of a company name (for fuzzy matching)."""
     toks = re.findall(r"[a-zа-яё0-9]+", (s or "").lower())
     return {t for t in toks if len(t) >= 3 and t not in _NAME_STOP}
+
+
+def _name_match_positions(html: str, company: str) -> list[int]:
+    """Позиции вхождений токенов названия компании в html (без учёта регистра).
+
+    Fix [scrape-guard]: основа защиты от «чужого телефона» — страница поиска
+    2gis.ru содержит МНОГО компаний, и контакты можно брать только из
+    окрестности совпадения имени (тот же _name_tokens-матч, что у API-пути).
+    """
+    tokens = _name_tokens(company)
+    if not tokens:
+        return []
+    lowered = html.lower()
+    positions: list[int] = []
+    for token in tokens:
+        for m in re.finditer(re.escape(token), lowered):
+            positions.append(m.start())
+    positions.sort()
+    return positions
+
+
+def _find_firm_id_in_search_html(html: str, company: str) -> str:
+    """Из HTML страницы поиска 2gis.ru вернуть /firm/{id} той карточки, чей
+    текст проходит _name_tokens-матч с названием компании, либо ''.
+
+    Берём ссылку на фирму, БЛИЖАЙШУЮ к вхождению токена имени (карточка в
+    вёрстке/initialState занимает до ~1000 символов вокруг названия).
+    """
+    positions = _name_match_positions(html, company)
+    if not positions:
+        return ""
+    best_id, best_dist = "", 10**9
+    for m in re.finditer(r"/firm/(\d{6,})", html):
+        fpos = m.start()
+        dist = min(abs(fpos - p) for p in positions)
+        if dist < best_dist and dist <= 1000:
+            best_id, best_dist = m.group(1), dist
+    return best_id
+
+
+def _name_window_html(html: str, company: str, radius: int = 500) -> str:
+    """Конкатенация фрагментов html в радиусе ±radius символов от вхождений
+    токенов названия компании. '' — имя на странице не встречается.
+
+    Fix [scrape-guard]: минимальная защита, когда ссылку /firm/{id} найти не
+    удалось — телефон/email засчитываются только в пределах ~500 символов от
+    совпадения имени, а не со всей многокомпанийной страницы.
+    """
+    positions = _name_match_positions(html, company)
+    if not positions:
+        return ""
+    spans: list[list[int]] = []
+    for p in positions:
+        start, end = max(0, p - radius), min(len(html), p + radius)
+        if spans and start <= spans[-1][1]:
+            spans[-1][1] = max(spans[-1][1], end)
+        else:
+            spans.append([start, end])
+    return "\n".join(html[s:e] for s, e in spans)
 
 
 def _fetch_2gis_contacts_api(company: str, city: str = "", firm_id: str = "") -> dict:
@@ -2747,7 +2989,10 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
 
     def _extract_phones(html: str) -> list[str]:
         plus_phones = _PHONE_RE.findall(html)
-        tel_phones = [("+" + d if not d.startswith("+") else d) for d in _TEL_LINK_RE.findall(html)]
+        # Fix [phones]: «+» к цифрам больше не дорисовываем — tel:8(800)…
+        # превращался в невалидный +8800…; нормализация сама приводит
+        # 8-префиксные и местные номера к +7.
+        tel_phones = _TEL_LINK_RE.findall(html)
         raw = plus_phones + tel_phones
         normed = _dedup_preserve_order([_normalize_phone(p) for p in raw])
         return [p for p in normed if p and 11 <= len(re.sub(r"\D", "", p)) <= 12]
@@ -2759,34 +3004,73 @@ def enrich_2gis_lead(company: str, city: str = "", firm_id: str = "") -> dict:
     # IMPORTANT: bare /firm/{id} 301-redirects to /moscow/firm/{id} which 404s
     # for non-Moscow firms. We MUST prefix with the actual city slug (e.g.
     # /tomsk/firm/{id}). Without that the firm-page enrichment is dead code.
-    urls: list[str] = []
+    urls: list[tuple[str, bool]] = []  # (url, is_search_page)
     slug = _city_to_slug(city) if city else None
     if firm_id and slug:
-        urls.append(f"https://2gis.ru/{slug}/firm/{firm_id}")
+        urls.append((f"https://2gis.ru/{slug}/firm/{firm_id}", False))
     if firm_id and not slug:
         # No slug — try bare URL anyway as last resort (works for Moscow only)
-        urls.append(f"https://2gis.ru/firm/{firm_id}")
+        urls.append((f"https://2gis.ru/firm/{firm_id}", False))
     if company:
         query = company if not city else f"{company} {city}"
         if slug:
-            urls.append(f"https://2gis.ru/{slug}/search/{quote_plus(query)}")
-        urls.append(f"https://2gis.ru/search/{quote_plus(query)}")
+            urls.append((f"https://2gis.ru/{slug}/search/{quote_plus(query)}", True))
+        urls.append((f"https://2gis.ru/search/{quote_plus(query)}", True))
 
     html = ""
     phones: list[str] = []
-    for url in urls:
+    for url, is_search in urls:
         # Fix #5: pass _is_enrich=True so captcha failures hit the enrichment
         # counter, not the search counter.
         page_html = _fetch_2gis_html(url, _is_enrich=True)
         if not page_html:
             continue
-        page_phones = _extract_phones(page_html)
-        if page_phones:
+        if not is_search:
+            # Страница конкретной фирмы — контакты принадлежат ей.
+            page_phones = _extract_phones(page_html)
+            if page_phones:
+                html = page_html
+                phones = page_phones
+                break
+            # Keep the last non-empty HTML so we can still pull emails if phones missed
             html = page_html
-            phones = page_phones
-            break
-        # Keep the last non-empty HTML so we can still pull emails if phones missed
-        html = page_html
+            continue
+
+        # Fix [scrape-guard]: страница ПОИСКА содержит много компаний — гонять
+        # регэкспы по всему HTML нельзя (phones[0] мог принадлежать чужой
+        # фирме или рекламному блоку). Сначала ищем карточку, чей текст
+        # проходит тот же _name_tokens-матч, что и API-путь, берём её
+        # /firm/{id} и тянем контакты со страницы самой фирмы (captcha-риск
+        # ограничен breaker'ом _TWOGIS_SCRAPE_BLOCKED_ENRICH). Этот же гард
+        # действует и для fallback-на-поиск ветки firm_id-пути.
+        matched_id = _find_firm_id_in_search_html(page_html, company)
+        if matched_id:
+            firm_url = (
+                f"https://2gis.ru/{slug}/firm/{matched_id}" if slug
+                else f"https://2gis.ru/firm/{matched_id}"
+            )
+            firm_html = _fetch_2gis_html(firm_url, _is_enrich=True)
+            if firm_html:
+                page_phones = _extract_phones(firm_html)
+                if page_phones:
+                    html = firm_html
+                    phones = page_phones
+                    break
+                if not html:
+                    html = firm_html
+
+        # Минимальный гард: ссылки на фирму нет — контакты засчитываем только
+        # в ±500 символах от совпадения имени. Имя не нашлось → страница не
+        # даёт НИЧЕГО (любые контакты почти наверняка чужие).
+        window_html = _name_window_html(page_html, company)
+        if window_html:
+            page_phones = _extract_phones(window_html)
+            if page_phones:
+                html = window_html
+                phones = page_phones
+                break
+            if not html:
+                html = window_html
 
     if not html:
         return result

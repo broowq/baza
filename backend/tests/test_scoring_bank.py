@@ -94,10 +94,12 @@ def _lead(
 #
 # Scoring math recap (defaults):
 #   base=35, +domain=10, +email=20, +phone=10, +address=8,
-#   -no_contacts=12, -demo=20, -aggregator=25, +keyword_bonus=12,
+#   -no_contacts=12 (no email/phone/domain; address is NOT a contact),
+#   -demo=20, -aggregator=25, +keyword_bonus=12, -seller_penalty=15,
 #   +ru_domain_bonus=3 (only for a small RU niche set),
 #   relevance contribution: min(15, max(0, (r-26)*15/94))  → 0 below r=26,
 #                                                            15 at r=120.
+#   Audit P0 cap: zero match points (keyword/segment/relevance) → score ≤ 70.
 
 CASES: list[ScoringCase] = [
     # -----------------------------------------------------------------------
@@ -112,8 +114,9 @@ CASES: list[ScoringCase] = [
             niche="кормовые добавки для ферм",
             email=True, phone=True, address=True,
         ),
-        # no keyword match → 35+10+20+10+8 = 83
-        min_expected=75, max_expected=88,
+        # no keyword match → 35+10+20+10+8 = 83, but zero match points
+        # → audit P0 cap at 70 (contact-complete must not be «hot»)
+        min_expected=55, max_expected=70,
         category="competitor",
     ),
     ScoringCase(
@@ -138,7 +141,8 @@ CASES: list[ScoringCase] = [
             niche="логистика",
             email=True, phone=True, address=True,
         ),
-        min_expected=75, max_expected=88,
+        # zero match points → audit P0 cap at 70
+        min_expected=55, max_expected=70,
         category="competitor",
     ),
     ScoringCase(

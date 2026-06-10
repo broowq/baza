@@ -7,10 +7,17 @@
   + email         — есть email (+20)
   + phone         — есть телефон (+10)
   + address       — есть адрес (+8)
-  + keyword_bonus — ключевое слово ниши в имени/домене (+12)
-  - no_contacts_penalty  — нет ни одного контакта (−12)
+  + keyword_bonus — ключевое слово ниши в имени/домене/описании (+12)
+  - no_contacts_penalty  — нет ни email, ни телефона, ни домена (−12);
+                           адрес контактом НЕ считается (только свои +8)
   - demo_penalty         — демо/фолбэк лид (−20)
   - aggregator_penalty   — агрегатор/каталог (−25)
+  - seller_penalty       — продавцовая сигнатура в имени/домене при охоте
+                           на покупателей (−15, см. _SELLER_MARKERS)
+
+Аудит P0: лид без единого матч-сигнала (keyword / segment / relevance) не
+может получить больше 70 — полный набор контактов сам по себе не делает лид
+«горячим» (≥80).
 
 Веса можно переопределить через env-переменные:
   SCORING_WEIGHTS_JSON  = '{"base":35,"email":20,...}'
@@ -141,6 +148,25 @@ NICHE_KEYWORDS: dict[str, list[str]] = {
 }
 
 
+# Маркеры того, что кандидат — ПРОДАВЕЦ/конкурент, а не покупатель.
+# Локальная копия очевидных слов из lead_collection._COMPETITOR_SIGNALS —
+# импортировать lead_collection здесь нельзя (тяжёлый модуль: pymorphy3 и
+# весь сборочный пайплайн). «тд » — с пробелом, чтобы не матчить случайные
+# буквосочетания внутри слов.
+_SELLER_MARKERS = [
+    "опт", "оптом", "торговый дом", "тд ", "склад", "магазин",
+    "продажа", "поставщик", "интернет-магазин", "маркет",
+]
+
+# Если сами сегменты — продавцовые категории (заказчик целенаправленно ищет
+# магазины/дилеров/оптовиков), штраф за продавцовую сигнатуру не применяем:
+# продавец и есть целевой лид. Концептуально зеркалит выбор негативов в
+# lead_collection._pick_negatives.
+_SELLER_SEGMENT_HINTS = (
+    "магазин", "дилер", "дистрибьютор", "оптов", "поставщик", "маркетплейс",
+)
+
+
 def _clamp(value: int, min_value: int = 0, max_value: int = 100) -> int:
     return max(min_value, min(max_value, value))
 
@@ -204,7 +230,23 @@ def score_lead(
     demo: bool,
     relevance_score: int = 0,
     segments: list[str] | None = None,
+    description: str = "",
 ) -> int:
+    """Скоринг лида 0–100 (≥80 — «горячий», 60–79 — amber).
+
+    Правила (аудит P0/P1):
+      * «Контакт» = email | телефон | домен. Адрес контактом не считается
+        (только свои +8): address-only карточки 2GIS не должны выходить
+        в amber/mint на одних контактных баллах.
+      * Лид без единого матч-сигнала (keyword / segment / relevance) капится
+        на 70 — полный набор контактов сам по себе не делает лид «горячим».
+      * В режиме охоты на покупателей (segments переданы) продавцовая
+        сигнатура в имени/домене («ТД … Оптом», «магазин …») — конкурент
+        заказчика: нишевой бонус пропускается, применяется −15. Исключение —
+        сами сегменты являются продавцовыми категориями.
+      * description — сниппет/notes/описание кандидата (warehouse-строки
+        несут в нём свою релевантность); участвует в keyword/segment матче.
+    """
     settings = get_settings()
     niche_key = niche.strip().lower()
     global_weights = settings.scoring_weights
@@ -215,7 +257,9 @@ def score_lead(
     # key (e.g. "demo_penalty": 20 instead of -20), the sign would be inverted and
     # the penalty would become a bonus.  Force the value negative so overrides never
     # silently flip a penalty into a reward.
-    _PENALTY_KEYS = frozenset({"demo_penalty", "aggregator_penalty", "no_contacts_penalty"})
+    _PENALTY_KEYS = frozenset(
+        {"demo_penalty", "aggregator_penalty", "no_contacts_penalty", "seller_penalty"}
+    )
 
     def w(key: str, default: int) -> int:
         raw: int
@@ -241,7 +285,9 @@ def score_lead(
     if has_address:
         score += w("address", 8)
 
-    has_any_contact = has_email or has_phone or has_address
+    # АУДИТ FIX 3 (P1): адрес — НЕ контакт. Раньше address-only строки 2GIS
+    # избегали штрафа и добирались до amber/mint без способа связаться.
+    has_any_contact = has_email or has_phone or bool(domain)
     if not has_any_contact:
         score += w("no_contacts_penalty", -12)
     if demo:
@@ -249,16 +295,51 @@ def score_lead(
     if domain and is_aggregator_domain(domain):
         score += w("aggregator_penalty", -25)
 
+    # Матч-компонента: сумма баллов за relevance / keyword / segment.
+    # Если она нулевая — лид ничем не подтвердил принадлежность к целевой
+    # аудитории, и контактные баллы капятся (см. конец функции).
+    match_pts = 0
+
     # Вклад relevance_score из поискового ранжирования (0–15 баллов)
     if relevance_score:
-        score += min(15, max(0, (relevance_score - 26) * 15 // 94))
+        rel_pts = min(15, max(0, (relevance_score - 26) * 15 // 94))
+        score += rel_pts
+        match_pts += rel_pts
 
-    # Бонус за ключевые слова ниши в домене или компании
-    keywords = _get_niche_keywords(niche)
     lowered_domain = domain.lower()
     lowered_company = company.lower()
-    if keywords and any(word in lowered_domain or word in lowered_company for word in keywords):
-        score += w("keyword_bonus", 12)
+    lowered_description = (description or "").lower()
+
+    # АУДИТ FIX 2 (P0): при охоте на покупателей (segments переданы) продавцовая
+    # сигнатура в имени/домене («ТД … Оптом») означает, что нишевые слова в
+    # названии — слова ПРОДУКТА, который кандидат сам продаёт. Это конкурент
+    # заказчика, а не лид: нишевой бонус пропускаем и штрафуем на 15.
+    seller_name_hit = any(
+        marker in lowered_company or marker in lowered_domain
+        for marker in _SELLER_MARKERS
+    )
+    seller_segments = False
+    if segments:
+        seg_blob = " ".join(segments).lower()
+        seller_segments = any(hint in seg_blob for hint in _SELLER_SEGMENT_HINTS)
+    seller_penalty_applies = bool(segments) and seller_name_hit and not seller_segments
+    if seller_penalty_applies:
+        score += w("seller_penalty", -15)
+
+    # Бонус за ключевые слова ниши в домене, компании или описании/сниппете
+    # (warehouse-строки несут свою релевантность в description)
+    keywords = _get_niche_keywords(niche)
+    if (
+        not seller_penalty_applies
+        and keywords
+        and any(
+            word in lowered_domain or word in lowered_company or word in lowered_description
+            for word in keywords
+        )
+    ):
+        kb = w("keyword_bonus", 12)
+        score += kb
+        match_pts += kb
 
     # Бонус за совпадение с целевым сегментом покупателя.
     # Когда prompt-enhancer вытащил segments (типы клиентов — «фермы», «птицефабрики»
@@ -275,7 +356,9 @@ def score_lead(
         if seg_terms:
             seg_hits = sum(
                 1 for term in seg_terms
-                if term in lowered_domain or term in lowered_company
+                if term in lowered_domain
+                or term in lowered_company
+                or term in lowered_description
             )
             if seg_hits:
                 # BUG FIX 3: w() returned a flat override value, so a 1-term match
@@ -283,11 +366,19 @@ def score_lead(
                 # per-hit weight and multiply by seg_hits (capped at 16), consistent
                 # with the default formula.
                 per_hit = w("segment_bonus", 8)
-                score += min(16, seg_hits * per_hit)
+                seg_pts = min(16, seg_hits * per_hit)
+                score += seg_pts
+                match_pts += seg_pts
 
     # Бонус за качество домена: .ru/.рф для российских ниш — признак местного бизнеса
     ru_niches = {"деревообработка", "строительство", "медицина", "юридические услуги", "бухгалтерия"}
     if niche_key in ru_niches and (domain.endswith(".ru") or domain.endswith(".рф")):
         score += w("ru_domain_bonus", 3)
+
+    # АУДИТ FIX 1 (P0): без единого матч-сигнала (keyword/segment/relevance)
+    # лид не может быть «горячим». Раньше base(35)+domain(10)+email(20)+
+    # phone(10)+address(8)=83 ≥ 80 при НУЛЕВОЙ релевантности нише.
+    if match_pts == 0:
+        score = min(score, 70)
 
     return _clamp(score)

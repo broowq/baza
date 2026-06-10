@@ -117,6 +117,44 @@ def test_extract_multiple_phones():
     assert len(result["phones"]) >= 1
 
 
+# ─── Fix [phones]: местный формат и форматированные tel: ─────────────────────
+# Воспроизведённые баги: «(3822) 20-11-36» давал [], `tel:+7 (495) 123-45-67`
+# давал [], tel:8(800)… превращался в невалидный +8800….
+
+def test_extract_local_format_phone_without_prefix():
+    # Томск, 4-значный код города, БЕЗ +7/8 — раньше PHONE_REGEX требовал префикс
+    result = extract_contacts("Телефон: (3822) 20-11-36")
+    assert "+73822201136" in result["phones"]
+
+
+def test_extract_formatted_tel_link():
+    # tel: с пробелами/скобками — раньше TEL_LINK_REGEX ловил только слитные цифры
+    html = '<a href="tel:+7 (495) 123-45-67">Позвонить</a>'
+    result = extract_contacts("", html)
+    assert "+74951234567" in result["phones"]
+
+
+def test_tel_link_contiguous_digits_still_works():
+    html = '<a href="tel:+74951234567">Позвонить</a>'
+    result = extract_contacts("", html)
+    assert "+74951234567" in result["phones"]
+
+
+def test_tel_link_8800_not_mangled_to_plus8():
+    # Старый код дорисовывал «+» к цифрам: tel:88005553535 → +88005553535
+    # (невалидный) — номер терялся. Теперь phonenumbers парсит 8-префикс как RU.
+    html = '<a href="tel:8 (800) 555-35-35">8 800 555 35 35</a>'
+    result = extract_contacts("", html)
+    assert "+78005553535" in result["phones"]
+    assert all(not p.startswith("+8") for p in result["phones"])
+
+
+def test_local_format_garbage_dates_not_extracted():
+    # Похожие на даты/числа строки отсеивает phonenumbers-валидация
+    result = extract_contacts("Отчёт за 2023-11-22 10:30, версия 1.2.3")
+    assert result["phones"] == []
+
+
 # ─── Скоринг ─────────────────────────────────────────────────────────────────
 
 def test_scoring_integration():

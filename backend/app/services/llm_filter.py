@@ -5,6 +5,7 @@ then cascades through the others on failure. Falls back to rule-based competitor
 detection if all LLMs are unavailable.
 """
 import hashlib
+import json
 import logging
 import re
 
@@ -92,6 +93,7 @@ def filter_candidates_llm(
     # segments, synthesize a minimal prompt so the strict rule-based filter
     # always has signal to bite on.
     effective_prompt = prompt
+    synthesized = False
     if not effective_prompt and (niche or segments):
         parts = []
         if niche:
@@ -100,6 +102,11 @@ def filter_candidates_llm(
             parts.append("для " + ", ".join(segments[:3]))
         effective_prompt = " ".join(parts).strip()
         if effective_prompt:
+            # FIX (аудит, P0 #3): синтезированный промпт «{ниша} для {сегменты}» —
+            # это ЧИСТО аудиторный текст, в нём нет слов продукта. Помечаем его,
+            # чтобы rule-based фильтр пропустил Step 1 (поиск конкурентов по
+            # имени) — иначе он отбраковывал ровно запрошенные сегменты.
+            synthesized = True
             logger.info(
                 "LLM filter fell back and synthesized prompt=%r from niche/segments "
                 "so the rule-based filter still runs",
@@ -107,7 +114,10 @@ def filter_candidates_llm(
             )
 
     if effective_prompt:
-        result = _rule_based_competitor_filter(candidates, effective_prompt, niche, segments)
+        result = _rule_based_competitor_filter(
+            candidates, effective_prompt, niche, segments,
+            synthesized_prompt=synthesized,
+        )
         logger.info(
             f"Rule-based filter: {len(candidates)} candidates -> {len(result)} kept "
             f"({len(candidates) - len(result)} rejected as competitors/irrelevant)"
@@ -150,10 +160,14 @@ def _ai_filter(
     r = _get_filter_redis()
 
     # 1. Look up cached verdicts (config + candidate identity).
+    # Префикс llmf2: (был llmf:) — конфиг-хэш не включает шаблон промпта,
+    # поэтому после починки парсера ответов (JSON вместо «все цифры подряд»)
+    # старые, потенциально отравленные вердикты llmf: нельзя переиспользовать —
+    # они тихо доживут свой TTL и исчезнут.
     rkey_for: dict[int, str] = {}
     for c in candidates:
         ck = _candidate_cache_key(c)
-        rkey_for[id(c)] = f"llmf:{cfg}:{ck}" if ck else ""
+        rkey_for[id(c)] = f"llmf2:{cfg}:{ck}" if ck else ""
     cached: dict[int, "bool | None"] = {id(c): None for c in candidates}
     if r:
         uniq = [k for k in {rkey_for[id(c)] for c in candidates} if k]
@@ -182,9 +196,9 @@ def _ai_filter(
     llm_ok = False
     for batch_start in range(0, len(to_classify), BATCH_SIZE):
         batch = to_classify[batch_start:batch_start + BATCH_SIZE]
-        kept = _ai_filter_batch(batch, niche, geography, segments, prompt,
-                                organization_id=organization_id)
-        if kept is None:
+        verdict = _ai_filter_batch(batch, niche, geography, segments, prompt,
+                                   organization_id=organization_id)
+        if verdict is None:
             if batch_start == 0 and not llm_ok and not kept_ids:
                 # Total failure (e.g. cost-cap) with nothing accumulated → signal
                 # full failure so the caller runs rule-based over all candidates.
@@ -196,6 +210,7 @@ def _ai_filter(
             for c in _rule_based_competitor_filter(batch, prompt, niche, segments):
                 kept_ids.add(id(c))
             continue  # never cache rule-based verdicts
+        kept, verdict_complete = verdict
         llm_ok = True
         batch_kept_ids = {id(c) for c in kept}
         for c in batch:
@@ -203,8 +218,20 @@ def _ai_filter(
             if keep:
                 kept_ids.add(id(c))
             rk = rkey_for[id(c)]
-            if rk:
-                to_cache[rk] = "1" if keep else "0"
+            if not rk:
+                continue
+            # FIX (аудит, P0 #2): правило кэширования вердиктов.
+            # «1» (keep) кэшируем всегда — индекс перечислен LLM явно.
+            # «0» (drop) кэшируем ТОЛЬКО когда verdict_complete=True, т.е. ответ —
+            # корректный JSON {"keep": [...]} со всеми индексами в диапазоне:
+            # лишь тогда отсутствие кандидата в списке = явный отказ. Если ответ
+            # мог быть обрезан (текстовый fallback, кривой JSON) — для
+            # пропущенных НИЧЕГО не кэшируем, пусть переклассифицируются в
+            # следующем прогоне. Иначе хвост батча на 7 дней застревал как drop.
+            if keep:
+                to_cache[rk] = "1"
+            elif verdict_complete:
+                to_cache[rk] = "0"
 
     if r and to_cache:
         try:
@@ -224,15 +251,24 @@ def _ai_filter(
     return result
 
 
-def _ai_filter_batch(batch, niche, geography, segments, prompt, *, organization_id: str | None = None) -> list[dict] | None:
-    """Filter a single batch using AI. Returns None on failure."""
+def _ai_filter_batch(
+    batch, niche, geography, segments, prompt, *, organization_id: str | None = None
+) -> "tuple[list[dict], bool] | None":
+    """Filter a single batch using AI.
+
+    Returns (kept_candidates, verdict_complete) or None on failure.
+    verdict_complete=True означает: ответ — корректный JSON и отсутствие
+    кандидата в keep-списке можно трактовать как явный отказ (кэшируемый «0»).
+    """
     lines = []
     for i, c in enumerate(batch):
         company = c.get("company", "—")
         domain = c.get("domain", "—")
         city = c.get("city", "—")
-        desc = (c.get("description") or c.get("snippet") or "")[:150]
-        category = c.get("category", "")
+        desc = (c.get("description") or c.get("snippet") or "")[:250]
+        # FIX (аудит, P2 #5): кандидаты несут `categories` (список), ключа
+        # `category` не существует — категория всегда была пустой строкой.
+        category = ", ".join(c.get("categories") or [])
 
         parts = [f"{i+1}. {company}"]
         if domain and domain != "—":
@@ -259,70 +295,150 @@ def _ai_filter_batch(batch, niche, geography, segments, prompt, *, organization_
 ОТКЛОНЯЙ (REJECT): конкуренты (продают то же), агрегаторы, каталоги, закрытые компании, блоги.
 СОХРАНЯЙ (KEEP): потенциальные покупатели, компании из целевых сегментов.
 
-ФОРМАТ: Номера подходящих через запятую. Если ни один — "0".
+ФОРМАТ ОТВЕТА: строго JSON-объект с номерами подходящих кандидатов, без другого текста.
+Пример: {{"keep": [1, 3]}}. Если ни один не подходит: {{"keep": []}}.
 
 КАНДИДАТЫ:
 {candidates_text}
 
-ПОДХОДЯЩИЕ:"""
+JSON-ОТВЕТ:"""
     else:
         filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.
 Отклоняй: не из ниши, агрегаторы, закрытые, госучреждения. Сохраняй: реальный бизнес из ниши.
-Номера подходящих через запятую (или "0").
+Ответ — строго JSON-объект {{"keep": [номера подходящих]}}, например {{"keep": [1, 3]}};
+если ни один не подходит — {{"keep": []}}. Без другого текста.
 
 КАНДИДАТЫ:
 {candidates_text}
 
-ПОДХОДЯЩИЕ:"""
+JSON-ОТВЕТ:"""
 
     try:
+        # FIX (аудит, P0 #2): max_tokens 200 → 500. При BATCH_SIZE=30 ответ
+        # вида {"keep": [1, 2, ..., 30]} в 200 токенов мог не влезть — обрезка
+        # незаметна ниже по течению, и хвост батча кэшировался как drop.
         answer = llm_client.chat(
             filter_prompt,
-            max_tokens=200,
+            max_tokens=500,
             temperature=0.1,
             organization_id=organization_id,
         )
         if answer is None:
             return None
-        answer = answer.strip()
 
-        # FIX (Bug #2): YandexGPT sometimes prepends a preamble before the digit,
-        # so the previous exact `== "0"` check missed "all-rejected" responses
-        # like "Ни один из кандидатов не подходит. 0" or "Подходящих: 0".
-        # Robustly detect an "all rejected" response by checking whether the
-        # answer (a) is literally "0", (b) contains no digits at all (e.g. "нет"
-        # / "none"), or (c) starts/ends with a lone "0" after stripping preamble.
-        _digits_in_answer = re.findall(r"\d+", answer)
-        _answer_lower = answer.lower()
-        _is_all_rejected = (
-            answer == "0"
-            or (not _digits_in_answer and any(
-                tok in _answer_lower for tok in ("нет", "none", "отсутствуют", "не подход")
-            ))
-            or (_digits_in_answer == ["0"])   # lone zero anywhere in the response
-        )
-        if _is_all_rejected:
-            return []
-
-        kept_indices: set[int] = set()
-        for part in re.findall(r"\d+", answer):
-            idx = int(part) - 1
-            if 0 <= idx < len(batch):
-                kept_indices.add(idx)
-
-        if not kept_indices:
-            # Previously we returned the full batch here ("keep all"), which let
-            # junk candidates leak through whenever the LLM returned gibberish.
-            # Signal failure instead so the caller can fall back to the strict
-            # rule-based filter.
+        parsed = _parse_keep_answer(answer.strip(), len(batch))
+        if parsed is None:
+            # Раньше нераспознанный ответ либо пропускал весь батч («keep all»),
+            # либо парсер хватал все цифры подряд и выносил неверные вердикты.
+            # Теперь: невнятный ответ → None → строгий rule-based fallback,
+            # и НИЧЕГО из этого батча не кэшируется.
             logger.warning(f"AI filter: could not parse response {answer!r}, falling back to rules")
             return None
 
-        return [c for i, c in enumerate(batch) if i in kept_indices]
+        kept_indices, verdict_complete = parsed
+        return [c for i, c in enumerate(batch) if i in kept_indices], verdict_complete
 
     except Exception as e:
         logger.warning(f"AI filter batch failed: {e}")
         return None  # Signal failure
+
+
+# FIX (аудит, P0 #1): раньше парсер брал ВСЕ цифры из ответа (re.findall(r"\d+")):
+# «Подходят 1, 3. Кандидаты 2 и 4 — конкуренты» оставлял ещё и 2, 4;
+# «Подходящих: 0 из 30» ломал эвристику «все отклонены» и оставлял №30;
+# «1-5» терял кандидатов 2-4. Неверные вердикты кэшировались на 7 дней.
+# Теперь промпт требует JSON {"keep": [...]}, текст разбирается лишь осторожным
+# fallback-ом ниже.
+_REFUSAL_TOKENS = ("конкурент", "не подход", "0 из")
+_NEGATIVE_WORDS = ("нет", "none", "отсутству", "не подход")
+
+
+def _extract_json_block(text: str) -> "str | None":
+    """Первый сбалансированный {...} блок из текста (или None, если блока нет
+    либо скобки не закрылись — т.е. JSON, скорее всего, обрезан)."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _parse_keep_answer(answer: str, batch_size: int) -> "tuple[set[int], bool] | None":
+    """Разбирает ответ LLM → (set 0-based KEEP-индексов, verdict_complete).
+
+    verdict_complete=True ТОЛЬКО для корректного JSON {"keep": [...]} со всеми
+    индексами в диапазоне 1..batch_size — лишь тогда отсутствие индекса можно
+    кэшировать как явный drop. Явный {"keep": []} — валидный вердикт «все
+    отклонены». None = неразборчиво/двусмысленно → rule-based fallback батча.
+    """
+    # 1) JSON-путь.
+    block = _extract_json_block(answer)
+    if block is not None:
+        try:
+            data = json.loads(block)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("keep"), list):
+            try:
+                nums = {int(x) for x in data["keep"]}
+            except (TypeError, ValueError):
+                nums = None
+            if nums is not None:
+                if not nums:
+                    return set(), True  # явный {"keep": []} = все отклонены
+                in_range = {n - 1 for n in nums if 1 <= n <= batch_size}
+                if not in_range:
+                    return None  # все индексы вне диапазона — мусор
+                # complete только если ВСЕ перечисленные индексы в диапазоне
+                return in_range, len(in_range) == len(nums)
+
+    # 2) Текстовый fallback — verdict_complete всегда False (обрезку текста
+    #    отличить от полного ответа нельзя, дропы не кэшируем).
+    lower = answer.lower()
+    digits = re.findall(r"\d+", answer)
+    if digits and any(tok in lower for tok in _REFUSAL_TOKENS):
+        # Цифры вперемешку с отказными формулировками («конкурент», «не
+        # подходит», «0 из») — двусмысленно: цифры могут быть номерами
+        # ОТКЛОНЁННЫХ. Фейлим батч.
+        return None
+    if not digits:
+        if any(tok in lower for tok in _NEGATIVE_WORDS):
+            return set(), False  # «нет подходящих» текстом — дропы не кэшируем
+        return None
+    if digits == ["0"]:
+        return set(), False  # одинокий ноль = все отклонены
+
+    # Цифры берём только из текста после ПОСЛЕДНЕГО маркера «ПОДХОДЯЩИЕ» /
+    # «подходят», а без маркера — из последней непустой строки.
+    pos = lower.rfind("подходя")
+    if pos != -1:
+        segment = answer[pos:]
+    else:
+        seg_lines = [ln for ln in answer.splitlines() if ln.strip()]
+        segment = seg_lines[-1] if seg_lines else answer
+
+    kept: set[int] = set()
+    for m in re.finditer(r"(\d+)\s*[-–—]\s*(\d+)|(\d+)", segment):
+        if m.group(3) is not None:
+            n = int(m.group(3))
+            if 1 <= n <= batch_size:
+                kept.add(n - 1)
+        else:
+            a, b = int(m.group(1)), int(m.group(2))
+            if not (1 <= a <= b <= batch_size):
+                return None  # диапазон вне батча — фейлим, не угадываем
+            kept.update(range(a - 1, b))  # «1-5» → 1,2,3,4,5
+    if not kept:
+        return None
+    return kept, False
 
 
 # ── Rule-based competitor filtering ──
@@ -335,22 +451,87 @@ _SELLER_SIGNALS = [
     "производител", "изготовлен", "дистрибьют",
 ]
 
+# Типовые русские окончания для грубой лемматизации (без словаря): срезаем
+# одно окончание, оставляя основу не короче 4 букв. «ресторанов»/«рестораны»/
+# «ресторане» → «ресторан»; «овощи»/«овощей» → «овощ». Длинные суффиксы первыми.
+_RU_SUFFIXES = (
+    "иями", "ями", "ами", "ого", "его", "ому", "ему", "ыми", "ими",
+    "ов", "ев", "ей", "ий", "ый", "ой", "ая", "яя", "ое", "ее", "ие", "ые",
+    "ам", "ям", "ом", "ем", "ах", "ях", "ую", "юю", "ью",
+    "а", "я", "о", "е", "ы", "и", "ь", "у", "ю", "й",
+)
+
+
+def _ru_stem(word: str) -> str:
+    for suf in _RU_SUFFIXES:
+        if word.endswith(suf) and len(word) - len(suf) >= 4:
+            return word[: len(word) - len(suf)]
+    return word
+
+
+def _segment_niche_stems(segments: "list[str] | None", niche: str) -> set[str]:
+    """Лемматизированный словарь сегментов + ниши.
+
+    FIX (аудит, P0 #3a/3d): сегменты и ниша описывают ПОКУПАТЕЛЕЙ («для
+    ресторанов»), а не продукт. Их лексику нужно вычитать из продуктовых
+    терминов, иначе rule-based фильтр отбраковывает ровно запрошенные сегменты
+    («Ресторан Пушкин» как «конкурента» продавца овощей).
+    """
+    stems: set[str] = set()
+    for src in list(segments or []) + [niche or ""]:
+        for word in (src or "").lower().replace("ё", "е").replace("-", " ").split():
+            w = word.strip(",.()[]:;\"'!?")
+            if len(w) >= 4:
+                stems.add(_ru_stem(w)[:6])
+    return stems
+
+
+# Частотные служебные слова, которые встречаются почти в каждом сниппете и
+# поэтому не несут продуктового сигнала. FIX (аудит, P1 #4): «для» попадало в
+# product_keywords и матчилось в КАЖДОМ сниппете — порог «2 продуктовых слова +
+# маркер продавца» фактически превращался в 1.
+_FUNCTION_WORDS = {
+    "для", "или", "как", "что", "это", "этот", "эта", "так", "там", "тут",
+    "при", "под", "над", "без", "про", "все", "всех", "если", "чтобы",
+    "наша", "наше", "наши", "ваша", "ваше", "ваши", "свой", "своя", "свои",
+    "есть", "будет", "может", "можно", "очень", "еще", "тоже", "также",
+}
+
+
 # Keywords extracted from prompt that indicate what user sells
-def _extract_product_keywords(prompt: str) -> list[str]:
-    """Extract product/service keywords from user's business description."""
-    prompt_lower = prompt.lower()
+def _extract_product_keywords(prompt: str, segments: "list[str] | None" = None,
+                              niche: str = "") -> list[str]:
+    """Extract product/service keywords from user's business description.
+
+    FIX (аудит, P1 #4): фильтруем стоп-/служебные слова, требуем длину >=4,
+    возвращаем УНИКАЛЬНЫЕ слова. FIX (P0 #3b/3d): часть промпта после первого
+    «для» — это аудитория, а не продукт; лексику сегментов/ниши вычитаем.
+    """
+    text = (prompt or "").lower().replace("ё", "е")
+    # Часть после первого «для» описывает покупателей — отрезаем.
+    text = re.split(r"\bдля\b", text, maxsplit=1)[0]
     # Remove common action words to isolate product
     for word in ["продаю", "продаём", "продаем", "предлагаю", "оказываю",
                  "делаю", "произвожу", "поставляю", "занимаюсь", "работаю"]:
-        prompt_lower = prompt_lower.replace(word, "")
+        text = text.replace(word, "")
 
     # Remove geography
-    import re as _re
-    prompt_lower = _re.sub(r'\bв\s+\w+[еу]?\b', '', prompt_lower)
+    text = re.sub(r'\bв\s+\w+[еу]?\b', '', text)
 
-    # Extract meaningful words (3+ chars)
-    words = [w.strip() for w in prompt_lower.split() if len(w.strip()) >= 3]
-    return words[:10]
+    vocab = _segment_niche_stems(segments, niche)
+    banned = _STOPWORDS | _FUNCTION_WORDS
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in text.split():
+        w = raw.strip(",.()[]:;\"'!?")
+        if len(w) < 4 or w in banned:
+            continue
+        if _ru_stem(w)[:6] in vocab:
+            continue  # слово сегмента/ниши = покупатель, не продукт
+        if w not in seen:
+            seen.add(w)
+            out.append(w)
+    return out[:10]
 
 
 # Generic words that appear in many 2GIS company names but carry no targeting
@@ -388,14 +569,22 @@ def _build_multiword_phrases(segments: list[str]) -> list[str]:
     return phrases
 
 
-def _extract_product_core_terms(prompt: str) -> list[str]:
+def _extract_product_core_terms(prompt: str, segments: "list[str] | None" = None,
+                                niche: str = "") -> list[str]:
     """Extract CORE product/service terms from prompt (strong competitor signals).
 
-    Example: "Оказываем бухгалтерские услуги" → ['бухгалтерск', 'налогов']
+    Example: "Оказываем бухгалтерские услуги" → ['бухгал']
     These roots in a company name indicate a direct competitor.
+
+    FIX (аудит, P0 #3): раньше сюда попадали слова ПОКУПАТЕЛЕЙ — из «Продаю
+    овощи для ресторанов» извлекался корень «рестор», и Step 1 отбраковывал
+    «Ресторан Пушкин» как конкурента. Теперь: (b) промпт режем по первому
+    «для» — дальше идёт аудитория; (a) лексику сегментов+ниши (лемматизированно)
+    вычитаем из корней.
     """
-    import re as _re
     text = (prompt or "").lower().replace("ё", "е")
+    # (3b) Часть после первого «для» — аудитория, не продукт.
+    text = re.split(r"\bдля\b", text, maxsplit=1)[0]
 
     # Remove action words
     for word in ("продаю", "продаём", "продаем", "предлагаю", "оказываем", "оказываю",
@@ -403,19 +592,24 @@ def _extract_product_core_terms(prompt: str) -> list[str]:
                  "занимаюсь", "занимаемся", "работаю", "работаем", "ищем"):
         text = text.replace(word, " ")
     # Remove geography prepositions
-    text = _re.sub(r'\bв\s+\w+[еу]?\b', '', text)
+    text = re.sub(r'\bв\s+\w+[еу]?\b', '', text)
     # Remove stopwords
     for sw in ("для", "и", "по", "с", "на", "из", "а", "но", "или", "также",
                "наш", "наши", "свой", "свои"):
-        text = _re.sub(rf'\b{sw}\b', ' ', text)
+        text = re.sub(rf'\b{sw}\b', ' ', text)
 
-    # Extract product root words (5+ chars for higher specificity)
+    # (3a) Словарь сегментов/ниши — это покупатели, вычитаем их корни.
+    vocab = _segment_niche_stems(segments, niche)
+
+    # Extract product root words (5+ chars, лемматизация срезанием окончания)
     roots = []
     for word in text.split():
         w = word.strip(",.()[]:;\"'!?").lower()
-        if len(w) >= 6 and w not in _STOPWORDS:
-            # Take 5-char stem for lemmatization-less matching
-            roots.append(w[:6])
+        if len(w) >= 5 and w not in _STOPWORDS:
+            stem = _ru_stem(w)[:6]
+            if stem in vocab:
+                continue
+            roots.append(stem)
     # Dedupe preserving order
     seen = set()
     out = []
@@ -431,6 +625,8 @@ def _rule_based_competitor_filter(
     prompt: str,
     niche: str,
     segments: list[str],
+    *,
+    synthesized_prompt: bool = False,
 ) -> list[dict]:
     """Rule-based filter — STRICT mode when LLM unavailable.
 
@@ -440,9 +636,14 @@ def _rule_based_competitor_filter(
     3. Multi-word segment phrase match → KEEP (strongest segment signal)
     4. Single-word segment match (stopword-filtered) → KEEP
     5. Nothing matches → REJECT (strict)
+
+    FIX (аудит, P0 #3c): synthesized_prompt=True означает, что промпт собран
+    из «{ниша} для {сегменты}» — в нём НЕТ слов продукта, только аудитория.
+    Step 1 (конкурент по имени) в этом случае пропускаем целиком, иначе он
+    отбраковывал ровно запрошенные сегменты.
     """
-    product_keywords = _extract_product_keywords(prompt)
-    core_terms = _extract_product_core_terms(prompt)
+    product_keywords = _extract_product_keywords(prompt, segments, niche)
+    core_terms = [] if synthesized_prompt else _extract_product_core_terms(prompt, segments, niche)
 
     # Build multi-word phrases from segments (strongest signal)
     phrases = _build_multiword_phrases(segments)

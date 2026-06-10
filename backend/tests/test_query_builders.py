@@ -13,16 +13,19 @@ Coverage
   * `_build_discover_queries` — SearXNG-bound discovery queries.
       - has_prompt=False → niche queries present
       - has_prompt=True + segments → segment-only, NO niche queries
-      - has_prompt=True + empty segments → ZERO queries (bail-out)
-      - negative-keyword switching (CORE vs CORE+SELLER_EXTRA)
-  * `_build_yandex_map_queries` — Yandex Places (geo-aware) queries.
+      - has_prompt=True + empty segments → minimal niche fallback queries
+        (fix [prompt-no-segments]: раньше — ноль запросов навсегда)
+      - negative-keyword switching (CORE vs SELLER_EXTRA+CORE), решение
+        ПО СЕГМЕНТУ (fix [neg-per-segment])
+      - query word budget ≤ 32 (fix [searx-query-len])
+  * `_build_yandex_map_queries` / `_build_yandex_map_query_groups` —
+    Yandex Places (geo-aware) queries.
       - has_prompt=False → niche in every query
-      - has_prompt=True + segments → niche in NONE
-      - has_prompt=True + empty segments → empty list
-  * `_pick_negatives` — the CORE / CORE+SELLER_EXTRA chooser.
+      - has_prompt=True + segments → niche in NONE, one group per segment
+  * `_pick_negatives` — the CORE / SELLER_EXTRA+CORE chooser.
       - no prompt → CORE only (no -продажа, no -купить)
       - prompt + seller-category segments → CORE only
-      - prompt + non-seller segments → CORE + SELLER_EXTRA
+      - prompt + non-seller segments → SELLER_EXTRA first, then CORE
 
 Invocation
 ----------
@@ -47,6 +50,7 @@ from app.services.lead_collection import (
     _NEGATIVE_SELLER_EXTRA,
     _build_discover_queries,
     _build_yandex_map_queries,
+    _build_yandex_map_query_groups,
     _pick_negatives,
 )
 
@@ -56,7 +60,9 @@ from app.services.lead_collection import (
 # in CORE, so its presence is a clean signal.
 _SELLER_EXTRA_MARKER = "-купить"
 # A distinctive fragment of CORE that's ALWAYS present.
-_CORE_MARKER = "-wikipedia"
+# (fix [searx-query-len]: CORE ужат до ≤10 токенов, "-wikipedia" заменён на
+# "-википедия"; маркером берём "-вакансии" — он есть только в CORE.)
+_CORE_MARKER = "-вакансии"
 
 
 # ---------------------------------------------------------------------------
@@ -229,25 +235,32 @@ DISCOVER_CASES: list[QueryCase] = [
         category="prompt_b2b",
     ),
     QueryCase(
-        case_id="discover_prompt_empty_segments_bailout",
+        case_id="discover_prompt_empty_segments_niche_fallback",
         description=(
-            "has_prompt=True + empty segments: bail-out — produce ZERO queries "
-            "(no niche fallback, no segment pass)."
+            "has_prompt=True + empty segments: fix [prompt-no-segments] — "
+            "минимум один запрос из ниши вместо вечного нуля (веб-проход — "
+            "единственный источник сайтов/email)."
         ),
         builder=_build_discover_queries,
         inputs=dict(niche="кормовые добавки", geo="Краснодар", segments=[], has_prompt=True),
         asserts=[
-            is_empty(),
+            query_count(minimum=1),
+            contains_substr("кормовые добавки"),
+            every_query_contains(_CORE_MARKER),
+            # сегменты неизвестны → play safe, без seller-негативов
+            no_query_contains(_SELLER_EXTRA_MARKER),
         ],
         category="prompt_bailout",
     ),
     QueryCase(
-        case_id="discover_prompt_none_segments_bailout",
-        description="has_prompt=True + segments=None-ish (falsy): same bail-out.",
+        case_id="discover_prompt_none_segments_niche_fallback",
+        description="has_prompt=True + segments=None-ish (falsy): same niche fallback.",
         builder=_build_discover_queries,
         inputs=dict(niche="виджеты", geo="Москва", segments=[], has_prompt=True),
         asserts=[
-            is_empty(),
+            query_count(minimum=1),
+            contains_substr("виджеты"),
+            no_query_contains(_SELLER_EXTRA_MARKER),
         ],
         category="prompt_bailout",
     ),
@@ -718,6 +731,99 @@ def test_query_builder_case(case: QueryCase) -> None:
         f"[{case.category}] {case.case_id}: {case.description}\n"
         + "\n".join(f"  - {r}" for r in reasons)
     )
+
+
+# ---------------------------------------------------------------------------
+# Fix [searx-query-len] / [neg-per-segment] — standalone regression tests
+# ---------------------------------------------------------------------------
+
+
+def test_discover_queries_fit_engine_word_budget() -> None:
+    """SearXNG-движки режут запрос на ~32 словах. Раньше хвосты негативов
+    раздували запрос до 45-65 слов и ВСЕ исключения молча отбрасывались."""
+    configs = [
+        dict(niche="кормовые добавки", geo="Краснодарский край",
+             segments=["птицефабрика", "молочная ферма", "ресторан"], has_prompt=True),
+        dict(niche="пластиковые окна", geo="Санкт-Петербург", segments=[], has_prompt=False),
+        dict(niche="кормовые добавки", geo="Краснодар", segments=[], has_prompt=True),
+    ]
+    for cfg in configs:
+        for q in _build_discover_queries(**cfg):
+            assert len(q.split()) <= 32, f"query has {len(q.split())} words (>32): {q!r}"
+
+
+def test_negatives_token_budget_and_no_domains() -> None:
+    """≤10 токенов негативов; доменные негативы убраны (агрегаторы режутся
+    после выдачи), «-inn» убран (выкидывал отели с Inn в названии)."""
+    for negs in (
+        _pick_negatives(has_prompt=False, segments=None),
+        _pick_negatives(has_prompt=True, segments=["ресторан"]),
+        _pick_negatives(has_prompt=True, segments=["магазин одежды"]),
+    ):
+        tokens = negs.split()
+        assert len(tokens) <= 10, f"{len(tokens)} negative tokens (>10): {negs!r}"
+        assert all(t.startswith("-") for t in tokens)
+        assert not any("." in t for t in tokens), f"domain negative survived: {negs!r}"
+        assert "-inn" not in tokens
+
+
+def test_seller_negatives_come_first() -> None:
+    """SELLER-негативы идут ПЕРВЫМИ — переживут обрезку хвоста движком."""
+    negs = _pick_negatives(has_prompt=True, segments=["ресторан"])
+    assert negs.startswith(_NEGATIVE_SELLER_EXTRA)
+    assert negs.endswith(_NEGATIVE_CORE)
+
+
+def test_discover_negatives_decided_per_segment() -> None:
+    """Fix [neg-per-segment]: один seller-сегмент не отключает seller-негативы
+    для остальных сегментов проекта."""
+    queries = _build_discover_queries(
+        "упаковка", "Москва",
+        ["магазин одежды", "ресторан"],
+        has_prompt=True,
+    )
+    shop_queries = [q for q in queries if "магазин одежды" in q]
+    restaurant_queries = [q for q in queries if "ресторан" in q]
+    assert shop_queries and restaurant_queries
+    # seller-сегмент → CORE only
+    assert all(_SELLER_EXTRA_MARKER not in q for q in shop_queries)
+    # buyer-сегмент того же проекта → SELLER_EXTRA сохранён
+    assert all(_SELLER_EXTRA_MARKER in q for q in restaurant_queries)
+
+
+def test_internet_provider_segment_keeps_seller_negatives() -> None:
+    """«интернет-провайдер» — легитимный покупатель; раньше подстрока
+    «интернет» отключала seller-негативы для всего проекта."""
+    negs = _pick_negatives(has_prompt=True, segments=["интернет-провайдер"])
+    assert _SELLER_EXTRA_MARKER in negs
+    # а «интернет-магазин» (через подстроку «магазин») по-прежнему CORE-only
+    negs_shop = _pick_negatives(has_prompt=True, segments=["интернет-магазин"])
+    assert _SELLER_EXTRA_MARKER not in negs_shop
+
+
+# ---------------------------------------------------------------------------
+# Fix [yandex-budget] — query GROUPS (per-segment budget split support)
+# ---------------------------------------------------------------------------
+
+
+def test_yandex_query_groups_one_group_per_segment_buyer_mode() -> None:
+    groups = _build_yandex_map_query_groups(
+        "корм", "Томск", ["ферма", "птицефабрика"], has_prompt=True,
+    )
+    assert len(groups) == 2
+    for seg, group in zip(["ферма", "птицефабрика"], groups):
+        assert len(group) == 2  # 'гео, сегмент' + 'сегмент, гео'
+        assert all(seg in q for q in group)
+        assert all("корм" not in q for q in group)  # niche excluded under prompt
+
+
+def test_yandex_query_groups_flatten_matches_flat_builder() -> None:
+    kwargs = dict(niche="аптека", geo="Сочи", segments=["клиника", "клиника"], has_prompt=False)
+    flat = _build_yandex_map_queries(**kwargs)
+    groups = _build_yandex_map_query_groups(**kwargs)
+    assert [q for g in groups for q in g] == flat
+    # дедуп: пустых групп нет
+    assert all(groups)
 
 
 # ---------------------------------------------------------------------------

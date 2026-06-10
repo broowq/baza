@@ -451,6 +451,11 @@ def _company_to_candidate(row: Company) -> dict:
         "phone": row.phone or "",
         "address": row.address or "",
         "score": int(row.best_score or 0),
+        # The save loop in collect_leads_task reads "relevance_score" (for the
+        # score_lead() input and the "relevance=NN; " notes prefix). best_score
+        # is stored FROM relevance_score at upsert, so the scale matches —
+        # without this every warehouse-served lead was scored with relevance 0.
+        "relevance_score": int(row.best_score or 0),
         "source": "warehouse",
         "source_url": row.website or "",
         "snippet": row.description or "",
