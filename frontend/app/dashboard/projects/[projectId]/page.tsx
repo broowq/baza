@@ -90,8 +90,16 @@ export default function ProjectDetailsPage() {
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
 
-  const fetchAll = useCallback(async () => {
-    setTableLoading(true);
+  // Monotonic request counter: only the most recent fetchAll call may write
+  // state, so a slow older response can't overwrite a newer filtered one.
+  const reqSeq = useRef(0);
+
+  // `background: true` — silent refresh (6s polling, post-job refetch): data is
+  // updated without flipping tableLoading, so the table doesn't collapse into
+  // skeletons and unmount rows (wiping half-typed notes) mid-run.
+  const fetchAll = useCallback(async (background = false) => {
+    const seq = ++reqSeq.current;
+    if (!background) setTableLoading(true);
     try {
       const query = new URLSearchParams({ page: String(page), per_page: String(perPage), q: debouncedSearch, sort, order });
       if (status !== "all") query.set("status", status);
@@ -107,6 +115,8 @@ export default function ProjectDetailsPage() {
         api<{ role: "owner" | "admin" | "member" }>("/organizations/membership"),
         api<{ total: number; enriched: number; with_email: number; avg_score: number }>(`/leads/project/${projectId}/stats`),
       ]);
+      // Stale response — a newer fetchAll has started since; drop this one.
+      if (seq !== reqSeq.current) return;
       // Cross-org guard: if the requested project_id is not in the user's
       // accessible list (different org or deleted), redirect to dashboard
       // instead of rendering a blank page with null project.
@@ -123,6 +133,7 @@ export default function ProjectDetailsPage() {
       setOrgRole(membership.role);
       setStats({ total: statsData.total, enriched: statsData.enriched, withEmail: statsData.with_email, avgScore: Math.round(statsData.avg_score) });
     } catch (error) {
+      if (seq !== reqSeq.current) return;
       const msg = error instanceof Error ? error.message : "";
       if (msg.includes("авториз") || msg.includes("Сессия")) {
         window.location.href = "/login";
@@ -130,8 +141,10 @@ export default function ProjectDetailsPage() {
       }
       setError(msg || "Не удалось загрузить проект");
     } finally {
-      setLoading(false);
-      setTableLoading(false);
+      if (seq === reqSeq.current) {
+        setLoading(false);
+        setTableLoading(false);
+      }
     }
   }, [hasEmail, hasPhone, maxScore, minScore, order, page, perPage, projectId, debouncedSearch, sort, status]);
 
@@ -143,7 +156,7 @@ export default function ProjectDetailsPage() {
 
   useEffect(() => {
     if (!hasActiveJobs) return;
-    const id = setInterval(() => void fetchAll(), 6000);
+    const id = setInterval(() => void fetchAll(true), 6000);
     return () => clearInterval(id);
   }, [hasActiveJobs, fetchAll]);
 
@@ -176,7 +189,11 @@ export default function ProjectDetailsPage() {
             if (!line.startsWith("data: ")) continue;
             try {
               const parsed = JSON.parse(line.slice(6));
-              if (Array.isArray(parsed)) setJobs(parsed);
+              if (Array.isArray(parsed)) {
+                // Transient backend errors can emit `data: []` mid-run; don't
+                // let such a tick wipe the existing job history.
+                setJobs((prev) => (parsed.length === 0 && prev.length > 0 ? prev : parsed));
+              }
             } catch { /* ignore */ }
           }
         }
@@ -235,7 +252,7 @@ export default function ProjectDetailsPage() {
         body: JSON.stringify({ lead_limit: limit }),
       });
       toast.success(kind === "collect" ? "Собираем новые компании…" : "Задача обогащения добавлена в очередь");
-      await fetchAll();
+      await fetchAll(true);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось запустить задачу");
     } finally {
@@ -274,7 +291,7 @@ export default function ProjectDetailsPage() {
         body: JSON.stringify({ lead_ids: leadIds }),
       });
       toast.success(`Обогащение запущено для ${leadIds.length} лидов`);
-      await fetchAll();
+      await fetchAll(true);
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось запустить обогащение");

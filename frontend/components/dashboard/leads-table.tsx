@@ -8,6 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogMedia,
+} from "@/components/ui/alert-dialog";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
 import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
@@ -315,6 +326,8 @@ export function LeadsTable({
   const [runningBulk, setRunningBulk] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Lead | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const filtered = useMemo(() => {
     if (hideInternalFilters) return leads;
@@ -356,6 +369,9 @@ export function LeadsTable({
   };
 
   const changeStatus = async (leadId: string, newStatus: Lead["status"]) => {
+    // Optimistic update with revert-on-error: remember the previous status so
+    // a failed PATCH doesn't leave the UI showing a state the server rejected.
+    const prevStatus = leads.find((l) => l.id === leadId)?.status;
     onLeadUpdate?.(leadId, { status: newStatus });
     try {
       await api(`/leads/${leadId}`, {
@@ -363,17 +379,25 @@ export function LeadsTable({
         body: JSON.stringify({ status: newStatus }),
       });
     } catch (error) {
+      if (prevStatus) onLeadUpdate?.(leadId, { status: prevStatus });
       toast.error(error instanceof Error ? error.message : "Не удалось обновить статус");
     }
   };
 
-  const deleteLead = async (leadId: string) => {
-    onLeadDelete?.(leadId);
+  // Pessimistic delete: await the DELETE and remove the row only on success —
+  // a failed request must not silently drop a paid lead from the list.
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await api(`/leads/${leadId}`, { method: "DELETE" });
+      await api(`/leads/${deleteTarget.id}`, { method: "DELETE" });
+      onLeadDelete?.(deleteTarget.id);
+      setDeleteTarget(null);
       toast.success("Лид удалён");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось удалить лид");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -703,7 +727,7 @@ export function LeadsTable({
                             className="text-white/[0.48] hover:text-status-offline"
                             onClick={(e) => {
                               e.stopPropagation();
-                              void deleteLead(lead.id);
+                              setDeleteTarget(lead);
                             }}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -726,6 +750,31 @@ export function LeadsTable({
         Показано {filtered.length} из {leads.length}
         {selectedIds.length > 0 && ` · Выбрано: ${selectedIds.length}`}
       </p>
+
+      {/* Delete-lead confirmation — same pattern as project deletion */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open && !deleting) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia className="bg-destructive/10">
+              <Trash2 className="h-5 w-5 text-destructive" />
+            </AlertDialogMedia>
+            <AlertDialogTitle>Удалить лид?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Лид &laquo;{deleteTarget?.company}&raquo; вместе с заметками и тегами будет удалён безвозвратно.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmDelete()}
+            >
+              {deleting ? "Удаляем..." : "Удалить"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <LeadDetailDrawer
         leadId={openLeadId}

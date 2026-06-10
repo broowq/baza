@@ -310,6 +310,7 @@ export default function DashboardPage() {
   // Sum across ALL jobs of ALL projects (not just the latest per project) so
   // the «по всем проектам» totals reflect the full collection history.
   const totalLeads = allJobs.reduce((acc, job) => acc + (job.added_count ?? 0), 0);
+  // TODO: replace with a lead-level stats endpoint — summing enriched_count over jobs double-counts re-enriched leads and can exceed the total.
   const totalEnriched = allJobs.reduce((acc, job) => acc + (job.enriched_count ?? 0), 0);
   const activeJobs = allJobs.filter((j) => j.status === "running").length;
 
@@ -338,10 +339,18 @@ export default function DashboardPage() {
                     setSwitchingOrg(true);
                     setOrgId(selected.id);
                     setOrg(selected);
+                    // Clear the previous org's data so org A's stats/jobs never
+                    // render under org B's name while the refetch is in flight.
+                    setProjects([]);
+                    setLatestJobs({});
+                    setAllJobs([]);
+                    setLoading(true);
                     try {
-                      const membership = await api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null);
-                      if (membership) setOrgRole(membership.role); else setOrgRole("member");
-                      await refreshProjects();
+                      // Full bootstrap re-fetches membership, projects AND
+                      // per-project jobs under the new X-Org-Id. It never
+                      // rejects (errors are caught inside and shown via the
+                      // error panel), so no try/catch-toast here.
+                      await bootstrap();
                     } finally {
                       setSwitchingOrg(false);
                     }
@@ -414,7 +423,7 @@ export default function DashboardPage() {
           <div className="stat-tile elev-1">
             <div className="stat-tile__label">Обогащено</div>
             <div className="stat-tile__value tnum">{totalEnriched.toLocaleString("ru-RU")}</div>
-            <div className="stat-tile__sub">с email / телефон</div>
+            <div className="stat-tile__sub">обработано обогащением</div>
           </div>
           <div className="stat-tile elev-1">
             <div className="stat-tile__label">Активных сборов</div>
