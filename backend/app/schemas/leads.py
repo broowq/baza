@@ -61,8 +61,8 @@ class LeadWarehouseRef(BaseModel):
     times_seen: int = 0
     first_seen_at: datetime | None = None
     last_seen_at: datetime | None = None
-    # Niches this company surfaced under in OTHER searches (across all orgs).
-    other_niches: list[str] = Field(default_factory=list)
+    # NOTE: no `other_niches` here — warehouse niches are other organizations'
+    # search intents (cross-tenant data) and must not be exposed.
     sources: list[str] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)
     best_score: int = 0

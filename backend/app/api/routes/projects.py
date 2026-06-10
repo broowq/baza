@@ -102,7 +102,8 @@ def create_project(
     if payload.prompt and payload.prompt.strip() == payload.niche.strip():
         try:
             from app.services.prompt_enhancer import enhance_prompt as do_enhance
-            enhanced = do_enhance(payload.prompt)
+            # organization_id routes the LLM spend into this org's AI budget cap.
+            enhanced = do_enhance(payload.prompt, organization_id=str(organization.id))
             if enhanced.get("niche"):
                 final_niche = enhanced["niche"]
             if enhanced.get("geography") and enhanced["geography"] != "Россия":

@@ -178,7 +178,11 @@ def accept_invite(
     invite = db.execute(select(Invite).where(Invite.token == payload.token)).scalar_one_or_none()
     if not invite or invite.accepted:
         raise HTTPException(status_code=404, detail="Приглашение не найдено")
-    if invite.expires_at < datetime.now(timezone.utc):
+    # Columns are `timestamp without time zone`, so psycopg2 returns NAIVE
+    # datetimes; the stored wall-clock IS UTC (session TZ is pinned). Normalize
+    # before comparing or the naive-vs-aware comparison raises TypeError (500).
+    expires = invite.expires_at if invite.expires_at.tzinfo else invite.expires_at.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
         raise HTTPException(status_code=410, detail="Срок действия приглашения истек")
     if invite.email.lower().strip() != user.email.lower().strip():
         raise HTTPException(status_code=403, detail="Email пользователя не совпадает с приглашением")

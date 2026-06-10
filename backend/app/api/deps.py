@@ -48,7 +48,9 @@ def get_current_org(
 ) -> Organization:
     base_filter = select(Membership).where(Membership.user_id == user.id)
     if not x_org_id:
-        membership = db.execute(base_filter).scalar_one_or_none()
+        # No X-Org-Id: pick the user's first membership deterministically.
+        # scalar_one_or_none() raised MultipleResultsFound (500) for multi-org users.
+        membership = db.execute(base_filter.order_by(Membership.id)).scalars().first()
         if not membership:
             raise HTTPException(status_code=403, detail="У вас нет доступа к организации")
         org = db.get(Organization, membership.organization_id)
@@ -83,7 +85,8 @@ def get_org_membership(
 ) -> Membership:
     base_filter = select(Membership).where(Membership.user_id == user.id)
     if not x_org_id:
-        membership = db.execute(base_filter).scalar_one_or_none()
+        # Same deterministic pick as get_current_org (multi-org users would 500).
+        membership = db.execute(base_filter.order_by(Membership.id)).scalars().first()
         if not membership:
             raise HTTPException(status_code=403, detail="У вас нет доступа к организации")
         return membership

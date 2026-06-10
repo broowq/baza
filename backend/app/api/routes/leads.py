@@ -577,17 +577,15 @@ def get_lead_detail(
     )
     warehouse_ref = LeadWarehouseRef()
     if company is not None:
-        # "other niches" = niches this company surfaced under, minus this
-        # project's own niche (so the drawer shows cross-niche discovery).
-        own_niche = (project.niche or "").strip().lower()
-        other_niches = [n for n in (company.niches or []) if n.strip().lower() != own_niche]
+        # NOTE: Company.niches is deliberately NOT exposed here — those are
+        # OTHER organizations' search niches (their go-to-market intent), a
+        # cross-tenant leak. sources/categories are public data and stay.
         warehouse_ref = LeadWarehouseRef(
             found=True,
             company_id=company.id,
             times_seen=company.times_seen,
             first_seen_at=company.first_seen_at,
             last_seen_at=company.last_seen_at,
-            other_niches=other_niches,
             sources=list(company.sources or []),
             categories=list(company.categories or []),
             best_score=company.best_score,

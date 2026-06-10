@@ -8,6 +8,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -42,6 +43,8 @@ class LeadStatus(str, enum.Enum):
 
 class Organization(Base):
     __tablename__ = "organizations"
+    # Mirrors the migration-created index so autogenerate doesn't drop it.
+    __table_args__ = (Index("ix_organizations_name", "name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
@@ -87,7 +90,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -145,7 +148,17 @@ class Project(Base):
 
 class Lead(Base):
     __tablename__ = "leads"
-    __table_args__ = (UniqueConstraint("project_id", "website", name="uq_project_website"),)
+    # Indexes mirror the ones created in migrations so `alembic revision
+    # --autogenerate` doesn't emit drop_index for them.
+    __table_args__ = (
+        UniqueConstraint("project_id", "website", name="uq_project_website"),
+        Index("ix_leads_project_id_status", "project_id", "status"),
+        Index("ix_leads_project_score", "project_id", "score"),
+        Index("ix_leads_organization_id_created_at", "organization_id", "created_at"),
+        Index("ix_leads_project_domain_company", "project_id", "domain", "company"),
+        Index("ix_leads_domain", "domain"),
+        Index("ix_leads_website", "website"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), index=True)
@@ -158,7 +171,7 @@ class Lead(Base):
     # Deliverability status after MX-record check at enrichment time.
     # One of: "valid" (MX present), "no_mx" (syntax-OK but dead domain),
     # "syntax" (invalid format), "skipped" (DNS temp error), "" (not checked).
-    email_status: Mapped[str] = mapped_column(String(20), default="", nullable=False)
+    email_status: Mapped[str] = mapped_column(String(20), default="", nullable=False, index=True)
     phone: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     address: Mapped[str] = mapped_column(String(300), default="", nullable=False)
     contacts: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
@@ -232,7 +245,14 @@ class CollectionJob(Base):
     enriched_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    # onupdate: any ORM update bumps the heartbeat (belt-and-braces alongside
+    # the explicit bumps in the long-running collect/enrich tasks).
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
 
     project = relationship("Project", back_populates="jobs")
 
@@ -254,6 +274,8 @@ class Invite(Base):
 
 class ActionLog(Base):
     __tablename__ = "action_logs"
+    # Mirrors the migration-created index so autogenerate doesn't drop it.
+    __table_args__ = (Index("ix_action_logs_org_created_at", "organization_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
@@ -313,6 +335,8 @@ class Company(Base):
 
 class Subscription(Base):
     __tablename__ = "subscriptions"
+    # Mirrors the migration-created index so autogenerate doesn't drop it.
+    __table_args__ = (Index("ix_subscriptions_org_created_at", "organization_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False)
