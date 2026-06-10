@@ -117,3 +117,20 @@ class PaginatedLeadsOut(BaseModel):
     total: int
     page: int
     per_page: int
+
+
+class CallNoteCreate(BaseModel):
+    """A call-journal entry. Comment is optional — just marking the call
+    (who + when) is already valuable for a team splitting an outreach list."""
+    comment: str = Field(default="", max_length=2000)
+
+
+class CallNoteOut(BaseModel):
+    id: UUID
+    user_id: UUID | None
+    user_name: str
+    comment: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True

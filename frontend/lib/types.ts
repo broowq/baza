@@ -90,6 +90,14 @@ export type LeadDetail = Lead & {
   warehouse?: LeadWarehouse | null;
 };
 
+export type LeadCallNote = {
+  id: string;
+  user_id: string | null;
+  user_name: string;
+  comment: string;
+  created_at: string;
+};
+
 export type CollectionJob = {
   id: string;
   status: "queued" | "running" | "done" | "failed";

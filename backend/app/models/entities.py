@@ -194,6 +194,30 @@ class Lead(Base):
     project = relationship("Project", back_populates="leads")
 
 
+class LeadCallNote(Base):
+    """Call-journal entry on a lead: who called, when, and a free comment.
+
+    user_name is a snapshot so history survives user rename/removal;
+    user_id is SET NULL on user deletion, rows cascade with the lead.
+    """
+    __tablename__ = "lead_call_notes"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    user_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+
+
 class CollectionJob(Base):
     __tablename__ = "collection_jobs"
 

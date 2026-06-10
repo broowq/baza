@@ -13,9 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_org, get_current_user, require_org_roles
 from app.db.session import get_db
-from app.models import CollectionJob, JobStatus, Lead, Organization, Project, User
+from app.models import CollectionJob, JobStatus, Lead, LeadCallNote, Organization, Project, User
 from app.models.entities import LeadStatus
 from app.schemas.leads import (
+    CallNoteCreate,
+    CallNoteOut,
     CollectionJobOut,
     EnrichSelectedRequest,
     LeadDetailOut,
@@ -652,6 +654,68 @@ def update_lead(
     db.commit()
     db.refresh(lead)
     return lead
+
+
+def _get_org_lead_or_404(db: Session, lead_id: uuid.UUID, organization: Organization) -> Lead:
+    """Org-scoped lead fetch shared by the call-journal routes (404 opacity)."""
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.organization_id != organization.id:
+        raise HTTPException(status_code=404, detail="Лид не найден")
+    project = db.get(Project, lead.project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Лид не найден")
+    return lead
+
+
+@router.get("/{lead_id}/calls", response_model=list[CallNoteOut])
+def list_call_notes(
+    lead_id: uuid.UUID,
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Call journal for a lead, newest first."""
+    _get_org_lead_or_404(db, lead_id, organization)
+    notes = db.execute(
+        select(LeadCallNote)
+        .where(
+            LeadCallNote.lead_id == lead_id,
+            LeadCallNote.organization_id == organization.id,
+        )
+        .order_by(LeadCallNote.created_at.desc())
+        .limit(100)
+    ).scalars().all()
+    return notes
+
+
+@router.post("/{lead_id}/calls", response_model=CallNoteOut, status_code=201)
+def add_call_note(
+    lead_id: uuid.UUID,
+    payload: CallNoteCreate,
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Record a call on the lead: who called (current user) + optional comment.
+
+    Side effects mirror mark_contacted: last_contacted_at=now(), and a lead
+    still in "new" moves to "contacted" — so the journal is the single button
+    sales clicks after dialing.
+    """
+    lead = _get_org_lead_or_404(db, lead_id, organization)
+    note = LeadCallNote(
+        organization_id=organization.id,
+        lead_id=lead.id,
+        user_id=user.id,
+        user_name=(user.full_name or user.email or "")[:120],
+        comment=(payload.comment or "").strip(),
+    )
+    db.add(note)
+    lead.last_contacted_at = datetime.now(timezone.utc)
+    if lead.status == LeadStatus.new:
+        lead.status = LeadStatus.contacted
+    db.commit()
+    db.refresh(note)
+    return note
 
 
 @router.delete("/{lead_id}", status_code=204)

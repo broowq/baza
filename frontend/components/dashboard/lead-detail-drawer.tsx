@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2 } from "lucide-react";
+import { ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2, PhoneCall } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-import type { Lead, LeadDetail } from "@/lib/types";
+import type { Lead, LeadCallNote, LeadDetail } from "@/lib/types";
 
 /* ─────────────────────────────────────────────────────────────────
    Constants
@@ -152,6 +152,9 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   const [saving, setSaving] = useState(false);
   const [editNotes, setEditNotes] = useState("");
   const [tagInput, setTagInput] = useState("");
+  const [calls, setCalls] = useState<LeadCallNote[]>([]);
+  const [callComment, setCallComment] = useState("");
+  const [savingCall, setSavingCall] = useState(false);
   const drawerRef = useRef<HTMLElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -182,6 +185,16 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
         if (!cancelled) setLoading(false);
       });
 
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  /* Fetch call journal when leadId changes */
+  useEffect(() => {
+    if (!leadId) { setCalls([]); setCallComment(""); return; }
+    let cancelled = false;
+    api<LeadCallNote[]>(`/leads/${leadId}/calls`)
+      .then((data) => { if (!cancelled) setCalls(data); })
+      .catch(() => { /* журнал не критичен для отображения карточки */ });
     return () => { cancelled = true; };
   }, [leadId]);
 
@@ -223,6 +236,35 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   }, [leadId, onLeadUpdate]);
 
   const changeStatus = (newStatus: Lead["status"]) => void patchLead({ status: newStatus });
+
+  /* Record a call: who (current user, attributed server-side) + optional comment.
+     Side effects mirror mark_contacted: last_contacted_at=now, new → contacted. */
+  const recordCall = useCallback(async (comment: string) => {
+    if (!leadId) return;
+    setSavingCall(true);
+    try {
+      const note = await api<LeadCallNote>(`/leads/${leadId}/calls`, {
+        method: "POST",
+        body: JSON.stringify({ comment: comment.trim() }),
+      });
+      setCalls((prev) => [note, ...prev]);
+      setCallComment("");
+      const nowIso = new Date().toISOString();
+      setDetail((prev) => prev
+        ? { ...prev, last_contacted_at: nowIso, status: prev.status === "new" ? "contacted" : prev.status }
+        : prev);
+      if (detail) {
+        onLeadUpdate?.(leadId, {
+          last_contacted_at: nowIso,
+          status: detail.status === "new" ? "contacted" : detail.status,
+        });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось записать звонок");
+    } finally {
+      setSavingCall(false);
+    }
+  }, [leadId, detail, onLeadUpdate]);
 
   const saveNotes = () => {
     const stripped = editNotes.trim();
@@ -562,6 +604,65 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     }}
                   />
                 </section>
+
+                {/* Call journal: who called + comment, history below */}
+                <section>
+                  <div className="eyebrow mb-2">Обзвон</div>
+                  <div className="space-y-2">
+                    <textarea
+                      value={callComment}
+                      onChange={(e) => setCallComment(e.target.value)}
+                      disabled={savingCall}
+                      rows={2}
+                      maxLength={2000}
+                      placeholder="Комментарий к звонку: с кем говорили, итог, когда перезвонить..."
+                      className="input focus-ring w-full resize-none rounded-xl px-3 py-2.5 text-sm"
+                      style={{
+                        height: "auto",
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.10)",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={savingCall}
+                      onClick={() => void recordCall(callComment)}
+                      className="btn btn-ghost focus-ring w-full text-xs"
+                      style={{ height: 32, fontSize: 11 }}
+                    >
+                      {savingCall
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : <><PhoneCall size={12} className="mr-1.5" /> Записать звонок</>
+                      }
+                    </button>
+
+                    {calls.length > 0 && (
+                      <div className="panel-glass divide-y" style={{ divideColor: "rgba(255,255,255,0.06)" } as React.CSSProperties}>
+                        {calls.map((c) => (
+                          <div key={c.id} className="px-3 py-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium t-72">{c.user_name || "—"}</span>
+                              <span className="t-40 text-[10.5px]">
+                                {new Date(c.created_at).toLocaleString("ru-RU", {
+                                  day: "2-digit", month: "2-digit", year: "2-digit",
+                                  hour: "2-digit", minute: "2-digit",
+                                })}
+                              </span>
+                            </div>
+                            {c.comment && (
+                              <p className="caption mt-1" style={{ lineHeight: 1.5, overflowWrap: "anywhere" }}>
+                                {c.comment}
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {calls.length === 0 && (
+                      <div className="t-40 text-xs px-1">Звонков пока не было</div>
+                    )}
+                  </div>
+                </section>
               </div>
             )}
           </div>
@@ -589,16 +690,17 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   </div>
                 </div>
 
-                {/* Mark contacted */}
+                {/* Mark contacted — writes a call-journal entry so the team
+                    sees WHO called, not just that someone did */}
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={saving}
-                    onClick={() => void patchLead({ mark_contacted: true })}
+                    disabled={savingCall}
+                    onClick={() => void recordCall(callComment)}
                     className="btn btn-brand focus-ring flex-1 text-xs"
                     style={{ height: 34, fontSize: 12 }}
                   >
-                    {saving
+                    {savingCall
                       ? <Loader2 size={12} className="animate-spin" />
                       : "✓ Связались сейчас"
                     }
