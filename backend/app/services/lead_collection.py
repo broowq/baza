@@ -621,8 +621,13 @@ def _finalize_candidates(candidates: list[dict], limit: int) -> list[dict]:
 
 
 def _merge_fields(target: dict, source: dict) -> None:
-    """Merge non-empty structured fields from *source* into *target* where target is empty."""
-    merge_keys = ["address", "city", "phone", "email", "company", "category", "description"]
+    """Merge non-empty structured fields from *source* into *target* where target is empty.
+
+    website/domain included: a Yandex duplicate often carries the site (→ email
+    enrichment path) that the 2GIS/registry base row lacks — dropping it threw
+    away the contact trail.
+    """
+    merge_keys = ["address", "city", "phone", "email", "company", "category", "description", "website", "domain"]
     for key in merge_keys:
         if not target.get(key) and source.get(key):
             target[key] = source[key]
@@ -783,9 +788,20 @@ def _search_bing(query: str, limit: int) -> list[dict]:
 
 
 def _extract_address_component(address_payload: dict, *kinds: str) -> str:
-    for component in address_payload.get("Components", []):
-        if component.get("kind") in kinds and component.get("name"):
-            return component["name"]
+    """Pick an address component honoring the ARGUMENT priority order.
+
+    Yandex lists Components hierarchically (country → province «ЦФО» →
+    province «Рязанская область» → locality «Рязань»), so scanning components
+    first returned the federal district for ("locality", "province", ...) —
+    and the hard geo guard then disqualified every Yandex row (ЦФО != регион).
+    Iterate kinds in caller's order instead, and within a kind take the LAST
+    match (the most specific one: «Рязанская область» over «ЦФО»).
+    """
+    components = address_payload.get("Components", [])
+    for kind in kinds:
+        matches = [c.get("name") for c in components if c.get("kind") == kind and c.get("name")]
+        if matches:
+            return matches[-1]
     return ""
 
 
@@ -2035,6 +2051,12 @@ def _region_of(place: str) -> str:
     """
     p = _normalize_match_text(place or "")
     if not p:
+        return ""
+    # Federal DISTRICTS (ЦФО, СЗФО, ...) span many subjects — that's "don't
+    # know which subject", not a subject itself. Without this, a Yandex row
+    # whose city parsed as «Центральный федеральный округ» hard-mismatched
+    # every specific region and got disqualified.
+    if "федеральн" in p and "округ" in p:
         return ""
     # Already a federal subject (область / край / республика / округ).
     if any(tok in p for tok in ("област", "край", "республик", "округ", "автономн")):

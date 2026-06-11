@@ -456,3 +456,41 @@ def test_enrich_2gis_scrape_proximity_guard_without_firm_links(monkeypatch):
     # имя вообще не встречается на странице → контактов не берём НИКАКИХ
     result_miss = lc.enrich_2gis_lead("Шиномонтаж Вулкан", "Томск")
     assert result_miss["phones"] == []
+
+
+# ── address-component priority + federal-district region guard ──────────────
+
+def test_extract_address_component_honors_argument_priority():
+    """Yandex lists province «ЦФО» before locality «Рязань» — the extractor
+    must honor the caller's kind priority, not component order, and prefer the
+    most specific match within a kind."""
+    payload = {
+        "Components": [
+            {"kind": "country", "name": "Россия"},
+            {"kind": "province", "name": "Центральный федеральный округ"},
+            {"kind": "province", "name": "Рязанская область"},
+            {"kind": "locality", "name": "Рязань"},
+        ]
+    }
+    assert lc._extract_address_component(payload, "locality", "province") == "Рязань"
+    # No locality → most specific province (last match), not the federal district.
+    payload_no_loc = {"Components": payload["Components"][:-1]}
+    assert lc._extract_address_component(payload_no_loc, "locality", "province") == "Рязанская область"
+
+
+def test_region_of_federal_district_is_unknown_not_mismatch():
+    """A federal district spans many subjects — it must resolve to '' so the
+    hard geo guard can't disqualify rows whose city parsed as «ЦФО»."""
+    assert lc._region_of("Центральный федеральный округ") == ""
+    # Autonomous okrugs are real federal subjects and must still resolve.
+    assert lc._region_of("Ханты-Мансийский автономный округ") != ""
+
+
+def test_merge_fields_carries_website_and_domain():
+    target = {"company": "Приз", "phone": "", "website": "", "domain": ""}
+    source = {"company": "Приз", "phone": "+7 4912 21-44-80",
+              "website": "http://prizprint.ru", "domain": "prizprint.ru"}
+    lc._merge_fields(target, source)
+    assert target["phone"] == "+7 4912 21-44-80"
+    assert target["website"] == "http://prizprint.ru"
+    assert target["domain"] == "prizprint.ru"
