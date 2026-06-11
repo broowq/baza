@@ -2362,7 +2362,11 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         # ранний break отдавал весь бюджет первому сегменту. Распределение
         # бюджета по сегментам — внутри _search_yandex_maps; ключ отключается
         # circuit-breaker'ом на 401/403/429 (см. _YANDEX_DEAD_KEY).
-        if use_yandex and map_search_terms and not _cap_full():
+        # Без гейта _cap_full(): Яндекс — единственный API-источник телефонов
+        # и сайтов (проверено живьём на тарифе), поэтому получает
+        # гарантированный минимум бюджета даже при заполненном капе — иначе в
+        # плотных нишах бесплатный 2ГИС (без контактов) вытесняет его всегда.
+        if use_yandex and map_search_terms:
             try:
                 yandex_budget = max(oversample_limit - unique_count, 20)
                 yandex_results = _search_yandex_maps(
