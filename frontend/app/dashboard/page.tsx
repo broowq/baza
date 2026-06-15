@@ -586,12 +586,14 @@ export default function DashboardPage() {
                   </div>
                   <div className="grid gap-1.5">
                     <Label htmlFor="proj-segments" className="text-xs text-muted-foreground">Целевые сегменты</Label>
-                    <Input
+                    <Textarea
                       id="proj-segments"
                       value={projectForm.segments}
                       maxLength={300}
-                      placeholder="Через запятую"
+                      rows={3}
+                      placeholder="Через запятую: производитель срубов, домостроитель из бруса, мебельная фабрика…"
                       onChange={(e) => setProjectForm((p) => ({ ...p, segments: e.target.value }))}
+                      className="min-h-[72px] rounded-2xl px-4 py-3 leading-relaxed"
                     />
                   </div>
                   <DialogFooter className="mt-2">
@@ -679,11 +681,14 @@ export default function DashboardPage() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="edit-proj-segments">Сегменты</Label>
-              <Input
+              <Textarea
                 id="edit-proj-segments"
                 value={editForm.segments}
                 maxLength={300}
+                rows={3}
+                placeholder="Через запятую: производитель срубов, домостроитель из бруса, мебельная фабрика…"
                 onChange={(e) => setEditForm((p) => ({ ...p, segments: e.target.value }))}
+                className="min-h-[72px] rounded-2xl px-4 py-3 leading-relaxed"
               />
             </div>
             <DialogFooter>

@@ -25,17 +25,17 @@ function Input({ className, type, inputSize = "default", ...props }: InputProps)
       data-slot="input"
       data-size={inputSize}
       className={cn(
-        // Base
-        "w-full min-w-0 border border-white/10 bg-white/[0.04] backdrop-blur-xl text-white",
-        "placeholder:text-white/40 transition-colors duration-200 outline-none",
+        // Base — theme-aware tokens (was hardcoded white → invisible in light theme)
+        "w-full min-w-0 border border-[var(--line-2)] bg-[var(--surface-input)] backdrop-blur-xl text-[var(--t-100)]",
+        "placeholder:text-[var(--t-40)] transition-colors duration-200 outline-none",
         // Focus
-        "focus-visible:border-white/[0.24] focus-visible:bg-white/[0.07]",
+        "focus-visible:border-[var(--line-3)] focus-visible:bg-[var(--surface-hover)]",
         // Disabled
         "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
         // Invalid
         "aria-invalid:border-status-offline/40 aria-invalid:bg-status-offline/[0.05]",
         // File-input style (rare)
-        "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-white",
+        "file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-[var(--t-100)]",
         sizeClass,
         className,
       )}
