@@ -13,8 +13,18 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_org, get_current_user, require_org_roles
 from app.db.session import get_db
-from app.models import CollectionJob, JobStatus, Lead, LeadCallNote, Organization, Project, User
-from app.models.entities import LeadStatus
+from app.models import (
+    CollectionJob,
+    JobStatus,
+    Lead,
+    LeadCallNote,
+    LeadStatus,
+    Membership,
+    Organization,
+    Project,
+    User,
+)
+from app.schemas.crm import BulkLeadAction, BulkResult
 from app.schemas.leads import (
     CallNoteCreate,
     CallNoteOut,
@@ -28,6 +38,7 @@ from app.schemas.leads import (
     RunCollectionRequest,
 )
 from app.services import company_warehouse
+from app.services.crm import log_activity, stage_label
 from app.services.quota import ensure_lead_quota
 from app.services.audit import log_action
 from app.tasks.jobs import collect_leads_task, enrich_leads_task
@@ -94,9 +105,14 @@ def list_project_leads_table(
     has_phone: bool | None = None,
     min_score: int | None = Query(default=None, ge=0, le=100),
     max_score: int | None = Query(default=None, ge=0, le=100),
+    assigned_to: str | None = Query(
+        default=None,
+        description='User UUID, "me" (current user), or "none"/"unassigned" (no owner)',
+    ),
     sort: str = "score",
     order: str = "desc",
     organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     project = db.get(Project, project_id)
@@ -149,6 +165,26 @@ def list_project_leads_table(
     if max_score is not None:
         query = query.where(Lead.score <= max_score)
         count_query = count_query.where(Lead.score <= max_score)
+    if assigned_to is not None and assigned_to != "":
+        token = assigned_to.strip().lower()
+        if token in ("none", "unassigned"):
+            query = query.where(Lead.assigned_to_user_id.is_(None))
+            count_query = count_query.where(Lead.assigned_to_user_id.is_(None))
+        elif token == "me":
+            query = query.where(Lead.assigned_to_user_id == user.id)
+            count_query = count_query.where(Lead.assigned_to_user_id == user.id)
+        else:
+            # An explicit user UUID. Malformed → 422 (matches the API's strict
+            # param validation elsewhere); an unknown-but-valid UUID simply
+            # matches nothing (no cross-org leak — leads stay project-scoped).
+            try:
+                assignee_id = uuid.UUID(assigned_to)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422, detail="Некорректный идентификатор пользователя"
+                ) from exc
+            query = query.where(Lead.assigned_to_user_id == assignee_id)
+            count_query = count_query.where(Lead.assigned_to_user_id == assignee_id)
 
     sort_column = {
         "score": Lead.score,
@@ -494,7 +530,9 @@ def export_project_xlsx(
     )
 
 
-VALID_STATUSES = {"new", "contacted", "qualified", "rejected"}
+# Full pipeline: new|contacted|qualified|proposal|won|rejected (derived from the
+# LeadStatus enum so a new stage automatically becomes accepted everywhere).
+VALID_STATUSES = {s.value for s in LeadStatus}
 
 
 # Russian labels for the data source, used in the composed description.
@@ -616,15 +654,61 @@ def update_lead(
     if not project or project.organization_id != organization.id or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Лид не найден")
 
+    fields_set = payload.model_fields_set
+
     if payload.status is not None:
         if payload.status not in VALID_STATUSES:
             raise HTTPException(
                 status_code=422,
                 detail=f"Недопустимый статус. Допустимые значения: {', '.join(sorted(VALID_STATUSES))}",
             )
-        lead.status = LeadStatus(payload.status)
-    if payload.notes is not None:
+        new_status = LeadStatus(payload.status)
+        if new_status != lead.status:
+            old_status = lead.status
+            lead.status = new_status
+            log_activity(
+                db,
+                lead=lead,
+                kind="stage_changed",
+                text=f"Стадия: {stage_label(old_status)} → {stage_label(new_status)}",
+                user=user,
+                meta={"from": old_status.value, "to": new_status.value},
+            )
+
+    # assigned_to_user_id — model_fields_set distinguishes an explicit null
+    # (unassign) from an omitted field. A UUID must belong to a member of THIS
+    # org (else 422); we resolve the display name for the activity text.
+    if "assigned_to_user_id" in fields_set:
+        new_assignee = payload.assigned_to_user_id
+        if new_assignee is None:
+            if lead.assigned_to_user_id is not None:
+                lead.assigned_to_user_id = None
+                log_activity(db, lead=lead, kind="unassigned", text="Снято назначение", user=user)
+        else:
+            is_member = db.scalar(
+                select(func.count(Membership.id)).where(
+                    Membership.organization_id == organization.id,
+                    Membership.user_id == new_assignee,
+                )
+            ) or 0
+            if not is_member:
+                raise HTTPException(status_code=422, detail="Пользователь не в организации")
+            if lead.assigned_to_user_id != new_assignee:
+                lead.assigned_to_user_id = new_assignee
+                assignee = db.get(User, new_assignee)
+                name = (assignee.full_name or assignee.email or "") if assignee else ""
+                log_activity(
+                    db,
+                    lead=lead,
+                    kind="assigned",
+                    text=f"Назначен: {name}",
+                    user=user,
+                    meta={"assigned_to": str(new_assignee)},
+                )
+
+    if payload.notes is not None and payload.notes != lead.notes:
         lead.notes = payload.notes
+        log_activity(db, lead=lead, kind="note", text="Заметка обновлена", user=user)
     if payload.tags is not None:
         # Sanitize tags: trim, dedupe, max 30 chars each
         cleaned_tags = []
@@ -635,12 +719,25 @@ def update_lead(
                 seen.add(t.lower())
                 cleaned_tags.append(t)
         lead.tags = cleaned_tags
+    if payload.deal_value is not None and payload.deal_value != lead.deal_value:
+        lead.deal_value = payload.deal_value
+        log_activity(
+            db,
+            lead=lead,
+            kind="value_changed",
+            text=f"Сумма сделки: {payload.deal_value} ₽",
+            user=user,
+            meta={"deal_value": payload.deal_value},
+        )
+    # expected_close_at — explicit null clears it (model_fields_set guard).
+    if "expected_close_at" in fields_set:
+        lead.expected_close_at = payload.expected_close_at
     if payload.last_contacted_at is not None:
         lead.last_contacted_at = payload.last_contacted_at
     # Use model_fields_set so an explicit {"reminder_at": null} CLEARS the
     # reminder (the × button sends null); an omitted field leaves it untouched.
     # The old `is not None` guard silently ignored the clear → dead button.
-    if "reminder_at" in payload.model_fields_set:
+    if "reminder_at" in fields_set:
         lead.reminder_at = payload.reminder_at
     if payload.mark_contacted:
         # Convenience flag — sets last_contacted_at=now() and bumps status to "contacted"
@@ -648,10 +745,140 @@ def update_lead(
         lead.last_contacted_at = datetime.now(timezone.utc)
         if lead.status == LeadStatus.new:
             lead.status = LeadStatus.contacted
+        log_activity(db, lead=lead, kind="contacted", text="Отмечен контакт", user=user)
 
     db.commit()
     db.refresh(lead)
     return lead
+
+
+@router.post("/project/{project_id}/bulk", response_model=BulkResult)
+def bulk_lead_action(
+    project_id: uuid.UUID,
+    payload: BulkLeadAction,
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Apply one action over many leads at once (assign / stage / add_tag / delete).
+
+    Scoped to this org + project: ids outside the project are silently skipped
+    (no cross-org/-project leak). Returns the count of affected leads. assign,
+    stage and add_tag write an activity per affected lead; delete does not (the
+    lead — and its timeline — is gone).
+    """
+    project = db.get(Project, project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    action = payload.action
+
+    # Validate the action payload up-front (before touching any rows).
+    if action == "assign":
+        if payload.assigned_to_user_id is not None:
+            is_member = db.scalar(
+                select(func.count(Membership.id)).where(
+                    Membership.organization_id == organization.id,
+                    Membership.user_id == payload.assigned_to_user_id,
+                )
+            ) or 0
+            if not is_member:
+                raise HTTPException(status_code=422, detail="Пользователь не в организации")
+    elif action == "stage":
+        if not payload.status or payload.status not in VALID_STATUSES:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Недопустимый статус. Допустимые значения: {', '.join(sorted(VALID_STATUSES))}",
+            )
+    elif action == "add_tag":
+        tag = (payload.tag or "").strip()[:30]
+        if not tag:
+            raise HTTPException(status_code=422, detail="Пустой тег")
+    elif action == "delete":
+        pass
+    else:
+        raise HTTPException(status_code=422, detail="Неизвестное действие")
+
+    # Fetch the in-scope leads (org + project). Anything not here is ignored.
+    leads = db.execute(
+        select(Lead).where(
+            Lead.organization_id == organization.id,
+            Lead.project_id == project.id,
+            Lead.id.in_(payload.lead_ids),
+        )
+    ).scalars().all()
+    if not leads:
+        return BulkResult(updated=0)
+
+    updated = 0
+
+    if action == "assign":
+        new_assignee = payload.assigned_to_user_id
+        name = ""
+        if new_assignee is not None:
+            assignee = db.get(User, new_assignee)
+            name = (assignee.full_name or assignee.email or "") if assignee else ""
+        for lead in leads:
+            if lead.assigned_to_user_id == new_assignee:
+                continue
+            lead.assigned_to_user_id = new_assignee
+            if new_assignee is None:
+                log_activity(db, lead=lead, kind="unassigned", text="Снято назначение", user=user)
+            else:
+                log_activity(
+                    db,
+                    lead=lead,
+                    kind="assigned",
+                    text=f"Назначен: {name}",
+                    user=user,
+                    meta={"assigned_to": str(new_assignee)},
+                )
+            updated += 1
+
+    elif action == "stage":
+        new_status = LeadStatus(payload.status)
+        for lead in leads:
+            if lead.status == new_status:
+                continue
+            old_status = lead.status
+            lead.status = new_status
+            log_activity(
+                db,
+                lead=lead,
+                kind="stage_changed",
+                text=f"Стадия: {stage_label(old_status)} → {stage_label(new_status)}",
+                user=user,
+                meta={"from": old_status.value, "to": new_status.value},
+            )
+            updated += 1
+
+    elif action == "add_tag":
+        tag = (payload.tag or "").strip()[:30]
+        for lead in leads:
+            existing = list(lead.tags or [])
+            if any((e or "").lower() == tag.lower() for e in existing):
+                continue
+            if len(existing) >= 20:
+                continue
+            existing.append(tag)
+            lead.tags = existing
+            log_activity(
+                db,
+                lead=lead,
+                kind="tag_added",
+                text=f"Тег: {tag}",
+                user=user,
+                meta={"tag": tag},
+            )
+            updated += 1
+
+    elif action == "delete":
+        for lead in leads:
+            db.delete(lead)
+            updated += 1
+
+    db.commit()
+    return BulkResult(updated=updated)
 
 
 def _get_org_lead_or_404(db: Session, lead_id: uuid.UUID, organization: Organization) -> Lead:

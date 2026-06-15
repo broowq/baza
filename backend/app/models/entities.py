@@ -35,10 +35,13 @@ class JobStatus(str, enum.Enum):
 
 
 class LeadStatus(str, enum.Enum):
+    # Sales pipeline stages (ordered new → won; rejected is the terminal "lost").
     new = "new"
     contacted = "contacted"
     qualified = "qualified"
-    rejected = "rejected"
+    proposal = "proposal"   # КП отправлено
+    won = "won"             # Сделка закрыта успешно
+    rejected = "rejected"   # Проигран / отказ (terminal lost)
 
 
 class Organization(Base):
@@ -183,6 +186,17 @@ class Lead(Base):
     last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, index=True)
     reminder_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None, index=True)
     status: Mapped[LeadStatus] = mapped_column(Enum(LeadStatus), default=LeadStatus.new, nullable=False, index=True)
+    # ── CRM fields ──────────────────────────────────────────────────────────
+    # Owner of this lead within the org (sales rep). SET NULL on user removal so
+    # the lead survives but becomes unassigned.
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # Deal/opportunity value in whole rubles (0 = not set). Summed per pipeline
+    # stage for the funnel/forecast.
+    deal_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
+    # Expected close date for forecasting.
+    expected_close_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     source_url: Mapped[str] = mapped_column(String(400), default="", nullable=False)
     # Data source that originally surfaced this lead:
     # "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng"
@@ -228,6 +242,69 @@ class LeadCallNote(Base):
     comment: Mapped[str] = mapped_column(Text, default="", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+
+
+class LeadTask(Base):
+    """A follow-up task/to-do on a lead (call back, send КП, meeting…).
+
+    Generalises the single reminder_at into a proper task list with an owner,
+    due date and done state. Rows cascade with the lead/org; user FKs SET NULL.
+    """
+    __tablename__ = "lead_tasks"
+    __table_args__ = (
+        Index("ix_lead_tasks_org_done_due", "organization_id", "done", "due_at"),
+        Index("ix_lead_tasks_assignee_done", "assigned_to_user_id", "done"),
+        Index("ix_lead_tasks_lead", "lead_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    assigned_to_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    done: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+class LeadActivity(Base):
+    """Immutable activity-timeline event on a lead (stage change, assignment,
+    note, call, task, value change…). Powers the unified history feed.
+
+    user_name is snapshotted so the timeline survives user removal.
+    """
+    __tablename__ = "lead_activities"
+    __table_args__ = (Index("ix_lead_activities_lead_created", "lead_id", "created_at"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    user_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    # created | stage_changed | assigned | unassigned | value_changed | note |
+    # contacted | task_created | task_done | reminder_set
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
 

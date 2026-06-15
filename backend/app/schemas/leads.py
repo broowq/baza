@@ -38,6 +38,10 @@ class LeadOut(BaseModel):
     last_contacted_at: datetime | None = None
     reminder_at: datetime | None = None
     status: LeadStatus
+    # CRM fields
+    assigned_to_user_id: UUID | None = None
+    deal_value: int = 0
+    expected_close_at: datetime | None = None
     source_url: str
     source: str = ""
     external_id: str = ""
@@ -102,12 +106,17 @@ class CollectionJobOut(BaseModel):
 
 
 class LeadUpdate(BaseModel):
-    status: str | None = None  # "new", "contacted", "qualified", "rejected"
+    status: str | None = None  # pipeline stage: new|contacted|qualified|proposal|won|rejected
     notes: str | None = Field(default=None, max_length=10000)
     # Workflow fields
     tags: list[str] | None = Field(default=None, max_length=20)
     last_contacted_at: datetime | None = None
     reminder_at: datetime | None = None
+    # CRM fields. assigned_to_user_id: pass a UUID to assign, null to unassign
+    # (use the *_set sentinels so an explicit null is distinguishable from omit).
+    assigned_to_user_id: UUID | None = None
+    deal_value: int | None = Field(default=None, ge=0, le=1_000_000_000)
+    expected_close_at: datetime | None = None
     # Mark contact: when sales clicks "позвонил/написал" — sets last_contacted_at=now()
     mark_contacted: bool = False
 
