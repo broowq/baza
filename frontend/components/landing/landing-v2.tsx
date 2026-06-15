@@ -29,6 +29,7 @@ import Link from "next/link";
 import { getToken } from "@/lib/auth";
 import { Reveal } from "@/components/reveal";
 import { Magnetic } from "@/components/magnetic";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 /* ─────────────────────────────────────────────────────────────
    LIVE DEMO DATA — fed from the public, unauthenticated
@@ -307,6 +308,7 @@ function TopNav() {
             <span className="dot dot-em" />
             все системы стабильны
           </span>
+          <ThemeToggle className="hidden md:inline-flex" />
           {authed === null ? null : authed ? (
             <Link
               href="/dashboard"
@@ -323,21 +325,21 @@ function TopNav() {
           {/* Hamburger — visible only on mobile */}
           <button
             className="md:hidden flex flex-col justify-center items-center w-9 h-9 gap-[5px] rounded-lg"
-            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--line)" }}
+            style={{ background: "var(--surface-hover)", border: "1px solid var(--line)" }}
             onClick={() => setMobileOpen((o) => !o)}
             aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"}
             aria-expanded={mobileOpen}
           >
             {mobileOpen ? (
               <>
-                <span className="block w-4 h-[1.5px] bg-white" style={{ transform: "rotate(45deg) translate(3.5px,3.5px)" }} />
-                <span className="block w-4 h-[1.5px] bg-white" style={{ transform: "rotate(-45deg) translate(3.5px,-3.5px)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "var(--t-100)", transform: "rotate(45deg) translate(3.5px,3.5px)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "var(--t-100)", transform: "rotate(-45deg) translate(3.5px,-3.5px)" }} />
               </>
             ) : (
               <>
-                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
-                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
-                <span className="block w-4 h-[1.5px]" style={{ background: "rgba(255,255,255,0.7)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "var(--t-72)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "var(--t-72)" }} />
+                <span className="block w-4 h-[1.5px]" style={{ background: "var(--t-72)" }} />
               </>
             )}
           </button>
@@ -349,7 +351,7 @@ function TopNav() {
         <div
           className="md:hidden"
           style={{
-            background: "rgba(10,12,14,0.97)",
+            background: "var(--bg-2)",
             backdropFilter: "blur(20px)",
             borderTop: "1px solid var(--line)",
             borderBottom: "1px solid var(--line)",
@@ -378,6 +380,10 @@ function TopNav() {
               Цены
             </Link>
             <div className="hairline mt-2 pt-3 flex flex-col gap-2">
+              <div className="flex items-center justify-between py-1">
+                <span className="text-[13px] t-72">Тема</span>
+                <ThemeToggle />
+              </div>
               {authed === null ? null : authed ? (
                 <Link
                   href="/dashboard"
@@ -533,13 +539,13 @@ function HeroLiveCard() {
         <div className="mt-4 hairline pt-4 grid grid-cols-2 gap-3 text-[11px]">
           <div>
             <div className="t-48">конверсия в работу</div>
-            <div className="mono mt-0.5 tnum text-white text-[13px]">
+            <div className="mono mt-0.5 tnum text-[var(--t-100)] text-[13px]">
               {stats ? Math.round(stats.rates.qualified * 100) : 21}%
             </div>
           </div>
           <div>
             <div className="t-48">средний score</div>
-            <div className="mono mt-0.5 tnum text-white text-[13px]">
+            <div className="mono mt-0.5 tnum text-[var(--t-100)] text-[13px]">
               {stats ? Math.round(stats.avg_score) : 72} / 100
             </div>
           </div>
@@ -655,7 +661,7 @@ function HeroSection() {
                 </a>
               </Magnetic>
               <span className="ml-2 text-[12px] t-48">
-                тарифы от <span className="text-white mono">3 900 ₽/мес</span>
+                тарифы от <span className="text-[var(--t-100)] mono">3 900 ₽/мес</span>
               </span>
             </div>
 
@@ -832,7 +838,7 @@ function PromptDemo() {
                       style={{
                         fontSize: "10px",
                         opacity: lit ? 1 : 0.32,
-                        color: lit ? "var(--mint)" : "rgba(255,255,255,0.45)",
+                        color: lit ? "var(--mint)" : "var(--t-48)",
                         borderColor: lit ? "rgba(168,197,192,0.40)" : "var(--line-2)",
                         transition: "opacity .35s ease, color .35s ease, border-color .35s ease",
                       }}
@@ -854,7 +860,7 @@ function PromptDemo() {
                 ].map(([label, val, w], i) => (
                   <div key={i} className={`panel-flat elev-1 px-3 py-3${i === 4 && phase === "parsed" ? " ring-1 ring-[var(--mint)]/20" : ""}`}>
                     <div className="t-40 mono text-[10px]">{label as string}</div>
-                    <div className="text-white tnum mt-1">{val as string}</div>
+                    <div className="text-[var(--t-100)] tnum mt-1">{val as string}</div>
                     <div className="score-bar score-bar--sm mt-2" style={{ "--score": (w as number) / 100 } as React.CSSProperties}>
                       <div className="score-bar__fill" />
                     </div>
@@ -864,7 +870,7 @@ function PromptDemo() {
 
               <div className="mt-5 flex items-center gap-3 t-48 text-[11px] hairline pt-4">
                 <span className="mono">{regionCount} регионов · ОКВЭД 01.4*</span>
-                <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-white transition-colors">
+                <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-[var(--t-100)] transition-colors">
                   смотреть результат
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                     <path d="M5 12h14M13 6l6 6-6 6" />
@@ -940,9 +946,9 @@ function ProductFrame() {
               <span className="tlight" style={{ background: "#3a3a3e" }} />
             </div>
             <div className="ml-3 flex items-center gap-2 text-[11.5px] t-72">
-              <span className="hover:text-white">Кормопром · Томск</span>
+              <span className="hover:text-[var(--t-100)]">Кормопром · Томск</span>
               <span className="t-28">/</span>
-              <span className="text-white">{crumb}</span>
+              <span className="text-[var(--t-100)]">{crumb}</span>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <button
@@ -1341,7 +1347,7 @@ function SourceRow({ name, pct, num, path }: { name: string; pct: number; num: s
     <div className="src-row">
       <span className="src-name">{name}</span>
       <svg className="src-spark" viewBox="0 0 80 18">
-        <path d={path} stroke="rgba(255,255,255,0.55)" strokeWidth="1" fill="none" />
+        <path d={path} stroke="var(--t-56)" strokeWidth="1" fill="none" />
       </svg>
       <span className="src-pct mono tnum">{pct}%</span>
       <span className="src-num mono">{num}</span>
@@ -1432,7 +1438,7 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
                   <div className="h-[10px] rounded" style={{ background: "rgba(168,197,192,0.10)" }}>
                     <div className="h-full rounded" style={{ width: `${w}%`, background: "var(--mint)" }} />
                   </div>
-                  <span className="mono text-white tnum text-right">{val as string}</span>
+                  <span className="mono text-[var(--t-100)] tnum text-right">{val as string}</span>
                 </div>
               ))}
             </div>
@@ -1442,7 +1448,7 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
         <div className="col-span-12 lg:col-span-5 panel-flat overflow-hidden">
           <div className="flex items-center justify-between px-5 py-3 hairline" style={{ borderTop: 0 }}>
             <div className="flex items-center gap-2 text-[12px]">
-              <span className="text-white">Лиды</span>
+              <span className="text-[var(--t-100)]">Лиды</span>
               <span className="t-40 ml-1 mono">{tableTotal}</span>
               {!tableRows && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40">демо-данные</span>}
             </div>
@@ -1500,7 +1506,7 @@ function ViewProject({ active, tabId, panelId }: { active: boolean; tabId?: stri
           </table>
           <div className="px-5 py-3 hairline flex items-center text-[11px]">
             <span className="t-40">показано {(tableRows ?? DEMO_TABLE_ROWS).length} из {tableTotal}</span>
-            <Link href="/register" className="ml-auto text-white flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+            <Link href="/register" className="ml-auto text-[var(--t-100)] flex items-center gap-1.5 hover:opacity-80 transition-opacity">
               смотреть все
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <path d="M5 12h14M13 6l6 6-6 6" />
@@ -1598,21 +1604,21 @@ function BubbleChart() {
         </defs>
 
         {/* grid */}
-        <g stroke="rgba(255,255,255,0.05)" strokeWidth="0.5" fill="none">
+        <g stroke="var(--line)" strokeWidth="0.5" fill="none">
           {yTicks.map((t) => <path key={`y${t}`} d={`M ${ML} ${Y(t)} H ${VW - MR}`} />)}
           {xTicks.map((t) => <path key={`x${t}`} d={`M ${X(t)} ${MT} V ${MT + H}`} />)}
         </g>
 
         {/* axes */}
-        <g fontFamily="Geist Mono" fontSize="9.5" fill="rgba(255,255,255,0.35)">
+        <g fontFamily="Geist Mono" fontSize="9.5" fill="var(--t-40)">
           {yTicks.map((t) => (
             <text key={`yl${t}`} x={ML - 10} y={Y(t) + 3} textAnchor="end">{t}</text>
           ))}
           {xTicks.map((t) => (
             <text key={`xl${t}`} x={X(t)} y={VH - MB + 18} textAnchor="middle">{t}</text>
           ))}
-          <text x={ML} y={MT - 8} fill="rgba(255,255,255,0.55)" fontSize="10.5">лиды собрано</text>
-          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="rgba(255,255,255,0.55)" fontSize="10.5">{real ? "средний score →" : "квалифицированы →"}</text>
+          <text x={ML} y={MT - 8} fill="var(--t-56)" fontSize="10.5">лиды собрано</text>
+          <text x={VW - MR} y={VH - 12} textAnchor="end" fill="var(--t-56)" fontSize="10.5">{real ? "средний score →" : "квалифицированы →"}</text>
         </g>
 
         {/* medians */}
@@ -1650,7 +1656,7 @@ function BubbleChart() {
                   stroke={d.primary ? "var(--mint)" : "rgba(168,197,192,0.55)"}
                   strokeWidth="1"
                 />
-                <text className="bubble-label" x={cx + r + 8} y={cy - 2} fontFamily="Inter" fontSize="11" fill="rgba(255,255,255,0.75)">
+                <text className="bubble-label" x={cx + r + 8} y={cy - 2} fontFamily="Inter" fontSize="11" fill="var(--t-72)">
                   {d.short}
                 </text>
                 <text className="bubble-num" x={cx + r + 8} y={cy + 11} fontFamily="Geist Mono" fontSize="9.5" fill="rgba(168,197,192,0.7)">
@@ -1738,7 +1744,7 @@ function ViewLead({ active, tabId, panelId }: { active: boolean; tabId?: string;
               <span className="t-40 text-[14px]">/ 100</span>
             </div>
           </div>
-          <div className="h-[5px] rounded-full mt-3" style={{ background: "rgba(255,255,255,0.08)" }}>
+          <div className="h-[5px] rounded-full mt-3" style={{ background: "var(--surface-3)" }}>
             <div
               className="h-full rounded-full"
               style={{ width: `${leadScore}%`, background: "var(--mint)", boxShadow: "0 0 12px rgba(168,197,192,0.45)" }}
@@ -1956,7 +1962,7 @@ function FooterSection() {
         <div className="col-span-2 md:col-span-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-6 h-6 rounded-md" style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }} />
-            <span className="text-white text-[14px]" style={{ fontWeight: 500 }}>база</span>
+            <span className="text-[var(--t-100)] text-[14px]" style={{ fontWeight: 500 }}>база</span>
           </div>
           <p className="leading-[1.55] max-w-[260px]">
             Лид-инжиниринг для команд продаж. Промпт → готовая воронка.
@@ -1977,18 +1983,18 @@ function FooterSection() {
           ] },
         ].map((g) => (
           <div key={g.title} className="col-span-1 md:col-span-2">
-            <div className="text-white mb-3 text-[12px]">{g.title}</div>
+            <div className="text-[var(--t-100)] mb-3 text-[12px]">{g.title}</div>
             <div className="space-y-2">
               {g.items.map((i) => (
                 <div key={i.label}>
-                  <a href={i.href} className="transition-colors hover:text-white">{i.label}</a>
+                  <a href={i.href} className="transition-colors hover:text-[var(--t-100)]">{i.label}</a>
                 </div>
               ))}
             </div>
           </div>
         ))}
         <div className="col-span-1 md:col-span-2 md:text-right">
-          <div className="text-white mb-3 text-[12px]">Статус</div>
+          <div className="text-[var(--t-100)] mb-3 text-[12px]">Статус</div>
           <div className="flex md:justify-end items-center gap-2">
             <span className="dot dot-em" />
             <span>Работает</span>
@@ -2046,7 +2052,7 @@ export function LandingPage() {
   const stats = useLandingStats();
   return (
     <StatsContext.Provider value={stats}>
-    <div className="min-h-screen bg-[var(--bg)] text-white">
+    <div className="min-h-screen bg-[var(--bg)] text-[var(--t-100)]">
       <CornerMeta />
       <TopNav />
       <HeroSection />

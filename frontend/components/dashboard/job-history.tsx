@@ -17,16 +17,16 @@ const STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | 
 
 const BAR_COLORS: Record<string, string> = {
   failed: "bg-destructive",
-  running: "bg-white/[0.56]",
+  running: "bg-[var(--t-56)]",
   done: "bg-emerald-500",
-  queued: "bg-white/[0.24]",
+  queued: "bg-[var(--t-28)]",
 };
 
 export function JobHistory({ jobs, loading = false }: Props) {
   const safeJobs = Array.isArray(jobs) ? jobs : [];
 
   if (loading) {
-    return <div className="h-48 animate-pulse rounded-xl bg-white/[0.03] border border-white/[0.08]" />;
+    return <div className="h-48 animate-pulse rounded-xl bg-[var(--surface-1)] border border-[var(--line)]" />;
   }
 
   if (safeJobs.length === 0) {
@@ -52,7 +52,7 @@ export function JobHistory({ jobs, loading = false }: Props) {
               : 0;
 
         return (
-          <div key={job.id} className="panel-flat bg-white/[0.03] space-y-2 px-3 py-2 sm:px-4 sm:py-3">
+          <div key={job.id} className="panel-flat bg-[var(--surface-1)] space-y-2 px-3 py-2 sm:px-4 sm:py-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="t-56 text-sm font-medium">{KIND_LABELS[job.kind] ?? job.kind}</span>
               <Badge variant={STATUS_VARIANTS[job.status] ?? "secondary"}>
@@ -63,7 +63,7 @@ export function JobHistory({ jobs, loading = false }: Props) {
               )}
             </div>
 
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--surface-hover)]">
               <div
                 className={`h-full rounded-full transition-[width] duration-700 ease-out ${BAR_COLORS[job.status] ?? BAR_COLORS.queued}`}
                 style={{ width: `${progress}%` }}
@@ -73,15 +73,15 @@ export function JobHistory({ jobs, loading = false }: Props) {
             <div className="flex flex-wrap gap-3 text-xs t-40">
               {job.kind === "collect" && (
                 <>
-                  <span>Найдено: <strong className="text-white">{job.found_count}</strong></span>
-                  <span>Добавлено: <strong className="text-white">{job.added_count}</strong></span>
+                  <span>Найдено: <strong className="text-[var(--t-100)]">{job.found_count}</strong></span>
+                  <span>Добавлено: <strong className="text-[var(--t-100)]">{job.added_count}</strong></span>
                 </>
               )}
               {job.kind === "enrich" && (
-                <span>Обогащено: <strong className="text-white">{job.enriched_count}</strong></span>
+                <span>Обогащено: <strong className="text-[var(--t-100)]">{job.enriched_count}</strong></span>
               )}
               {requested > 0 && (
-                <span>Лимит: <strong className="text-white">{requested}</strong></span>
+                <span>Лимит: <strong className="text-[var(--t-100)]">{requested}</strong></span>
               )}
             </div>
 

@@ -352,7 +352,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                         href={detail.website}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="lead-card__sub mt-1 flex min-w-0 max-w-full items-center gap-1 hover:text-white"
+                        className="lead-card__sub mt-1 flex min-w-0 max-w-full items-center gap-1 hover:text-[var(--t-100)]"
                         style={{ textDecoration: "none" }}
                       >
                         <span className="truncate min-w-0">
@@ -375,7 +375,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
               type="button"
               onClick={onClose}
               className="focus-ring ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg opacity-56 transition-opacity hover:opacity-100"
-              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)" }}
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)" }}
               aria-label="Закрыть"
             >
               <X size={15} />
@@ -416,14 +416,14 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   <div className="eyebrow mb-2">Контакты</div>
                   <div
                     className="panel-glass divide-y"
-                    style={{ "--tw-divide-opacity": 1, divideColor: "rgba(255,255,255,0.06)" } as React.CSSProperties}
+                    style={{ "--tw-divide-opacity": 1, divideColor: "var(--line)" } as React.CSSProperties}
                   >
                     {detail.email && (
                       <div className="flex items-center gap-2 px-3 py-2.5">
                         <Mail size={13} className="shrink-0 opacity-48" />
                         <a
                           href={`mailto:${detail.email}`}
-                          className="caption min-w-0 flex-1 truncate hover:text-white"
+                          className="caption min-w-0 flex-1 truncate hover:text-[var(--t-100)]"
                         >
                           {detail.email}
                         </a>
@@ -436,7 +436,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                         <Phone size={13} className="shrink-0 opacity-48" />
                         <a
                           href={`tel:${detail.phone}`}
-                          className="caption font-mono min-w-0 flex-1 truncate hover:text-white"
+                          className="caption font-mono min-w-0 flex-1 truncate hover:text-[var(--t-100)]"
                         >
                           {detail.phone}
                         </a>
@@ -495,7 +495,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       </div>
 
                       {(detail.warehouse.first_seen_at || detail.warehouse.last_seen_at) && (
-                        <div className="flex flex-wrap gap-3 text-xs text-white/[0.48]">
+                        <div className="flex flex-wrap gap-3 text-xs text-[var(--t-48)]">
                           {detail.warehouse.first_seen_at && (
                             <span>
                               первый раз:{" "}
@@ -517,7 +517,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
 
                       {detail.warehouse.other_niches && detail.warehouse.other_niches.length > 0 && (
                         <div>
-                          <div className="mb-1 text-[10px] uppercase tracking-wider text-white/[0.40]">Ниши</div>
+                          <div className="mb-1 text-[10px] uppercase tracking-wider text-[var(--t-40)]">Ниши</div>
                           <div className="flex flex-wrap gap-1.5">
                             {detail.warehouse.other_niches.map((n) => (
                               <span
@@ -534,7 +534,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
 
                       {detail.warehouse.sources && detail.warehouse.sources.length > 0 && (
                         <div>
-                          <div className="mb-1 text-[10px] uppercase tracking-wider text-white/[0.40]">Источники</div>
+                          <div className="mb-1 text-[10px] uppercase tracking-wider text-[var(--t-40)]">Источники</div>
                           <div className="flex flex-wrap gap-1.5">
                             {detail.warehouse.sources.map((s) => (
                               <span
@@ -581,7 +581,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       placeholder="+ тег"
                       disabled={saving}
                       className="input focus-ring h-7 w-24 rounded-full px-3 text-xs"
-                      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.10)" }}
+                      style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)" }}
                     />
                   </div>
                 </section>
@@ -599,8 +599,8 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     className="input focus-ring w-full resize-none rounded-xl px-3 py-2.5 text-sm"
                     style={{
                       height: "auto",
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.10)",
+                      background: "var(--surface-input)",
+                      border: "1px solid var(--line-2)",
                     }}
                   />
                 </section>
@@ -619,8 +619,8 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       className="input focus-ring w-full resize-none rounded-xl px-3 py-2.5 text-sm"
                       style={{
                         height: "auto",
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.10)",
+                        background: "var(--surface-input)",
+                        border: "1px solid var(--line-2)",
                       }}
                     />
                     <button
@@ -637,7 +637,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     </button>
 
                     {calls.length > 0 && (
-                      <div className="panel-glass divide-y" style={{ divideColor: "rgba(255,255,255,0.06)" } as React.CSSProperties}>
+                      <div className="panel-glass divide-y" style={{ divideColor: "var(--line)" } as React.CSSProperties}>
                         {calls.map((c) => (
                           <div key={c.id} className="px-3 py-2.5">
                             <div className="flex items-center justify-between gap-2">

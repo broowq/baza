@@ -352,7 +352,7 @@ export default function ProjectDetailsPage() {
       <div className="space-y-5">
         {/* Breadcrumb */}
         <div className="mono-cap" style={{ fontSize: "10.5px" }}>
-          <Link href="/dashboard" className="t-40 hover:text-white transition-colors">Проекты</Link>
+          <Link href="/dashboard" className="t-40 hover:text-[var(--t-100)] transition-colors">Проекты</Link>
           <span className="t-28 mx-1.5">/</span>
           <span className="t-72">{project?.name ?? "—"}</span>
         </div>
@@ -510,7 +510,7 @@ export default function ProjectDetailsPage() {
                   <SlidersHorizontal size={13} />
                   Фильтры
                   {activeFilterCount > 0 && (
-                    <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--mint)] px-1 text-[10.5px] font-semibold leading-none text-black tnum">
+                    <span className="ml-0.5 inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--mint)] px-1 text-[10.5px] font-semibold leading-none text-[var(--on-accent)] tnum">
                       {activeFilterCount}
                     </span>
                   )}

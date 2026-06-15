@@ -356,7 +356,7 @@ export default function DashboardPage() {
                     }
                   }}
                 >
-                  <SelectTrigger className="rounded-full border border-[var(--line-2)] bg-white/[0.04] px-4 py-1.5 text-[26px] font-light tracking-tight text-white outline-none focus:border-white/[0.24] h-auto max-w-[70vw] sm:max-w-sm">
+                  <SelectTrigger className="rounded-full border border-[var(--line-2)] px-4 py-1.5 text-[26px] font-light tracking-tight text-[var(--t-100)] outline-none focus:border-[var(--line-3)] h-auto max-w-[70vw] sm:max-w-sm" style={{ background: "var(--surface-input)" }}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -391,7 +391,7 @@ export default function DashboardPage() {
               <span className="t-40" style={{ fontWeight: 200 }}>/ {(org?.leads_limit_per_month ?? 0).toLocaleString("ru-RU")}</span>
             </div>
             <div className="prog mt-5">
-              <i style={{ width: `${usagePercent}%`, background: usagePercent >= 90 ? "var(--rose)" : usagePercent >= 70 ? "linear-gradient(90deg,#fff,var(--amber))" : "linear-gradient(90deg,#fff,var(--mint))" }} />
+              <i style={{ width: `${usagePercent}%`, background: usagePercent >= 90 ? "var(--rose)" : usagePercent >= 70 ? "linear-gradient(90deg,var(--t-100),var(--amber))" : "linear-gradient(90deg,var(--t-100),var(--mint))" }} />
               <span className="head" style={{ left: `${Math.min(usagePercent, 100)}%` }} />
             </div>
             <div className="mono-cap mt-3 flex justify-between">
@@ -530,7 +530,7 @@ export default function DashboardPage() {
                 </DialogHeader>
 
                 {enhanced?.explanation && (
-                  <div className="mt-3 rounded-lg border border-[var(--line-2)] bg-white/[0.03] p-3">
+                  <div className="mt-3 rounded-lg border border-[var(--line-2)] p-3" style={{ background: "var(--surface-1)" }}>
                     <p className="text-sm t-84">
                       <Sparkles className="mr-1.5 inline h-3.5 w-3.5" style={{ color: "var(--mint)" }} />
                       {enhanced.explanation}
@@ -750,7 +750,7 @@ export default function DashboardPage() {
             <span>в колонках «Тел.?» и «Email?»:</span>
             <span><span style={{ color: "var(--mint)" }}>✓</span> — есть</span>
             <span className="sep-dot" />
-            <span><span style={{ color: "rgba(255,255,255,0.34)" }}>—</span> — нет</span>
+            <span><span style={{ color: "var(--t-40)" }}>—</span> — нет</span>
           </div>
           <div className="overflow-x-auto -mx-1 px-1">
             <table className="w-full text-left" style={{ borderCollapse: "collapse", minWidth: 560 }}>
@@ -765,13 +765,13 @@ export default function DashboardPage() {
               </thead>
               <tbody className="text-[12.5px]">
                 {(demoSamples ?? DEMO_SAMPLE_FALLBACK).slice(0, 6).map((row, i) => (
-                  <tr key={`${row.company}-${i}`} className="border-t border-white/[0.06]">
-                    <td className="py-2.5 pr-3 text-white/[0.88]">{row.company}</td>
+                  <tr key={`${row.company}-${i}`} className="border-t border-[var(--line)]">
+                    <td className="py-2.5 pr-3 text-[var(--t-84)]">{row.company}</td>
                     <td className="py-2.5 pr-3 t-56">{row.city}</td>
-                    <td className="py-2.5 pr-3 mono text-[11.5px]" style={{ color: row.has_phone ? "var(--mint)" : "rgba(255,255,255,0.34)" }}>
+                    <td className="py-2.5 pr-3 mono text-[11.5px]" style={{ color: row.has_phone ? "var(--mint)" : "var(--t-40)" }}>
                       {row.has_phone ? "✓" : "—"}
                     </td>
-                    <td className="py-2.5 pr-3" style={{ color: row.has_email ? "var(--mint)" : "rgba(255,255,255,0.34)" }}>
+                    <td className="py-2.5 pr-3" style={{ color: row.has_email ? "var(--mint)" : "var(--t-40)" }}>
                       {row.has_email ? "✓" : "—"}
                     </td>
                     <td className="py-2.5 text-right">
@@ -779,7 +779,7 @@ export default function DashboardPage() {
                         <div className="score-bar score-bar--sm" style={{ "--score": `${row.score / 100}` } as React.CSSProperties}>
                           <div className="score-bar__fill" />
                         </div>
-                        <span className="mono tnum text-[11.5px]" style={{ color: row.score >= 70 ? "var(--mint)" : "rgba(255,255,255,0.72)" }}>
+                        <span className="mono tnum text-[11.5px]" style={{ color: row.score >= 70 ? "var(--mint)" : "var(--t-72)" }}>
                           {row.score}
                         </span>
                       </div>
@@ -881,12 +881,12 @@ export default function DashboardPage() {
                     {latestJob ? (
                       <span className="flex items-center gap-3 flex-wrap">
                         <span>
-                          <span className="tnum text-white/80">{addedCount.toLocaleString("ru-RU")}</span>
+                          <span className="tnum text-[var(--t-84)]">{addedCount.toLocaleString("ru-RU")}</span>
                           <span className="ml-1 t-40">добавлено</span>
                         </span>
                         <span className="t-28">·</span>
                         <span>
-                          <span className="tnum text-white/80">{enrichedCount.toLocaleString("ru-RU")}</span>
+                          <span className="tnum text-[var(--t-84)]">{enrichedCount.toLocaleString("ru-RU")}</span>
                           <span className="ml-1 t-40">обогащено</span>
                         </span>
                         {addedCount > 0 && (

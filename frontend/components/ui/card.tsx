@@ -21,11 +21,11 @@ type CardSize = "default" | "sm";
 
 const variantClasses: Record<CardVariant, string> = {
   default:
-    "rounded-2xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
+    "rounded-2xl border border-[var(--line-2)] bg-[var(--surface-input)] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
   hero:
-    "rounded-3xl border border-white/10 bg-white/[0.05] backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]",
+    "rounded-3xl border border-[var(--line-2)] bg-[var(--surface-2)] backdrop-blur-2xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)]",
   compact:
-    "rounded-xl border border-white/10 bg-white/[0.04] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
+    "rounded-xl border border-[var(--line-2)] bg-[var(--surface-input)] backdrop-blur-xl shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)]",
 };
 
 const sizePadding: Record<CardSize, string> = {
@@ -50,7 +50,7 @@ function Card({
       data-variant={variant}
       data-size={size}
       className={cn(
-        "group/card flex flex-col gap-4 text-sm text-white/[0.92] transition-colors duration-200",
+        "group/card flex flex-col gap-4 text-sm text-[var(--t-84)] transition-colors duration-200",
         variantClasses[variant],
         sizePadding[size],
         className,
@@ -78,7 +78,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="card-title"
       className={cn(
-        "text-base font-medium leading-snug tracking-tight text-white",
+        "text-base font-medium leading-snug tracking-tight text-[var(--t-100)]",
         className,
       )}
       {...props}
@@ -90,7 +90,7 @@ function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card-description"
-      className={cn("text-sm text-white/[0.56]", className)}
+      className={cn("text-sm text-[var(--t-56)]", className)}
       {...props}
     />
   );

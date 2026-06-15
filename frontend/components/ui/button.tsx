@@ -18,26 +18,26 @@ import { cn } from "@/lib/utils";
  *  - link      text + underline on hover
  */
 const buttonVariants = cva(
-  "group/button inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap select-none transition-colors duration-200 outline-none disabled:pointer-events-none disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0C] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "group/button inline-flex shrink-0 items-center justify-center font-medium whitespace-nowrap select-none transition-colors duration-200 outline-none disabled:pointer-events-none disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-white/30 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--bg)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
         default:
-          "rounded-full bg-white text-black hover:bg-white/90 active:bg-white/80",
+          "rounded-full bg-[var(--btn-brand-bg)] text-[var(--btn-brand-fg)] hover:opacity-90 active:opacity-80",
         secondary:
-          "rounded-full border border-white/[0.12] bg-white/[0.08] text-white backdrop-blur-xl hover:bg-white/[0.12] hover:border-white/[0.16] data-[state=open]:bg-white/[0.12]",
+          "rounded-full border border-[var(--line-2)] bg-[var(--surface-3)] text-[var(--t-100)] backdrop-blur-xl hover:bg-[var(--surface-active)] hover:border-[var(--line-3)] data-[state=open]:bg-[var(--surface-active)]",
         // Legacy alias: many call-sites still use variant="outline".
         // Treat it as secondary glass — same visual.
         outline:
-          "rounded-full border border-white/[0.12] bg-white/[0.08] text-white backdrop-blur-xl hover:bg-white/[0.12] hover:border-white/[0.16] data-[state=open]:bg-white/[0.12]",
+          "rounded-full border border-[var(--line-2)] bg-[var(--surface-3)] text-[var(--t-100)] backdrop-blur-xl hover:bg-[var(--surface-active)] hover:border-[var(--line-3)] data-[state=open]:bg-[var(--surface-active)]",
         ghost:
-          "rounded-lg text-white/[0.72] hover:text-white hover:bg-white/[0.05] data-[state=open]:bg-white/[0.05] data-[state=open]:text-white",
+          "rounded-lg text-[var(--t-72)] hover:text-[var(--t-100)] hover:bg-[var(--surface-2)] data-[state=open]:bg-[var(--surface-2)] data-[state=open]:text-[var(--t-100)]",
         brand:
-          "rounded-full bg-white text-[#0A0A0C] font-medium shadow-[0_8px_28px_-10px_rgba(168,197,192,0.6),inset_0_-1px_0_rgba(0,0,0,0.18)] hover:-translate-y-px hover:bg-white/95 active:bg-white/90",
+          "rounded-full bg-[var(--btn-brand-bg)] text-[var(--btn-brand-fg)] font-medium shadow-[0_8px_28px_-10px_rgba(168,197,192,0.6),inset_0_-1px_0_rgba(0,0,0,0.18)] hover:-translate-y-px hover:opacity-95 active:opacity-90",
         destructive:
           "rounded-full text-status-offline bg-status-offline/10 border border-status-offline/20 hover:bg-status-offline/15 hover:border-status-offline/30",
         link:
-          "rounded-none px-0 text-white/80 hover:text-white underline-offset-4 hover:underline",
+          "rounded-none px-0 text-[var(--t-72)] hover:text-[var(--t-100)] underline-offset-4 hover:underline",
       },
       size: {
         default: "h-11 gap-2 px-5 text-sm",

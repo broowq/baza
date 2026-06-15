@@ -118,7 +118,7 @@ export default function PlansPage() {
 
         {loading && (
           <div className="flex justify-center py-12">
-            <div className="h-8 w-8 animate-spin rounded-full border border-white/10 border-t-white/60" />
+            <div className="h-8 w-8 animate-spin rounded-full border border-[var(--line-2)] border-t-[var(--t-56)]" />
           </div>
         )}
 
@@ -246,7 +246,7 @@ export default function PlansPage() {
             Нужен индивидуальный тариф?{" "}
             <Link
               href="mailto:support@usebaza.ru"
-              className="text-white underline underline-offset-4 hover:t-72 transition-colors"
+              className="text-[var(--t-100)] underline underline-offset-4 hover:t-72 transition-colors"
             >
               Напишите нам
             </Link>

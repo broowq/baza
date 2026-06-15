@@ -198,7 +198,7 @@ export default function AdminPage() {
                     <div className="eyebrow">{s.label}</div>
                     <s.icon className="size-4 t-40" />
                   </div>
-                  <div className="tnum text-white" style={{ fontSize: 28, fontWeight: 300 }}>
+                  <div className="tnum text-[var(--t-100)]" style={{ fontSize: 28, fontWeight: 300 }}>
                     {s.value.toLocaleString("ru-RU")}
                   </div>
                   <p className="text-[11px] mono t-48 mt-1 truncate" title={s.sub}>{s.sub}</p>
@@ -208,7 +208,7 @@ export default function AdminPage() {
 
             <div className="panel p-5">
               <div className="eyebrow mb-3">выручка · активные подписки</div>
-              <div className="tnum text-white" style={{ fontSize: 36, fontWeight: 300 }}>
+              <div className="tnum text-[var(--t-100)]" style={{ fontSize: 36, fontWeight: 300 }}>
                 {(stats?.revenue_monthly_rub ?? 0).toLocaleString("ru-RU")} ₽
                 <span className="text-[16px] t-48 ml-2">/мес</span>
               </div>
@@ -223,7 +223,7 @@ export default function AdminPage() {
                 <div className="space-y-2.5">
                   {users.slice(0, 5).map((u) => (
                     <div key={u.id} className="flex items-center justify-between">
-                      <span className="text-[13px] text-white truncate">{u.full_name || u.email}</span>
+                      <span className="text-[13px] text-[var(--t-100)] truncate">{u.full_name || u.email}</span>
                       <span className="text-[11px] mono t-48 shrink-0 ml-4">{formatDate(u.created_at)}</span>
                     </div>
                   ))}
@@ -236,7 +236,7 @@ export default function AdminPage() {
                     <div key={j.id} className="flex items-center justify-between">
                       <div className="flex items-center gap-2 min-w-0">
                         <span className={`dot ${STATUS_DOT[j.status] ?? ""}`} style={!STATUS_DOT[j.status] ? { background: "var(--rose)" } : undefined} />
-                        <span className="text-[13px] text-white truncate">{j.project_name}</span>
+                        <span className="text-[13px] text-[var(--t-100)] truncate">{j.project_name}</span>
                       </div>
                       <span className="text-[11px] mono t-48 shrink-0 ml-4">{j.found_count} найдено</span>
                     </div>
@@ -266,7 +266,7 @@ export default function AdminPage() {
                 <tbody>
                   {users.map((u) => (
                     <tr key={u.id} className="border-b border-[var(--line)] last:border-0">
-                      <td className="py-3 text-[13px] text-white">
+                      <td className="py-3 text-[13px] text-[var(--t-100)]">
                         <span className="block max-w-[240px] truncate" title={u.email}>{u.email}</span>
                       </td>
                       <td className="py-3 text-[13px] t-84">
@@ -284,14 +284,14 @@ export default function AdminPage() {
                           <button
                             type="button"
                             onClick={() => toggleAdmin(u.id, u.is_admin)}
-                            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-white/[0.06] hover:t-100 transition-colors"
+                            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-[var(--surface-hover)] hover:t-100 transition-colors"
                           >
                             {u.is_admin ? "Снять админа" : "Сделать админом"}
                           </button>
                           <button
                             type="button"
                             onClick={() => setDeleteTarget(u)}
-                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] mono hover:bg-white/[0.06] transition-colors"
+                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] mono hover:bg-[var(--surface-hover)] transition-colors"
                             style={{ color: "var(--rose)" }}
                           >
                             <Trash2 className="size-3" />
@@ -316,13 +316,13 @@ export default function AdminPage() {
                 <div key={org.id} className="panel-flat p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                      <p className="text-[14px] text-white font-medium truncate">{org.name}</p>
+                      <p className="text-[14px] text-[var(--t-100)] font-medium truncate">{org.name}</p>
                       <p className="text-[11px] mono t-48 mt-0.5">
                         {org.members_count} участников · {org.projects_count} проектов · {org.leads_count} лидов
                       </p>
                     </div>
                     <Select value={org.plan ?? "free"} onValueChange={(v) => changePlan(org.id, v)}>
-                      <SelectTrigger className="w-32 bg-white/[0.04] border-[var(--line-2)]">
+                      <SelectTrigger className="w-32 bg-[var(--surface-input)] border-[var(--line-2)]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -387,7 +387,7 @@ export default function AdminPage() {
                 <tbody>
                   {jobs.map((j) => (
                     <tr key={j.id} className="border-b border-[var(--line)] last:border-0">
-                      <td className="py-3 text-[13px] text-white">
+                      <td className="py-3 text-[13px] text-[var(--t-100)]">
                         <span className="block max-w-[180px] truncate" title={j.project_name}>{j.project_name}</span>
                       </td>
                       <td className="py-3 text-[13px] t-56">

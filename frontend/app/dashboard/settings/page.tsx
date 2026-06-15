@@ -99,7 +99,7 @@ function CopyButton({ onClick }: { onClick: () => Promise<void> }) {
     <button
       type="button"
       onClick={() => void handleClick()}
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:t-100 hover:bg-white/[0.06] transition-colors"
+      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:t-100 hover:bg-[var(--surface-hover)] transition-colors"
     >
       {copied ? <CheckIcon className="size-3" style={{ color: "var(--green)" }} /> : <CopyIcon className="size-3" />}
       {copied ? "скопировано" : "скопировать"}
@@ -277,20 +277,20 @@ export default function SettingsPage() {
       <main className="relative mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
         <div className="space-y-6">
           <div className="space-y-2">
-            <div className="h-3 w-40 rounded bg-white/[0.06] animate-pulse" />
-            <div className="h-8 w-56 rounded bg-white/[0.06] animate-pulse" />
-            <div className="h-3 w-72 rounded bg-white/[0.06] animate-pulse" />
+            <div className="h-3 w-40 rounded bg-[var(--surface-hover)] animate-pulse" />
+            <div className="h-8 w-56 rounded bg-[var(--surface-hover)] animate-pulse" />
+            <div className="h-3 w-72 rounded bg-[var(--surface-hover)] animate-pulse" />
           </div>
           <div className="hairline" />
           <div className="grid gap-4 md:grid-cols-[200px_1fr]">
             <div className="space-y-2">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-9 rounded-lg bg-white/[0.04] animate-pulse" />
+                <div key={i} className="h-9 rounded-lg bg-[var(--surface-1)] animate-pulse" />
               ))}
             </div>
             <div className="space-y-4">
               {[1, 2].map((i) => (
-                <div key={i} className="h-48 rounded-2xl bg-white/[0.04] animate-pulse" />
+                <div key={i} className="h-48 rounded-2xl bg-[var(--surface-1)] animate-pulse" />
               ))}
             </div>
           </div>
@@ -325,7 +325,7 @@ export default function SettingsPage() {
           <nav className="flex md:flex-col md:w-[220px] shrink-0 gap-1.5 overflow-x-auto md:overflow-visible">
             <Link
               href="/dashboard"
-              className="hidden md:inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-white transition-colors mb-2"
+              className="hidden md:inline-flex items-center gap-1.5 text-[12px] t-48 hover:text-[var(--t-100)] transition-colors mb-2"
             >
               <ArrowLeftIcon className="size-3.5" />
               Назад
@@ -368,13 +368,13 @@ export default function SettingsPage() {
                   <div className="eyebrow mb-4">профиль пользователя</div>
                   <div className="flex items-center gap-4">
                     <div
-                      className="relative flex size-14 shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-black"
+                      className="relative flex size-14 shrink-0 items-center justify-center rounded-full text-[15px] font-medium text-[var(--on-accent)]"
                       style={{ background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)" }}
                     >
                       {getInitials(profile?.full_name)}
                     </div>
                     <div className="space-y-0.5 min-w-0">
-                      <p className="text-[15px] text-white truncate">
+                      <p className="text-[15px] text-[var(--t-100)] truncate">
                         {profile?.full_name}
                       </p>
                       <p className="text-[12px] mono t-56 truncate">{profile?.email}</p>
@@ -451,7 +451,7 @@ export default function SettingsPage() {
                     <div className="flex items-center gap-2">
                       <span className="dot dot-mt" />
                       <span
-                        className="text-white"
+                        className="text-[var(--t-100)]"
                         style={{ fontSize: 18, fontWeight: 300 }}
                       >
                         {formatPlan(organization?.plan) || "---"}
@@ -460,7 +460,7 @@ export default function SettingsPage() {
                     {(organization?.ai_cost_limit_kopecks_per_month ?? 0) > 0 && (
                       <p className="tnum t-72 text-[11px] mt-2">
                         AI-бюджет:{" "}
-                        <span className="text-white">
+                        <span className="text-[var(--t-100)]">
                           {((organization?.ai_cost_used_kopecks_current_month ?? 0) / 100).toLocaleString("ru-RU")} ₽
                         </span>
                         <span className="t-48">
@@ -472,7 +472,7 @@ export default function SettingsPage() {
                   <div className="panel-flat p-4">
                     <div className="eyebrow mb-1">лиды в месяце</div>
                     <p
-                      className="tnum text-white"
+                      className="tnum text-[var(--t-100)]"
                       style={{ fontSize: 18, fontWeight: 300 }}
                     >
                       {organization?.leads_used_current_month ?? 0}
@@ -484,7 +484,7 @@ export default function SettingsPage() {
                   <div className="panel-flat p-4">
                     <div className="eyebrow mb-1">пользователей</div>
                     <p
-                      className="tnum text-white"
+                      className="tnum text-[var(--t-100)]"
                       style={{ fontSize: 18, fontWeight: 300 }}
                     >
                       {organization?.users_limit ?? "---"}
@@ -570,7 +570,7 @@ export default function SettingsPage() {
                             <td className="py-3">
                               <div className="flex items-center gap-3">
                                 <div
-                                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] mono text-black"
+                                  className="flex size-8 shrink-0 items-center justify-center rounded-full text-[10px] mono text-[var(--on-accent)]"
                                   style={{
                                     background: "linear-gradient(135deg,#A8C5C0,#8AA0B5)",
                                   }}
@@ -578,7 +578,7 @@ export default function SettingsPage() {
                                   {getInitials(member.full_name)}
                                 </div>
                                 <div className="min-w-0 max-w-[240px]">
-                                  <p className="text-[13px] text-white truncate" title={member.full_name}>
+                                  <p className="text-[13px] text-[var(--t-100)] truncate" title={member.full_name}>
                                     {member.full_name}
                                   </p>
                                   <p className="text-[11px] mono t-48 truncate" title={member.email}>
@@ -595,7 +595,7 @@ export default function SettingsPage() {
                                     updateMemberRole(member.user_id, val as Member["role"])
                                   }
                                 >
-                                  <SelectTrigger size="sm" className="bg-white/[0.04] border-[var(--line-2)]">
+                                  <SelectTrigger size="sm" className="bg-[var(--surface-input)] border-[var(--line-2)]">
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -621,7 +621,7 @@ export default function SettingsPage() {
                                     render={
                                       <button
                                         type="button"
-                                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-white/[0.06] hover:t-100 transition-colors"
+                                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-[var(--surface-hover)] hover:t-100 transition-colors"
                                       >
                                         <Trash2Icon className="size-3" />
                                         удалить
@@ -753,7 +753,7 @@ export default function SettingsPage() {
                                 key={invite.id}
                                 className="border-b border-[var(--line)] last:border-0"
                               >
-                                <td className="py-3 text-[13px] text-white">
+                                <td className="py-3 text-[13px] text-[var(--t-100)]">
                                   <span className="block max-w-[240px] truncate" title={invite.email}>
                                     {invite.email}
                                   </span>
@@ -876,7 +876,7 @@ export default function SettingsPage() {
 function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-white/[0.04] border border-[var(--line)] mb-3">
+      <div className="flex size-12 items-center justify-center rounded-full bg-[var(--surface-1)] border border-[var(--line)] mb-3">
         {icon}
       </div>
       <p className="text-[12px] t-56">{text}</p>
@@ -1072,18 +1072,18 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
         <p className="text-[12px] t-56 mb-4">
           Оператор: <span className="t-84">ООО «ПРО ЛЕС», ОГРН 1215400050117, ИНН 5406817586</span>,
           usebaza.ru. Полный текст Политики обработки персональных данных —{" "}
-          <Link href={"/privacy" as never} className="text-white underline underline-offset-2">
+          <Link href={"/privacy" as never} className="text-[var(--t-100)] underline underline-offset-2">
             на странице /privacy
           </Link>.
         </p>
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-[12.5px]">
           <span className="t-84">
             <span className="t-48 mono">email DPO:</span>{" "}
-            <a href="mailto:dpo@usebaza.ru" className="text-white">dpo@usebaza.ru</a>
+            <a href="mailto:dpo@usebaza.ru" className="text-[var(--t-100)]">dpo@usebaza.ru</a>
           </span>
           <span className="t-84">
             <span className="t-48 mono">общие вопросы:</span>{" "}
-            <a href="mailto:support@usebaza.ru" className="text-white">support@usebaza.ru</a>
+            <a href="mailto:support@usebaza.ru" className="text-[var(--t-100)]">support@usebaza.ru</a>
           </span>
         </div>
       </section>

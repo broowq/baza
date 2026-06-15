@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const DASHBOARD_PREFIXES = ["/dashboard"];
 
@@ -24,8 +25,6 @@ export function Navbar() {
   useEffect(() => {
     setMounted(true);
     setAuthed(Boolean(getToken()));
-    // Force dark — light theme isn't supported by the design system.
-    document.documentElement.classList.add("dark");
   }, [pathname]);
 
   // Close mobile menu on route change
@@ -65,6 +64,7 @@ export function Navbar() {
 
         {/* Desktop nav */}
         <nav className="hidden sm:flex items-center gap-2" aria-label="Основная навигация">
+          <ThemeToggle />
           <Link href="/plans" className={navLinkClass}>
             Тарифы
           </Link>

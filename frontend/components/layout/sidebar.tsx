@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatPlan } from "@/lib/plans";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { Organization } from "@/lib/types";
 
 type NavItem = {
@@ -211,13 +212,16 @@ export function Sidebar() {
             </div>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={handleLogout}
-          className="text-[12px] t-56 hover:c-rose transition-colors text-left"
-        >
-          Выйти →
-        </button>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-[12px] t-56 hover:c-rose transition-colors text-left"
+          >
+            Выйти →
+          </button>
+          <ThemeToggle />
+        </div>
       </div>
     </aside>
   );

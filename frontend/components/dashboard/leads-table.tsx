@@ -79,10 +79,10 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
 const SOURCE_META: Record<string, { label: string; emoji: string; color: string }> = {
   yandex_maps: { label: "Яндекс Карты", emoji: "🅉", color: "text-status-offline" },
   "2gis": { label: "2ГИС", emoji: "②", color: "text-status-online" },
-  rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-white/[0.72]" },
+  rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-[var(--t-72)]" },
   maps_searxng: { label: "Яндекс Карты (web)", emoji: "🅉", color: "text-status-offline" },
-  searxng: { label: "Web-поиск", emoji: "🌐", color: "text-white/[0.56]" },
-  bing: { label: "Bing", emoji: "🅱", color: "text-white/[0.56]" },
+  searxng: { label: "Web-поиск", emoji: "🌐", color: "text-[var(--t-56)]" },
+  bing: { label: "Bing", emoji: "🅱", color: "text-[var(--t-56)]" },
 };
 
 function SourceBadge({ source, externalId }: { source?: string; externalId?: string }) {
@@ -143,7 +143,7 @@ function EmailStatusBadge({ status }: { status?: string }) {
 }
 
 function TruncatedCell({ value, className = "" }: { value: string | null | undefined; className?: string }) {
-  if (!value) return <span className="text-white/[0.40]">—</span>;
+  if (!value) return <span className="text-[var(--t-40)]">—</span>;
   return (
     <TooltipProvider>
       <Tooltip>
@@ -162,13 +162,13 @@ function ScoreIndicator({ score }: { score: number }) {
   const clamped = Math.max(0, Math.min(100, score));
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1 w-20 overflow-hidden rounded-full bg-white/[0.06]">
+      <div className="h-1 w-20 overflow-hidden rounded-full" style={{ background: "var(--surface-hover)" }}>
         <div
           className="h-full rounded-full bg-brand transition-[width] duration-300"
           style={{ width: `${clamped}%` }}
         />
       </div>
-      <span className="font-mono text-xs tabular-nums text-white/[0.72]">{score}</span>
+      <span className="font-mono text-xs tabular-nums text-[var(--t-72)]">{score}</span>
     </div>
   );
 }
@@ -234,12 +234,12 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
   const reminderOverdue = lead.reminder_at && new Date(lead.reminder_at) < new Date();
 
   return (
-    <TableRow className="border-b border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.02]">
+    <TableRow className="border-b border-[var(--line)] bg-[var(--surface-1)] hover:bg-[var(--surface-1)]">
       <TableCell colSpan={10} className="px-4 py-4 sm:px-8">
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Notes */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Заметка</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Заметка</span>
             <Input
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
@@ -252,7 +252,7 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
           </div>
           {/* Tags */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Теги</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Теги</span>
             <div className="flex flex-wrap items-center gap-1.5">
               {tags.map((t) => (
                 <Badge
@@ -276,19 +276,19 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
           </div>
           {/* Workflow actions */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Действия</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Действия</span>
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <Button size="sm" variant="brand" disabled={saving} onClick={() => void patchLead({ mark_contacted: true })}>
                 ✓ Связались сейчас
               </Button>
               {lastContactStr && (
-                <span className="text-white/[0.48]">последний контакт: {lastContactStr}</span>
+                <span className="text-[var(--t-48)]">последний контакт: {lastContactStr}</span>
               )}
             </div>
           </div>
           {/* Reminder */}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Напоминание</span>
+            <span className="text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Напоминание</span>
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(1)}>+1д</Button>
               <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(3)}>+3д</Button>
@@ -296,7 +296,7 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
               <Button size="sm" variant="secondary" disabled={saving} onClick={() => void setReminder(14)}>+14д</Button>
               {reminderDateStr && (
                 <>
-                  <span className={reminderOverdue ? "font-medium text-status-offline" : "text-white/[0.48]"}>
+                  <span className={reminderOverdue ? "font-medium text-status-offline" : "text-[var(--t-48)]"}>
                     напомнить {reminderDateStr}{reminderOverdue && " (просрочено)"}
                   </span>
                   <Button size="icon-xs" variant="ghost" disabled={saving} onClick={() => void setReminder(null)}>×</Button>
@@ -418,8 +418,8 @@ export function LeadsTable({
   if (loading) {
     return (
       <div className="space-y-3">
-        <div className="h-11 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.03]" />
-        <div className="h-56 animate-pulse rounded-2xl border border-white/[0.08] bg-white/[0.03]" />
+        <div className="h-11 animate-pulse rounded-2xl border border-[var(--line)] bg-[var(--surface-1)]" />
+        <div className="h-56 animate-pulse rounded-2xl border border-[var(--line)] bg-[var(--surface-1)]" />
       </div>
     );
   }
@@ -427,8 +427,8 @@ export function LeadsTable({
   if (leads.length === 0) {
     return (
       <GlassCard variant="default" className="p-8 text-center">
-        <h3 className="text-base font-medium text-white">Лидов пока нет</h3>
-        <p className="mt-1 text-sm text-white/[0.48]">Запустите сбор, чтобы заполнить таблицу.</p>
+        <h3 className="text-base font-medium text-[var(--t-100)]">Лидов пока нет</h3>
+        <p className="mt-1 text-sm text-[var(--t-48)]">Запустите сбор, чтобы заполнить таблицу.</p>
       </GlassCard>
     );
   }
@@ -436,7 +436,7 @@ export function LeadsTable({
   return (
     <div className="space-y-3">
       {!hideInternalFilters && (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3 backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] p-3 backdrop-blur-xl">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -487,7 +487,7 @@ export function LeadsTable({
       <div className="space-y-2 md:hidden">
         {filtered.length === 0 && (
           <GlassCard variant="default" className="px-4 py-6 text-center">
-            <p className="text-sm text-white/[0.48]">Нет лидов по текущим фильтрам.</p>
+            <p className="text-sm text-[var(--t-48)]">Нет лидов по текущим фильтрам.</p>
           </GlassCard>
         )}
         {filtered.map((lead) => {
@@ -508,11 +508,11 @@ export function LeadsTable({
                     className="mt-1 h-4 w-4 cursor-pointer rounded"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 break-words text-sm font-medium text-white">
+                    <p className="flex items-center gap-1.5 break-words text-sm font-medium text-[var(--t-100)]">
                       <SourceBadge source={lead.source} externalId={lead.external_id} />
                       <span>{lead.company}</span>
                     </p>
-                    {lead.city && <p className="mt-0.5 text-xs text-white/[0.48]">{lead.city}</p>}
+                    {lead.city && <p className="mt-0.5 text-xs text-[var(--t-48)]">{lead.city}</p>}
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -521,20 +521,20 @@ export function LeadsTable({
               </div>
               <div className="space-y-1.5 text-xs">
                 {lead.phone && (
-                  <a href={`tel:${lead.phone}`} className="block text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
+                  <a href={`tel:${lead.phone}`} className="block text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     📞 {lead.phone}
                   </a>
                 )}
                 {lead.email && (
-                  <a href={`mailto:${lead.email}`} className="block break-all text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
+                  <a href={`mailto:${lead.email}`} className="block break-all text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     ✉️ {lead.email}
                   </a>
                 )}
                 {lead.address && (
-                  <p className="text-white/[0.56]">📍 {lead.address}</p>
+                  <p className="text-[var(--t-56)]">📍 {lead.address}</p>
                 )}
                 {domain && lead.website && /^https?:\/\//i.test(lead.website) && (
-                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block truncate text-white underline decoration-white/30 underline-offset-2 hover:decoration-white">
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block truncate text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     🌐 {domain}
                   </a>
                 )}
@@ -556,15 +556,15 @@ export function LeadsTable({
 
       {/* Desktop: full table (hidden on mobile) */}
       <div
-        className="hidden min-w-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] md:block"
+        className="hidden min-w-0 overflow-hidden rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] md:block"
         role="region"
         aria-label="Таблица лидов"
       >
         <div className="overflow-x-auto">
           <Table aria-label="Список лидов" className="min-w-[700px]">
-            <TableHeader className="border-b border-white/[0.08] bg-white/[0.04] [&_tr]:border-b-0">
+            <TableHeader className="border-b border-[var(--line)] bg-[var(--surface-1)] [&_tr]:border-b-0">
               <TableRow className="border-b-0 hover:bg-transparent">
-                <TableHead className="h-11 w-8 px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] sm:w-10">
+                <TableHead className="h-11 w-8 px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)] sm:w-10">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
@@ -573,14 +573,14 @@ export function LeadsTable({
                     aria-label={allVisibleSelected ? "Снять выбор со всех" : "Выбрать все"}
                   />
                 </TableHead>
-                <TableHead className="h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Компания</TableHead>
-                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Город</TableHead>
-                <TableHead className="h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Сайт</TableHead>
-                <TableHead className="hidden h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Email</TableHead>
-                <TableHead className="hidden h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] sm:table-cell">Телефон</TableHead>
-                <TableHead className="hidden h-11 min-w-[130px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Адрес</TableHead>
-                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48]">Статус</TableHead>
-                <TableHead className="hidden h-11 min-w-[120px] px-4 text-[11px] font-medium uppercase tracking-wider text-white/[0.48] md:table-cell">Score</TableHead>
+                <TableHead className="h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Компания</TableHead>
+                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Город</TableHead>
+                <TableHead className="h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Сайт</TableHead>
+                <TableHead className="hidden h-11 min-w-[140px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)] md:table-cell">Email</TableHead>
+                <TableHead className="hidden h-11 min-w-[110px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)] sm:table-cell">Телефон</TableHead>
+                <TableHead className="hidden h-11 min-w-[130px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)] md:table-cell">Адрес</TableHead>
+                <TableHead className="h-11 min-w-[80px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)]">Статус</TableHead>
+                <TableHead className="hidden h-11 min-w-[120px] px-4 text-[11px] font-medium uppercase tracking-wider text-[var(--t-48)] md:table-cell">Score</TableHead>
                 <TableHead className="h-11 w-10 px-4" />
               </TableRow>
             </TableHeader>
@@ -596,7 +596,7 @@ export function LeadsTable({
                   <React.Fragment key={lead.id}>
                     <TableRow
                       data-state={isSelected ? "selected" : undefined}
-                      className="cursor-pointer border-b border-white/[0.06] transition-colors duration-150 hover:bg-white/[0.04] data-[state=selected]:bg-white/[0.06]"
+                      className="cursor-pointer border-b border-[var(--line)] transition-colors duration-150 hover:bg-[var(--surface-1)] data-[state=selected]:bg-[var(--surface-hover)]"
                       onClick={(e) => handleRowClick(lead.id, e)}
                     >
                       <TableCell className="px-4 py-3.5">
@@ -614,19 +614,19 @@ export function LeadsTable({
                       </TableCell>
                       <TableCell className="max-w-[192px] px-4 py-3.5">
                         <div className="min-w-0">
-                          <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-white" title={lead.company}>
+                          <p className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-[var(--t-100)]" title={lead.company}>
                             <SourceBadge source={lead.source} externalId={lead.external_id} />
                             <button
                               type="button"
                               onClick={(e) => { e.stopPropagation(); setOpenLeadId(lead.id); }}
-                              className="truncate min-w-0 text-left hover:underline decoration-white/40 underline-offset-2"
+                              className="truncate min-w-0 text-left hover:underline decoration-[var(--t-40)] underline-offset-2"
                               title="Открыть карточку компании"
                             >
                               {lead.company}
                             </button>
                           </p>
                           {lead.enriched ? (
-                            <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-white/[0.48]">
+                            <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-[var(--t-48)]">
                               <Sparkles size={9} /> обогащён
                             </span>
                           ) : (
@@ -641,7 +641,7 @@ export function LeadsTable({
                         </div>
                       </TableCell>
                       <TableCell className="max-w-[96px] px-4 py-3.5">
-                        <TruncatedCell value={lead.city} className="text-white/[0.72]" />
+                        <TruncatedCell value={lead.city} className="text-[var(--t-72)]" />
                       </TableCell>
                       <TableCell className="max-w-[144px] px-4 py-3.5">
                         {lead.website && /^https?:\/\//i.test(lead.website.trim()) && !lead.website.trim().toLowerCase().startsWith('data:') ? (
@@ -650,13 +650,13 @@ export function LeadsTable({
                             target="_blank"
                             rel="noopener noreferrer"
                             title={lead.website}
-                            className="inline-flex max-w-full items-center gap-1 truncate text-white underline decoration-white/[0.30] underline-offset-2 hover:decoration-white"
+                            className="inline-flex max-w-full items-center gap-1 truncate text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]"
                           >
                             <span className="truncate">{domain}</span>
-                            <ExternalLink size={10} className="shrink-0 text-white/[0.48]" />
+                            <ExternalLink size={10} className="shrink-0 text-[var(--t-48)]" />
                           </a>
                         ) : (
-                          <span className="text-white/[0.40]">—</span>
+                          <span className="text-[var(--t-40)]">—</span>
                         )}
                       </TableCell>
                       <TableCell className="hidden max-w-[176px] px-4 py-3.5 md:table-cell">
@@ -665,21 +665,21 @@ export function LeadsTable({
                             <a
                               href={`mailto:${lead.email}`}
                               title={lead.email}
-                              className="block truncate text-white underline decoration-white/[0.30] underline-offset-2 hover:decoration-white"
+                              className="block truncate text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]"
                             >
                               {lead.email}
                             </a>
                             <EmailStatusBadge status={lead.email_status} />
                           </div>
                         ) : (
-                          <span className="text-white/[0.40]">—</span>
+                          <span className="text-[var(--t-40)]">—</span>
                         )}
                       </TableCell>
                       <TableCell className="hidden max-w-[128px] px-4 py-3.5 sm:table-cell">
-                        <TruncatedCell value={lead.phone} className="font-mono text-white/[0.72]" />
+                        <TruncatedCell value={lead.phone} className="font-mono text-[var(--t-72)]" />
                       </TableCell>
                       <TableCell className="hidden max-w-[176px] px-4 py-3.5 md:table-cell">
-                        <TruncatedCell value={lead.address} className="text-white/[0.56]" />
+                        <TruncatedCell value={lead.address} className="text-[var(--t-56)]" />
                       </TableCell>
                       <TableCell className="px-4 py-3.5">
                         {onLeadUpdate ? (
@@ -724,7 +724,7 @@ export function LeadsTable({
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="text-white/[0.48] hover:text-status-offline"
+                            className="text-[var(--t-48)] hover:text-status-offline"
                             onClick={(e) => {
                               e.stopPropagation();
                               setDeleteTarget(lead);
@@ -746,7 +746,7 @@ export function LeadsTable({
         </div>
       </div>
 
-      <p className="text-[11px] text-white/[0.48]">
+      <p className="text-[11px] text-[var(--t-48)]">
         Показано {filtered.length} из {leads.length}
         {selectedIds.length > 0 && ` · Выбрано: ${selectedIds.length}`}
       </p>

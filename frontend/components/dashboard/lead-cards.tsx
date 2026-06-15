@@ -56,7 +56,7 @@ type LeadCardProps = {
 function scoreColor(score: number): string {
   if (score >= 80) return "var(--mint)";
   if (score >= 60) return "rgba(232,196,128,0.92)";
-  return "rgba(255,255,255,0.5)";
+  return "var(--t-48)";
 }
 
 function LeadCard({ lead, onClick }: LeadCardProps) {

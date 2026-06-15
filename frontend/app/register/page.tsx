@@ -174,7 +174,7 @@ function RegisterContent() {
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-[var(--t-100)]"
                   aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                 >
                   <EyeIcon open={showPassword} />
@@ -209,11 +209,11 @@ function RegisterContent() {
                 />
                 <span className="text-[12.5px] t-72">
                   Принимаю{" "}
-                  <Link href="/terms" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                  <Link href="/terms" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     условия использования
                   </Link>
                   {" "}и{" "}
-                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                  <Link href="/privacy" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     оферту
                   </Link>.
                 </span>
@@ -238,7 +238,7 @@ function RegisterContent() {
                 />
                 <span className="text-[12.5px] t-72">
                   Согласен на обработку персональных данных по{" "}
-                  <Link href="/privacy" target="_blank" className="text-white underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                  <Link href="/privacy" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     152-ФЗ
                   </Link>.
                 </span>
@@ -270,7 +270,7 @@ function RegisterContent() {
 
           <div className="text-center caption">
             Уже есть аккаунт?{" "}
-            <Link href={loginHref} className="text-white underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
+            <Link href={loginHref} className="text-[var(--t-100)] underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
               Войти
             </Link>
           </div>
