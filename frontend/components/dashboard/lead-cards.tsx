@@ -14,6 +14,8 @@ const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
   contacted: "Связались",
   qualified: "Квалифицирован",
+  proposal: "КП отправлено",
+  won: "Сделка",
   rejected: "Отклонён",
 };
 
@@ -21,6 +23,8 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   new: "badge--new",
   contacted: "badge--contacted",
   qualified: "badge--qualified",
+  proposal: "badge--proposal",
+  won: "badge--won",
   rejected: "badge--rejected",
 };
 

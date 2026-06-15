@@ -94,6 +94,18 @@ export function Sidebar() {
         projectCount === null ? undefined : String(projectCount),
     },
     {
+      href: "/dashboard/tasks" as Route,
+      label: "Задачи",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2" />
+          <rect x="9" y="3" width="6" height="4" rx="1" />
+          <path d="M9 13l2 2 4-4" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/tasks"),
+    },
+    {
       href: "/plans" as Route,
       label: "Тарифы",
       icon: (

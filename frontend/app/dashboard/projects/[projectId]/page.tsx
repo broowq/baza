@@ -3,13 +3,16 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, SlidersHorizontal, Sparkles } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
 import { JobHistory } from "@/components/dashboard/job-history";
 import { LeadCards } from "@/components/dashboard/lead-cards";
 import { LeadsTable } from "@/components/dashboard/leads-table";
+import { PipelineBoard } from "@/components/dashboard/pipeline-board";
+import { FunnelBar } from "@/components/dashboard/funnel-bar";
+import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -20,7 +23,7 @@ import { Loader } from "@/components/ui/loader";
 import { api, apiFetch } from "@/lib/api";
 import { getOrgId, getToken } from "@/lib/auth";
 import { useDebounce } from "@/lib/hooks";
-import type { CollectionJob, Lead, Project } from "@/lib/types";
+import type { CollectionJob, Lead, OrgMember, Project } from "@/lib/types";
 
 const STAT_CARDS = [
   { key: "total", label: "Всего лидов" },
@@ -51,6 +54,18 @@ const ORDER_LABELS: Record<string, string> = { desc: "Убывание", asc: "�
 const EMAIL_LABELS: Record<string, string> = { all: "Email: все", true: "С email", false: "Без email" };
 const PHONE_LABELS: Record<string, string> = { all: "Тел: все", true: "С телефоном", false: "Без телефона" };
 
+// CRM pipeline stages — used by the bulk «change stage» action. Mirrors the
+// 6-stage pipeline (proposal/won have no badge--* variant, hence not in
+// STATUS_LABELS above which only covers the legacy 4 statuses).
+const BULK_STAGE_LABELS: Record<string, string> = {
+  new: "Новый",
+  contacted: "Связались",
+  qualified: "Квалифицирован",
+  proposal: "КП отправлено",
+  won: "Сделка",
+  rejected: "Отказ",
+};
+
 function pluralCompanies(n: number): string {
   const m10 = n % 10;
   const m100 = n % 100;
@@ -74,6 +89,8 @@ export default function ProjectDetailsPage() {
   const [maxScore, setMaxScore] = useState("");
   const [hasEmail, setHasEmail] = useState("all");
   const [hasPhone, setHasPhone] = useState("all");
+  // Assignee filter for the table query: "all" | "me" | "none" | <user_id>.
+  const [assignedTo, setAssignedTo] = useState("all");
   const [page, setPage] = useState(1);
   const [perPage] = useState(25);
   const [total, setTotal] = useState(0);
@@ -84,8 +101,24 @@ export default function ProjectDetailsPage() {
   const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [stats, setStats] = useState({ total: 0, enriched: 0, withEmail: 0, avgScore: 0 });
   const [activeTab, setActiveTab] = useState<string>("leads");
-  const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+  const [viewMode, setViewMode] = useState<"cards" | "table" | "kanban">("cards");
   const [showFilters, setShowFilters] = useState(false);
+
+  // CRM additions.
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [openLeadId, setOpenLeadId] = useState<string | null>(null);
+  // Funnel refresh trigger — bumped after collect or any stage change so
+  // <FunnelBar> refetches.
+  const [funnelKey, setFunnelKey] = useState(0);
+  // Full project lead set for the Kanban board (the table is paginated, the
+  // board needs all leads). Fetched lazily the first time Kanban is opened.
+  const [kanbanLeads, setKanbanLeads] = useState<Lead[]>([]);
+  const [kanbanLoading, setKanbanLoading] = useState(false);
+  const [kanbanLoaded, setKanbanLoaded] = useState(false);
+  // Lifted table selection for the bulk action bar.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkTag, setBulkTag] = useState("");
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
@@ -107,6 +140,7 @@ export default function ProjectDetailsPage() {
       if (maxScore) query.set("max_score", maxScore);
       if (hasEmail !== "all") query.set("has_email", hasEmail);
       if (hasPhone !== "all") query.set("has_phone", hasPhone);
+      if (assignedTo !== "all") query.set("assigned_to", assignedTo);
 
       const [projectsList, projectLeads, projectJobs, membership, statsData] = await Promise.all([
         api<Project[]>("/projects"),
@@ -146,7 +180,7 @@ export default function ProjectDetailsPage() {
         setTableLoading(false);
       }
     }
-  }, [hasEmail, hasPhone, maxScore, minScore, order, page, perPage, projectId, debouncedSearch, sort, status]);
+  }, [assignedTo, hasEmail, hasPhone, maxScore, minScore, order, page, perPage, projectId, debouncedSearch, sort, status]);
 
   const hasActiveJobs = jobs.some((j) => j.status === "queued" || j.status === "running");
 
@@ -159,6 +193,35 @@ export default function ProjectDetailsPage() {
     const id = setInterval(() => void fetchAll(true), 6000);
     return () => clearInterval(id);
   }, [hasActiveJobs, fetchAll]);
+
+  // Org members — fetched once for the board + assignee filter/bulk dropdowns.
+  useEffect(() => {
+    let cancelled = false;
+    api<OrgMember[]>("/organizations/members")
+      .then((data) => { if (!cancelled) setMembers(Array.isArray(data) ? data : []); })
+      .catch(() => { /* non-fatal: dropdowns simply show no per-member options */ });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Pull the full lead set for the Kanban board (the table view is paginated).
+  // GET /leads/project/{id} returns up to 5000; refetch on demand after edits.
+  const fetchKanbanLeads = useCallback(async () => {
+    setKanbanLoading(true);
+    try {
+      const all = await api<Lead[]>(`/leads/project/${projectId}`);
+      setKanbanLeads(Array.isArray(all) ? all : []);
+      setKanbanLoaded(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось загрузить доску");
+    } finally {
+      setKanbanLoading(false);
+    }
+  }, [projectId]);
+
+  // Load the board's full list the first time Kanban is opened.
+  useEffect(() => {
+    if (viewMode === "kanban" && !kanbanLoaded && !kanbanLoading) void fetchKanbanLeads();
+  }, [viewMode, kanbanLoaded, kanbanLoading, fetchKanbanLeads]);
 
   useEffect(() => {
     const token = getToken();
@@ -219,6 +282,11 @@ export default function ProjectDetailsPage() {
     if (last.status !== "done" || lastCollectToastRef.current === last.id) return;
     lastCollectToastRef.current = last.id;
     const n = last.added_count ?? 0;
+    // New leads landed — refresh the funnel and (if open) the board.
+    if (n > 0) {
+      setFunnelKey((k) => k + 1);
+      setKanbanLoaded(false);
+    }
     if (n > 0) toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
     // 0 added — show the backend's honest reason (quota hit vs. nothing left).
     else toast(last.error || "Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
@@ -299,6 +367,45 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  // Single source of truth for lead patches — keeps cards/table/board in sync.
+  // A status change also refreshes the funnel (counts/value per stage move).
+  const handleLeadUpdate = useCallback((leadId: string, patch: Partial<Lead>) => {
+    setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
+    setKanbanLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
+    if ("status" in patch || "deal_value" in patch || "assigned_to_user_id" in patch) {
+      setFunnelKey((k) => k + 1);
+    }
+  }, []);
+
+  // Bulk action over the current table selection. Calls the bulk endpoint then
+  // refetches both the table and (if loaded) the board, clearing the selection.
+  const runBulkAction = async (
+    body:
+      | { action: "stage"; status: string }
+      | { action: "assign"; assigned_to_user_id: string | null }
+      | { action: "add_tag"; tag: string }
+      | { action: "delete" },
+  ) => {
+    if (selectedIds.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const res = await api<{ updated: number }>(`/leads/project/${projectId}/bulk`, {
+        method: "POST",
+        body: JSON.stringify({ lead_ids: selectedIds, ...body }),
+      });
+      toast.success(`Обновлено: ${res.updated}`);
+      setSelectedIds([]);
+      setBulkTag("");
+      setFunnelKey((k) => k + 1);
+      await fetchAll(true);
+      if (kanbanLoaded) await fetchKanbanLeads();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось выполнить действие");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   if (loading) {
     return <main className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 lg:px-10"><Loader /></main>;
   }
@@ -330,7 +437,8 @@ export default function ProjectDetailsPage() {
     (minScore ? 1 : 0) +
     (maxScore ? 1 : 0) +
     (hasEmail !== "all" ? 1 : 0) +
-    (hasPhone !== "all" ? 1 : 0);
+    (hasPhone !== "all" ? 1 : 0) +
+    (assignedTo !== "all" ? 1 : 0);
 
   const resetFilters = () => {
     setPage(1);
@@ -339,6 +447,16 @@ export default function ProjectDetailsPage() {
     setMaxScore("");
     setHasEmail("all");
     setHasPhone("all");
+    setAssignedTo("all");
+  };
+
+  // Label for the assignee filter trigger (value → display name).
+  const assigneeLabel = (v: string | null): string => {
+    if (!v || v === "all") return "Ответственный: все";
+    if (v === "me") return "Мои";
+    if (v === "none") return "Не назначены";
+    const m = members.find((x) => x.user_id === v);
+    return m ? (m.full_name || m.email) : "Ответственный";
   };
 
   return (
@@ -488,6 +606,9 @@ export default function ProjectDetailsPage() {
 
         <TabsContent value="leads" className="overflow-hidden">
           <div ref={leadsTableRef} className="space-y-4 min-w-0">
+            {/* Pipeline funnel — refreshes on stage changes / after collect */}
+            <FunnelBar projectId={projectId} refreshKey={funnelKey} />
+
             {/* Filters + view toggle bar */}
             <div className="rounded-xl bg-muted/30 p-2.5 space-y-2.5">
               <div className="flex flex-wrap items-center gap-2">
@@ -521,7 +642,7 @@ export default function ProjectDetailsPage() {
                   />
                 </button>
 
-                {/* View toggle — Cards | Table */}
+                {/* View toggle — Cards | Table | Kanban */}
                 <div className="seg ml-auto shrink-0" role="group" aria-label="Вид отображения">
                   <button
                     type="button"
@@ -538,6 +659,14 @@ export default function ProjectDetailsPage() {
                     onClick={() => setViewMode("table")}
                   >
                     Таблица
+                  </button>
+                  <button
+                    type="button"
+                    className={`seg-btn${viewMode === "kanban" ? " active" : ""}`}
+                    aria-pressed={viewMode === "kanban"}
+                    onClick={() => setViewMode("kanban")}
+                  >
+                    Канбан
                   </button>
                 </div>
               </div>
@@ -635,6 +764,27 @@ export default function ProjectDetailsPage() {
                     </div>
                   </div>
 
+                  <div className="space-y-1.5">
+                    <div className="eyebrow">Ответственный</div>
+                    <Select value={assignedTo} onValueChange={(val: string | null) => { if (val) { setPage(1); setAssignedTo(val); } }}>
+                      <SelectTrigger className="w-full" aria-label="Фильтр по ответственному">
+                        <SelectValue placeholder="Ответственный: все">
+                          {(v: string | null) => assigneeLabel(v)}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все</SelectItem>
+                        <SelectItem value="me">Мои</SelectItem>
+                        <SelectItem value="none">Не назначены</SelectItem>
+                        {members.map((m) => (
+                          <SelectItem key={m.user_id} value={m.user_id}>
+                            {m.full_name || m.email}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {activeFilterCount > 0 && (
                     <div className="flex justify-end sm:col-span-2 lg:col-span-4">
                       <button type="button" className="btn btn-ghost" onClick={resetFilters}>
@@ -646,14 +796,70 @@ export default function ProjectDetailsPage() {
               )}
             </div>
 
+            {/* Bulk action bar — visible when ≥1 lead is selected in the table */}
+            {viewMode === "table" && selectedIds.length > 0 && (
+              <div className="panel-flat flex flex-wrap items-center gap-2.5 px-4" style={{ paddingTop: 10, paddingBottom: 10 }}>
+                <span className="mono-cap t-72 mr-1">Выбрано: {selectedIds.length}</span>
+
+                {/* Change stage */}
+                <Select value="" onValueChange={(val: string | null) => { if (val) void runBulkAction({ action: "stage", status: val }); }} disabled={bulkBusy}>
+                  <SelectTrigger className="h-8 w-auto min-w-[150px] text-xs" aria-label="Сменить этап">
+                    <SelectValue placeholder="Сменить этап">{() => "Сменить этап"}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(BULK_STAGE_LABELS).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Assign */}
+                <Select value="" onValueChange={(val: string | null) => { if (val) void runBulkAction({ action: "assign", assigned_to_user_id: val === "__none__" ? null : val }); }} disabled={bulkBusy}>
+                  <SelectTrigger className="h-8 w-auto min-w-[160px] text-xs" aria-label="Назначить ответственного">
+                    <SelectValue placeholder="Назначить">{() => "Назначить"}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Снять назначение</SelectItem>
+                    {members.map((m) => (
+                      <SelectItem key={m.user_id} value={m.user_id}>{m.full_name || m.email}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+
+                {/* Add tag */}
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    className="h-8 w-32 text-xs"
+                    placeholder="+ тег"
+                    value={bulkTag}
+                    disabled={bulkBusy}
+                    aria-label="Тег для массового добавления"
+                    onChange={(e) => setBulkTag(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && bulkTag.trim()) { e.preventDefault(); void runBulkAction({ action: "add_tag", tag: bulkTag.trim() }); } }}
+                  />
+                  <Button size="sm" variant="secondary" disabled={bulkBusy || !bulkTag.trim()} onClick={() => void runBulkAction({ action: "add_tag", tag: bulkTag.trim() })}>
+                    Добавить
+                  </Button>
+                </div>
+
+                {/* Delete */}
+                <Button size="sm" variant="ghost" className="text-status-offline" disabled={bulkBusy} onClick={() => void runBulkAction({ action: "delete" })}>
+                  <Trash2 size={13} className="mr-1" /> Удалить
+                </Button>
+
+                <Button size="sm" variant="ghost" className="ml-auto" disabled={bulkBusy} onClick={() => setSelectedIds([])}>
+                  Снять выбор
+                </Button>
+                {bulkBusy && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
+              </div>
+            )}
+
             {/* Cards view */}
             {viewMode === "cards" && (
               <LeadCards
                 leads={leads}
                 loading={tableLoading}
-                onLeadUpdate={(leadId, patch) => {
-                  setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
-                }}
+                onLeadUpdate={handleLeadUpdate}
               />
             )}
 
@@ -665,17 +871,35 @@ export default function ProjectDetailsPage() {
                 onBulkEnrich={handleBulkEnrich}
                 canBulkEnrich={canManage && !enrichBusy}
                 hideInternalFilters
-                onLeadUpdate={(leadId, patch) => {
-                  setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...patch } : l)));
-                }}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+                onLeadUpdate={handleLeadUpdate}
                 onLeadDelete={(leadId) => {
                   setLeads((prev) => prev.filter((l) => l.id !== leadId));
+                  setKanbanLeads((prev) => prev.filter((l) => l.id !== leadId));
                   setTotal((prev) => Math.max(0, prev - 1));
+                  setFunnelKey((k) => k + 1);
                 }}
               />
             )}
 
-            {/* Pagination */}
+            {/* Kanban (pipeline) view — needs ALL project leads, not just the page */}
+            {viewMode === "kanban" && (
+              kanbanLoading && !kanbanLoaded ? (
+                <Loader />
+              ) : (
+                <PipelineBoard
+                  leads={kanbanLeads}
+                  members={members}
+                  onLeadUpdate={handleLeadUpdate}
+                  onOpenLead={setOpenLeadId}
+                  orgRole={orgRole}
+                />
+              )
+            )}
+
+            {/* Pagination — hidden in Kanban (the board shows the full set) */}
+            {viewMode !== "kanban" && (
             <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground sm:flex-row sm:justify-between">
               <span>Итого: {total} лидов</span>
               <div className="flex items-center gap-2">
@@ -690,6 +914,7 @@ export default function ProjectDetailsPage() {
                 </Button>
               </div>
             </div>
+            )}
           </div>
         </TabsContent>
 
@@ -700,6 +925,13 @@ export default function ProjectDetailsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Page-level lead drawer — opened from the Kanban board */}
+      <LeadDetailDrawer
+        leadId={openLeadId}
+        onClose={() => setOpenLeadId(null)}
+        onLeadUpdate={handleLeadUpdate}
+      />
     </motion.main>
   );
 }

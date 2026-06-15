@@ -1655,6 +1655,16 @@ table.lt-v3 tbody tr:hover td { background: var(--surface-hover); }
   border-color: var(--badge-rejected-border);
   color: var(--badge-rejected-text);
 }
+.badge--proposal {
+  background: var(--badge-source-bg);
+  border-color: var(--badge-source-border);
+  color: var(--badge-source-text);
+}
+.badge--won {
+  background: var(--badge-qualified-bg);
+  border-color: var(--badge-qualified-border);
+  color: var(--badge-qualified-text);
+}
 .badge--source {
   background: var(--badge-source-bg);
   border-color: var(--badge-source-border);

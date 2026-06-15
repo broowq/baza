@@ -63,12 +63,79 @@ export type Lead = {
   tags?: string[];
   last_contacted_at?: string | null;
   reminder_at?: string | null;
-  status: "new" | "contacted" | "qualified" | "rejected";
+  status: LeadStatus;
+  // CRM fields
+  assigned_to_user_id?: string | null;
+  deal_value?: number;
+  expected_close_at?: string | null;
   source_url: string;
   source?: "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng" | "";
   external_id?: string;
   enriched: boolean;
   demo?: boolean;
+};
+
+/* ── CRM ──────────────────────────────────────────────────────────── */
+
+export type LeadStatus = "new" | "contacted" | "qualified" | "proposal" | "won" | "rejected";
+
+export type PipelineStage = {
+  key: LeadStatus;
+  label: string;
+  terminal: boolean;
+  won: boolean;
+};
+
+export type OrgMember = {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+};
+
+export type LeadTask = {
+  id: string;
+  lead_id: string;
+  title: string;
+  due_at?: string | null;
+  done: boolean;
+  done_at?: string | null;
+  assigned_to_user_id?: string | null;
+  created_by_user_id?: string | null;
+  created_at: string;
+};
+
+export type LeadTaskWithLead = LeadTask & {
+  lead_company?: string;
+  project_id?: string | null;
+};
+
+export type LeadActivity = {
+  id: string;
+  kind: string;   // created | stage_changed | assigned | unassigned | value_changed | note | contacted | call | task_created | task_done
+  text: string;
+  user_name: string;
+  meta: Record<string, unknown>;
+  created_at: string;
+};
+
+export type FunnelStage = {
+  key: LeadStatus;
+  label: string;
+  count: number;
+  value: number;
+  terminal: boolean;
+  won: boolean;
+};
+
+export type Funnel = {
+  stages: FunnelStage[];
+  total_leads: number;
+  open_leads: number;
+  won_count: number;
+  won_value: number;
+  open_value: number;
+  conversion_rate: number;
 };
 
 export type LeadWarehouse = {

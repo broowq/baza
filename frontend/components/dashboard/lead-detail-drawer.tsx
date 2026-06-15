@@ -1,11 +1,17 @@
 "use client";
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2, PhoneCall } from "lucide-react";
+import {
+  ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2, PhoneCall,
+  Plus, Trash2, Calendar, User, Banknote, Sparkles, ArrowRightLeft, UserPlus, UserMinus,
+  StickyNote, CheckCircle2, ListChecks, CircleDot,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
-import type { Lead, LeadCallNote, LeadDetail } from "@/lib/types";
+import type {
+  Lead, LeadCallNote, LeadDetail, OrgMember, LeadTask, LeadActivity,
+} from "@/lib/types";
 
 /* ─────────────────────────────────────────────────────────────────
    Constants
@@ -15,6 +21,8 @@ const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
   contacted: "Связались",
   qualified: "Квалифицирован",
+  proposal: "КП отправлено",
+  won: "Сделка",
   rejected: "Отклонён",
 };
 
@@ -23,6 +31,21 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
   contacted: "badge--contacted",
   qualified: "badge--qualified",
   rejected: "badge--rejected",
+};
+
+/* proposal/won have no dedicated CSS badge variant — derive themed inline
+   styles from tokens (amber for proposal, mint for won). */
+const STATUS_BADGE_STYLE: Record<string, React.CSSProperties> = {
+  proposal: {
+    background: "rgba(251, 191, 36, 0.10)",
+    borderColor: "rgba(251, 191, 36, 0.28)",
+    color: "var(--amber)",
+  },
+  won: {
+    background: "rgba(168, 197, 192, 0.12)",
+    borderColor: "rgba(168, 197, 192, 0.32)",
+    color: "var(--mint)",
+  },
 };
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -38,8 +61,81 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "new",       label: "Новый" },
   { value: "contacted", label: "Связались" },
   { value: "qualified", label: "Квалифицирован" },
-  { value: "rejected",  label: "Отклонён" },
+  { value: "proposal",  label: "КП отправлено" },
+  { value: "won",       label: "Сделка" },
+  { value: "rejected",  label: "Отказ" },
 ];
+
+/* ─────────────────────────────────────────────────────────────────
+   Date helpers (shared by deal-close, tasks, timeline)
+───────────────────────────────────────────────────────────────── */
+/** YYYY-MM-DD for <input type="date"> from an ISO/date string. */
+function isoToDateInput(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** A date-only input value → ISO at local midnight (or null when cleared). */
+function dateInputToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function shortDate(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function shortDateTime(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("ru-RU", {
+    day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function isOverdue(iso?: string | null): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return false;
+  return d.getTime() < Date.now();
+}
+
+function formatRub(value?: number | null): string {
+  if (value == null || value === 0) return "";
+  try {
+    return new Intl.NumberFormat("ru-RU").format(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Timeline: icon + accent colour per activity kind
+───────────────────────────────────────────────────────────────── */
+function activityVisual(kind: string): { Icon: typeof Sparkles; color: string } {
+  switch (kind) {
+    case "created":       return { Icon: Sparkles,       color: "var(--mint)" };
+    case "stage_changed": return { Icon: ArrowRightLeft, color: "var(--sky)" };
+    case "assigned":      return { Icon: UserPlus,       color: "var(--sky)" };
+    case "unassigned":    return { Icon: UserMinus,      color: "var(--t-48)" };
+    case "value_changed": return { Icon: Banknote,       color: "var(--amber)" };
+    case "note":          return { Icon: StickyNote,     color: "var(--t-56)" };
+    case "contacted":     return { Icon: PhoneCall,      color: "var(--green)" };
+    case "call":          return { Icon: PhoneCall,      color: "var(--green)" };
+    case "task_created":  return { Icon: ListChecks,     color: "var(--t-56)" };
+    case "task_done":     return { Icon: CheckCircle2,   color: "var(--green)" };
+    default:              return { Icon: CircleDot,      color: "var(--t-48)" };
+  }
+}
 
 /* ─────────────────────────────────────────────────────────────────
    Copy-to-clipboard button helper
@@ -155,6 +251,20 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   const [calls, setCalls] = useState<LeadCallNote[]>([]);
   const [callComment, setCallComment] = useState("");
   const [savingCall, setSavingCall] = useState(false);
+
+  /* ── CRM state (all non-critical: graceful catch on every fetch) ── */
+  const [members, setMembers] = useState<OrgMember[]>([]);
+  const [dealValueInput, setDealValueInput] = useState("");
+  const [closeDateInput, setCloseDateInput] = useState("");
+
+  const [tasks, setTasks] = useState<LeadTask[]>([]);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [newTaskDue, setNewTaskDue] = useState("");
+  const [addingTask, setAddingTask] = useState(false);
+
+  const [activities, setActivities] = useState<LeadActivity[]>([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(false);
+
   const drawerRef = useRef<HTMLElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -176,6 +286,8 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
         if (!cancelled) {
           setDetail(data);
           setEditNotes(stripNotesPrefix(data.notes ?? ""));
+          setDealValueInput(data.deal_value ? String(data.deal_value) : "");
+          setCloseDateInput(isoToDateInput(data.expected_close_at));
         }
       })
       .catch((err: unknown) => {
@@ -198,6 +310,46 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     return () => { cancelled = true; };
   }, [leadId]);
 
+  /* Fetch org members for the assignee dropdown when drawer opens */
+  useEffect(() => {
+    if (!leadId) return;
+    let cancelled = false;
+    api<OrgMember[]>(`/organizations/members`)
+      .then((data) => { if (!cancelled) setMembers(data); })
+      .catch(() => { /* CRM-секция не критична */ });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  /* Fetch tasks when leadId changes */
+  useEffect(() => {
+    if (!leadId) { setTasks([]); setNewTaskTitle(""); setNewTaskDue(""); return; }
+    let cancelled = false;
+    api<LeadTask[]>(`/crm/leads/${leadId}/tasks`)
+      .then((data) => { if (!cancelled) setTasks(data); })
+      .catch(() => { /* CRM-секция не критична */ });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
+  /* Fetch activity timeline when leadId changes */
+  const refreshActivities = useCallback(async () => {
+    if (!leadId) return;
+    try {
+      const data = await api<LeadActivity[]>(`/crm/leads/${leadId}/activities`);
+      setActivities(data);
+    } catch { /* CRM-секция не критична */ }
+  }, [leadId]);
+
+  useEffect(() => {
+    if (!leadId) { setActivities([]); return; }
+    let cancelled = false;
+    setActivitiesLoading(true);
+    api<LeadActivity[]>(`/crm/leads/${leadId}/activities`)
+      .then((data) => { if (!cancelled) setActivities(data); })
+      .catch(() => { /* CRM-секция не критична */ })
+      .finally(() => { if (!cancelled) setActivitiesLoading(false); });
+    return () => { cancelled = true; };
+  }, [leadId]);
+
   /* Focus the close button when drawer opens */
   useEffect(() => {
     if (isOpen) {
@@ -217,9 +369,12 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     return () => document.removeEventListener("keydown", handleKey);
   }, [isOpen, onClose]);
 
-  /* Patch helper */
-  const patchLead = useCallback(async (patch: Partial<Lead> & { mark_contacted?: boolean }) => {
-    if (!leadId) return;
+  /* Patch helper. Returns the updated lead on success (null on failure) so
+     callers can refresh the timeline only when something actually changed. */
+  const patchLead = useCallback(async (
+    patch: Partial<Lead> & { mark_contacted?: boolean },
+  ): Promise<Lead | null> => {
+    if (!leadId) return null;
     setSaving(true);
     try {
       const updated = await api<Lead>(`/leads/${leadId}`, {
@@ -228,14 +383,44 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
       });
       setDetail((prev) => prev ? { ...prev, ...updated } : prev);
       onLeadUpdate?.(leadId, updated);
+      // status / assignee / value changes emit timeline events — refresh feed.
+      void refreshActivities();
+      return updated;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Не удалось сохранить");
+      return null;
     } finally {
       setSaving(false);
     }
-  }, [leadId, onLeadUpdate]);
+  }, [leadId, onLeadUpdate, refreshActivities]);
 
   const changeStatus = (newStatus: Lead["status"]) => void patchLead({ status: newStatus });
+
+  /* ── Сделка handlers ──────────────────────────────────────────── */
+  const changeAssignee = (userId: string) => {
+    void patchLead({ assigned_to_user_id: userId || null });
+  };
+
+  const commitDealValue = () => {
+    const raw = dealValueInput.replace(/[^\d]/g, "");
+    const next = raw ? parseInt(raw, 10) : 0;
+    if (next === (detail?.deal_value ?? 0)) {
+      // Normalise the field to the canonical representation and bail.
+      setDealValueInput(next ? String(next) : "");
+      return;
+    }
+    setDealValueInput(next ? String(next) : "");
+    void patchLead({ deal_value: next });
+  };
+
+  const commitCloseDate = (value: string) => {
+    setCloseDateInput(value);
+    const iso = dateInputToIso(value);
+    const current = detail?.expected_close_at ?? null;
+    // Compare on date granularity to avoid redundant patches.
+    if (isoToDateInput(iso) === isoToDateInput(current)) return;
+    void patchLead({ expected_close_at: iso });
+  };
 
   /* Record a call: who (current user, attributed server-side) + optional comment.
      Side effects mirror mark_contacted: last_contacted_at=now, new → contacted. */
@@ -259,12 +444,14 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
           status: detail.status === "new" ? "contacted" : detail.status,
         });
       }
+      // The call surfaces in the timeline as kind="call" — refresh the feed.
+      void refreshActivities();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Не удалось записать звонок");
     } finally {
       setSavingCall(false);
     }
-  }, [leadId, detail, onLeadUpdate]);
+  }, [leadId, detail, onLeadUpdate, refreshActivities]);
 
   const saveNotes = () => {
     const stripped = editNotes.trim();
@@ -283,9 +470,67 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     void patchLead({ tags: (detail?.tags ?? []).filter((x) => x !== t) });
   };
 
+  /* ── Задачи handlers ──────────────────────────────────────────── */
+  const addTask = useCallback(async () => {
+    const title = newTaskTitle.trim();
+    if (!leadId || !title) return;
+    setAddingTask(true);
+    try {
+      const created = await api<LeadTask>(`/crm/leads/${leadId}/tasks`, {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          due_at: dateInputToIso(newTaskDue),
+        }),
+      });
+      setTasks((prev) => [...prev, created]);
+      setNewTaskTitle("");
+      setNewTaskDue("");
+      void refreshActivities();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось создать задачу");
+    } finally {
+      setAddingTask(false);
+    }
+  }, [leadId, newTaskTitle, newTaskDue, refreshActivities]);
+
+  const toggleTask = useCallback(async (task: LeadTask) => {
+    const nextDone = !task.done;
+    // Optimistic flip.
+    setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, done: nextDone } : t)));
+    try {
+      const updated = await api<LeadTask>(`/crm/tasks/${task.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ done: nextDone }),
+      });
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? updated : t)));
+      void refreshActivities();
+    } catch (err) {
+      // Roll back on failure.
+      setTasks((prev) => prev.map((t) => (t.id === task.id ? { ...t, done: task.done } : t)));
+      toast.error(err instanceof Error ? err.message : "Не удалось обновить задачу");
+    }
+  }, [refreshActivities]);
+
+  const deleteTask = useCallback(async (taskId: string) => {
+    const prevTasks = tasks;
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    try {
+      await api<void>(`/crm/tasks/${taskId}`, { method: "DELETE" });
+    } catch (err) {
+      setTasks(prevTasks);
+      toast.error(err instanceof Error ? err.message : "Не удалось удалить задачу");
+    }
+  }, [tasks]);
+
   /* Derive useful values */
   const websiteOk = detail?.website && /^https?:\/\//i.test(detail.website.trim());
   const isAccent = (detail?.score ?? 0) >= 80;
+  const memberName = (uid?: string | null): string => {
+    if (!uid) return "";
+    const m = members.find((x) => x.user_id === uid);
+    return m ? (m.full_name || m.email) : "";
+  };
 
   return (
     <>
@@ -338,7 +583,10 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       {detail.company}
                     </h2>
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <span className={`badge ${STATUS_BADGE_CLASS[detail.status] ?? ""}`}>
+                      <span
+                        className={`badge ${STATUS_BADGE_CLASS[detail.status] ?? ""}`}
+                        style={STATUS_BADGE_STYLE[detail.status]}
+                      >
                         {STATUS_LABELS[detail.status] ?? detail.status}
                       </span>
                       {detail.source && (
@@ -410,6 +658,93 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     </p>
                   </section>
                 )}
+
+                {/* ── Сделка (CRM) ─────────────────────────── */}
+                <section>
+                  <div className="eyebrow mb-2">Сделка</div>
+
+                  {/* Stage pills — all 6 pipeline stages */}
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {STATUS_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        disabled={saving || detail.status === opt.value}
+                        onClick={() => changeStatus(opt.value)}
+                        className={`pill focus-ring text-xs${detail.status === opt.value ? " active" : ""}`}
+                        aria-pressed={detail.status === opt.value}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="panel-glass space-y-3 p-3">
+                    {/* Assignee */}
+                    <label className="block">
+                      <span className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                        <User size={11} /> Ответственный
+                      </span>
+                      <select
+                        value={detail.assigned_to_user_id ?? ""}
+                        disabled={saving}
+                        onChange={(e) => changeAssignee(e.target.value)}
+                        className="input focus-ring h-9 w-full rounded-lg px-3 text-sm"
+                        style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)" }}
+                      >
+                        <option value="">Не назначен</option>
+                        {members.map((m) => (
+                          <option key={m.user_id} value={m.user_id}>
+                            {m.full_name || m.email}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <div className="flex flex-wrap gap-3">
+                      {/* Deal value */}
+                      <label className="block min-w-0 flex-1" style={{ minWidth: 130 }}>
+                        <span className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                          <Banknote size={11} /> Сумма, ₽
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={dealValueInput}
+                          disabled={saving}
+                          onChange={(e) => setDealValueInput(e.target.value)}
+                          onBlur={commitDealValue}
+                          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); (e.target as HTMLInputElement).blur(); } }}
+                          placeholder="0"
+                          className="input focus-ring mono h-9 w-full rounded-lg px-3 text-sm"
+                          style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)" }}
+                        />
+                      </label>
+
+                      {/* Expected close */}
+                      <label className="block min-w-0 flex-1" style={{ minWidth: 130 }}>
+                        <span className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                          <Calendar size={11} /> Закрытие
+                        </span>
+                        <input
+                          type="date"
+                          value={closeDateInput}
+                          disabled={saving}
+                          onChange={(e) => commitCloseDate(e.target.value)}
+                          className="input focus-ring h-9 w-full rounded-lg px-3 text-sm"
+                          style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)", colorScheme: "light dark" }}
+                        />
+                      </label>
+                    </div>
+
+                    {!!detail.deal_value && (
+                      <div className="text-xs text-[var(--t-48)]">
+                        Текущая сумма:{" "}
+                        <span className="mono t-72">{formatRub(detail.deal_value)} ₽</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
 
                 {/* Contacts */}
                 <section>
@@ -663,6 +998,153 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     )}
                   </div>
                 </section>
+
+                {/* ── Задачи (CRM) ─────────────────────────── */}
+                <section>
+                  <div className="eyebrow mb-2">Задачи</div>
+                  <div className="space-y-2">
+                    {tasks.length > 0 && (
+                      <div className="panel-glass divide-y" style={{ divideColor: "var(--line)" } as React.CSSProperties}>
+                        {tasks.map((t) => {
+                          const overdue = !t.done && isOverdue(t.due_at);
+                          const assignee = memberName(t.assigned_to_user_id);
+                          return (
+                            <div key={t.id} className="flex items-start gap-2.5 px-3 py-2.5">
+                              <button
+                                type="button"
+                                onClick={() => void toggleTask(t)}
+                                aria-pressed={t.done}
+                                aria-label={t.done ? "Снять отметку" : "Отметить выполненной"}
+                                className={`cbox focus-ring mt-0.5 shrink-0${t.done ? " checked" : ""}`}
+                              >
+                                {t.done && <Check size={11} />}
+                              </button>
+                              <div className="min-w-0 flex-1">
+                                <div
+                                  className="text-sm"
+                                  style={{
+                                    color: t.done ? "var(--t-40)" : "var(--t-100)",
+                                    textDecoration: t.done ? "line-through" : "none",
+                                    overflowWrap: "anywhere",
+                                  }}
+                                >
+                                  {t.title}
+                                </div>
+                                {(t.due_at || assignee) && (
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[10.5px]">
+                                    {t.due_at && (
+                                      <span
+                                        className="inline-flex items-center gap-1"
+                                        style={{ color: overdue ? "var(--rose)" : "var(--t-48)" }}
+                                      >
+                                        <Calendar size={10} />
+                                        {shortDate(t.due_at)}
+                                        {overdue && " · просрочено"}
+                                      </span>
+                                    )}
+                                    {assignee && (
+                                      <span className="inline-flex items-center gap-1 text-[var(--t-48)]">
+                                        <User size={10} /> {assignee}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => void deleteTask(t.id)}
+                                aria-label="Удалить задачу"
+                                title="Удалить задачу"
+                                className="focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity hover:opacity-80"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Add-task row */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="text"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void addTask(); } }}
+                        disabled={addingTask}
+                        placeholder="Новая задача…"
+                        className="input focus-ring h-9 min-w-0 flex-1 rounded-lg px-3 text-sm"
+                        style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)", minWidth: 140 }}
+                      />
+                      <input
+                        type="date"
+                        value={newTaskDue}
+                        onChange={(e) => setNewTaskDue(e.target.value)}
+                        disabled={addingTask}
+                        aria-label="Срок задачи"
+                        className="input focus-ring h-9 rounded-lg px-2.5 text-sm"
+                        style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)", width: 140, colorScheme: "light dark" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void addTask()}
+                        disabled={addingTask || !newTaskTitle.trim()}
+                        className="btn btn-ghost focus-ring shrink-0"
+                        style={{ height: 36, width: 36, padding: 0 }}
+                        aria-label="Добавить задачу"
+                        title="Добавить задачу"
+                      >
+                        {addingTask ? <Loader2 size={14} className="animate-spin" /> : <Plus size={15} />}
+                      </button>
+                    </div>
+
+                    {tasks.length === 0 && (
+                      <div className="t-40 text-xs px-1">Задач пока нет</div>
+                    )}
+                  </div>
+                </section>
+
+                {/* ── Хронология (timeline) ────────────────── */}
+                <section>
+                  <div className="eyebrow mb-2">Хронология</div>
+                  {activitiesLoading && activities.length === 0 ? (
+                    <div className="space-y-2">
+                      {[70, 90, 55].map((w, i) => (
+                        <div key={i} className="skeleton" style={{ width: `${w}%`, height: 12, borderRadius: 6 }} />
+                      ))}
+                    </div>
+                  ) : activities.length > 0 ? (
+                    <ol className="relative space-y-3 pl-1">
+                      {activities.map((a) => {
+                        const { Icon, color } = activityVisual(a.kind);
+                        return (
+                          <li key={a.id} className="flex gap-2.5">
+                            <span
+                              className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
+                              style={{ background: "var(--surface-2)", border: "1px solid var(--line-2)", color }}
+                              aria-hidden="true"
+                            >
+                              <Icon size={11} />
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
+                                {a.text}
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[var(--t-40)]">
+                                {a.user_name && <span className="t-48">{a.user_name}</span>}
+                                {a.user_name && <span aria-hidden="true">·</span>}
+                                <span>{shortDateTime(a.created_at)}</span>
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  ) : (
+                    <div className="t-40 text-xs px-1">Событий пока нет</div>
+                  )}
+                </section>
               </div>
             )}
           </div>
@@ -671,27 +1153,9 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
           <footer className="drawer-footer">
             {detail && (
               <div className="space-y-3">
-                {/* Status change */}
-                <div>
-                  <div className="eyebrow mb-2">Изменить статус</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {STATUS_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        disabled={saving || detail.status === opt.value}
-                        onClick={() => changeStatus(opt.value)}
-                        className={`pill focus-ring text-xs${detail.status === opt.value ? " active" : ""}`}
-                        aria-pressed={detail.status === opt.value}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Mark contacted — writes a call-journal entry so the team
-                    sees WHO called, not just that someone did */}
+                    sees WHO called, not just that someone did. The full
+                    6-stage selector now lives in the «Сделка» section above. */}
                 <div className="flex items-center gap-2">
                   <button
                     type="button"

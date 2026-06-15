@@ -43,12 +43,19 @@ type Props = {
   hideInternalFilters?: boolean;
   onLeadUpdate?: (leadId: string, patch: Partial<Lead>) => void;
   onLeadDelete?: (leadId: string) => void;
+  // Optional controlled selection — lets a parent drive the row checkboxes
+  // (e.g. for a page-level bulk action bar). Falls back to internal state
+  // when omitted, so existing call sites keep working unchanged.
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
 };
 
 const STATUS_LABELS: Record<string, string> = {
   new: "Новый",
   contacted: "Связались",
   qualified: "Квалифицирован",
+  proposal: "КП отправлено",
+  won: "Сделка",
   rejected: "Отклонён",
 };
 
@@ -59,6 +66,8 @@ const STATUS_VARIANTS: Record<string, StatusVariant> = {
   new: "default",
   contacted: "online",
   qualified: "brand",
+  proposal: "default",
+  won: "brand",
   rejected: "offline",
 };
 
@@ -66,6 +75,8 @@ const STATUS_DOTS: Record<string, StatusDot> = {
   new: undefined,
   contacted: "online",
   qualified: undefined,
+  proposal: "warning",
+  won: "online",
   rejected: "offline",
 };
 
@@ -73,6 +84,8 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "new", label: "Новый" },
   { value: "contacted", label: "Связались" },
   { value: "qualified", label: "Квалифицирован" },
+  { value: "proposal", label: "КП отправлено" },
+  { value: "won", label: "Сделка" },
   { value: "rejected", label: "Отклонён" },
 ];
 
@@ -318,11 +331,22 @@ export function LeadsTable({
   hideInternalFilters = false,
   onLeadUpdate,
   onLeadDelete,
+  selectedIds: controlledSelectedIds,
+  onSelectionChange,
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Lead["status"]>("all");
   const [scoreSort, setScoreSort] = useState<"desc" | "asc">("desc");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  // Selection is controlled when the parent supplies both selectedIds and a
+  // change handler; otherwise it stays internal (legacy behaviour).
+  const [internalSelectedIds, setInternalSelectedIds] = useState<string[]>([]);
+  const isControlled = controlledSelectedIds !== undefined && onSelectionChange !== undefined;
+  const selectedIds = isControlled ? controlledSelectedIds : internalSelectedIds;
+  const setSelectedIds = (updater: string[] | ((prev: string[]) => string[])) => {
+    const next = typeof updater === "function" ? updater(selectedIds) : updater;
+    if (isControlled) onSelectionChange(next);
+    else setInternalSelectedIds(next);
+  };
   const [runningBulk, setRunningBulk] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [openLeadId, setOpenLeadId] = useState<string | null>(null);
@@ -466,7 +490,9 @@ export function LeadsTable({
         </div>
       )}
 
-      {selectedIds.length > 0 && (
+      {/* Internal bulk-enrich bar — only when selection is NOT controlled by a
+          parent (which provides its own, richer bulk action bar). */}
+      {!isControlled && selectedIds.length > 0 && (
         <div className="flex items-center gap-2">
           <Button size="sm" variant="brand" disabled={!canBulkEnrich || runningBulk} onClick={runBulk}>
             <Sparkles size={13} className="mr-1" />
