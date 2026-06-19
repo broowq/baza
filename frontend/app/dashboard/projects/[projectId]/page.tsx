@@ -312,7 +312,13 @@ export default function ProjectDetailsPage() {
     else toast.success(`Обогащение завершено: обработано ${last.enriched_count}`);
   }, [jobs]);
 
+  // Synchronous re-entrancy lock: blocks a fast double-click from firing a
+  // second POST before React re-renders the disabled button (that second click
+  // was hitting the "сбор уже запущен"/"перегруз" guard and showing an error).
+  const submittingJobRef = useRef(false);
   const queueJob = async (kind: "collect" | "enrich", limit: number) => {
+    if (submittingJobRef.current || running) return;
+    submittingJobRef.current = true;
     setRunning(true);
     try {
       await api(`/leads/project/${projectId}/${kind}`, {
@@ -322,8 +328,18 @@ export default function ProjectDetailsPage() {
       toast.success(kind === "collect" ? "Собираем новые компании…" : "Задача обогащения добавлена в очередь");
       await fetchAll(true);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Не удалось запустить задачу");
+      const msg = error instanceof Error ? error.message : "";
+      // The concurrency guards (409 "уже запущен" / 429 "Превышен лимит") aren't
+      // failures — the previous run is simply still going. Show a calm hint.
+      if (/уже запущен/i.test(msg)) {
+        toast.info("Сбор уже идёт — дождитесь завершения текущего.");
+      } else if (/одновременных задач|Превышен лимит/i.test(msg)) {
+        toast.info("Слишком много задач сразу — дождитесь завершения текущих.");
+      } else {
+        toast.error(msg || "Не удалось запустить задачу");
+      }
     } finally {
+      submittingJobRef.current = false;
       setRunning(false);
     }
   };

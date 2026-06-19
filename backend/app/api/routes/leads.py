@@ -192,7 +192,16 @@ def list_project_leads_table(
         "status": Lead.status,
         "created_at": Lead.created_at,
     }.get(sort, Lead.created_at)
-    query = query.order_by(sort_column.asc() if order == "asc" else sort_column.desc())
+    # Deterministic ordering with tiebreakers. Without these, ORDER BY score
+    # (with many tied scores) returned a DIFFERENT order on every refetch — the
+    # 6-sec poll made cards visibly reshuffle and a fresh batch of 10 looked
+    # "перемешанным" with the old ones. created_at DESC groups the newest leads
+    # at the top of each tie band; id is the final stable tiebreaker.
+    order_cols = [sort_column.asc() if order == "asc" else sort_column.desc()]
+    if sort != "created_at":
+        order_cols.append(Lead.created_at.desc())
+    order_cols.append(Lead.id)
+    query = query.order_by(*order_cols)
 
     total = db.scalar(count_query) or 0
     items = db.execute(query.offset((page - 1) * per_page).limit(per_page)).scalars().all()
