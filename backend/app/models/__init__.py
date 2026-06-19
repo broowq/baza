@@ -1,6 +1,7 @@
 from app.models.entities import (
     CollectionJob,
     Company,
+    EmailSequence,
     Invite,
     JobStatus,
     Lead,
@@ -11,8 +12,12 @@ from app.models.entities import (
     ActionLog,
     Membership,
     Organization,
+    OrgEmailSettings,
+    OutreachMessage,
     PlanType,
     Project,
+    SequenceEnrollment,
+    SequenceStep,
     Subscription,
     User,
 )
@@ -34,4 +39,9 @@ __all__ = [
     "LeadStatus",
     "ActionLog",
     "Subscription",
+    "OrgEmailSettings",
+    "EmailSequence",
+    "SequenceStep",
+    "SequenceEnrollment",
+    "OutreachMessage",
 ]

@@ -197,6 +197,9 @@ class Lead(Base):
     deal_value: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     # Expected close date for forecasting.
     expected_close_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Outreach suppression: set when the lead clicks unsubscribe (or hard-bounces).
+    # Sequence sending skips opted-out leads; honours 152-ФЗ / CAN-SPAM opt-out.
+    email_opt_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source_url: Mapped[str] = mapped_column(String(400), default="", nullable=False)
     # Data source that originally surfaced this lead:
     # "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng"
@@ -305,6 +308,131 @@ class LeadActivity(Base):
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+
+# ── Email outreach (drip sequences via the client's own SMTP) ───────────────
+
+class OrgEmailSettings(Base):
+    """Per-org sending identity: the CLIENT's own SMTP (their domain/reputation/
+    consent). Passwords are encrypted at rest (app.services.crypto). IMAP is
+    optional — only needed to auto-stop a sequence when a lead replies."""
+    __tablename__ = "org_email_settings"
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
+    from_name: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    from_email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    smtp_host: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    smtp_port: Mapped[int] = mapped_column(Integer, default=587, nullable=False)
+    smtp_user: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    smtp_password_enc: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    smtp_use_tls: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # IMAP (optional) for reply detection → auto-stop the sequence.
+    imap_host: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    imap_port: Mapped[int] = mapped_column(Integer, default=993, nullable=False)
+    imap_user: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    imap_password_enc: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    daily_limit: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+    sent_today: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    sent_today_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc), nullable=False,
+    )
+
+
+class EmailSequence(Base):
+    """A drip campaign: ordered steps, leads enrolled, sent on a schedule."""
+    __tablename__ = "email_sequences"
+    __table_args__ = (Index("ix_email_sequences_org", "organization_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True
+    )
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)  # active|paused|archived
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class SequenceStep(Base):
+    """One email in a sequence. delay_days = wait before sending THIS step
+    (from enrollment for step 0, from the previous step otherwise)."""
+    __tablename__ = "sequence_steps"
+    __table_args__ = (Index("ix_sequence_steps_seq_order", "sequence_id", "step_order"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sequence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("email_sequences.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    step_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    delay_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    body: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class SequenceEnrollment(Base):
+    """A lead's membership in a sequence + its send cursor."""
+    __tablename__ = "sequence_enrollments"
+    __table_args__ = (
+        UniqueConstraint("sequence_id", "lead_id", name="uq_sequence_lead"),
+        Index("ix_seq_enr_due", "status", "next_send_at"),
+        Index("ix_seq_enr_org", "organization_id"),
+        Index("ix_seq_enr_lead", "lead_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("email_sequences.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    # active | completed | stopped | replied | unsubscribed | bounced | failed
+    status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
+    current_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # next step index to send
+    next_send_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    unsubscribe_token: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+    stop_reason: Mapped[str] = mapped_column(String(64), default="", nullable=False)
+    enrolled_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class OutreachMessage(Base):
+    """Log of every outreach email actually sent (or attempted)."""
+    __tablename__ = "outreach_messages"
+    __table_args__ = (Index("ix_outreach_msg_enr", "enrollment_id"),)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    enrollment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sequence_enrollments.id", ondelete="SET NULL"), nullable=True
+    )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    step_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    to_email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="sent", nullable=False)  # sent|failed
+    error: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
     )
 
 

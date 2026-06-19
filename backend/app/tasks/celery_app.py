@@ -85,5 +85,16 @@ celery.conf.update(
             "task": "periodic.send_reminder_emails",
             "schedule": crontab(minute=0, hour="9-18"),  # hourly, business hours UTC
         },
+        # Email-outreach drip sequences: walk due enrollments every 5 min (the
+        # task self-gates to the send window) and poll IMAP for replies every
+        # 20 min to auto-stop sequences when a lead answers.
+        "outreach-process-sequences": {
+            "task": "outreach.process_sequences",
+            "schedule": 300.0,
+        },
+        "outreach-poll-replies": {
+            "task": "outreach.poll_replies",
+            "schedule": crontab(minute="*/20"),
+        },
     },
 )
