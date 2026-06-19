@@ -175,3 +175,63 @@ export type CollectionJob = {
   enriched_count: number;
   error?: string | null;
 };
+
+/* ── Email outreach ───────────────────────────────────────────────── */
+
+export type OutreachSettings = {
+  configured: boolean;
+  from_name: string;
+  from_email: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_password_set: boolean;
+  smtp_use_tls: boolean;
+  imap_host: string;
+  imap_port: number;
+  imap_user: string;
+  imap_password_set: boolean;
+  daily_limit: number;
+  sent_today: number;
+  verified: boolean;
+};
+
+export type SequenceStep = {
+  id?: string;
+  step_order?: number;
+  delay_days: number;
+  subject: string;
+  body: string;
+};
+
+export type SequenceStats = {
+  enrolled: number;
+  active: number;
+  completed: number;
+  replied: number;
+  unsubscribed: number;
+  bounced: number;
+  stopped: number;
+  sent_messages: number;
+};
+
+export type EmailSequence = {
+  id: string;
+  name: string;
+  status: "active" | "paused" | "archived";
+  project_id?: string | null;
+  created_at: string;
+  steps: SequenceStep[];
+  stats: SequenceStats;
+};
+
+export type SequenceEnrollment = {
+  id: string;
+  lead_id: string;
+  lead_company: string;
+  to_email: string;
+  status: string;
+  current_step: number;
+  next_send_at?: string | null;
+  last_sent_at?: string | null;
+};

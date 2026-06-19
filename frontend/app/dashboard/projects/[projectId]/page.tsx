@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, Send, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -23,7 +23,7 @@ import { Loader } from "@/components/ui/loader";
 import { api, apiFetch } from "@/lib/api";
 import { getOrgId, getToken } from "@/lib/auth";
 import { useDebounce } from "@/lib/hooks";
-import type { CollectionJob, Lead, OrgMember, Project } from "@/lib/types";
+import type { CollectionJob, EmailSequence, Lead, OrgMember, Project } from "@/lib/types";
 
 const STAT_CARDS = [
   { key: "total", label: "Всего лидов" },
@@ -119,6 +119,8 @@ export default function ProjectDetailsPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkTag, setBulkTag] = useState("");
+  // Active email sequences for the bulk «В рассылку» picker (fetched once).
+  const [sequences, setSequences] = useState<EmailSequence[]>([]);
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
@@ -200,6 +202,18 @@ export default function ProjectDetailsPage() {
     api<OrgMember[]>("/organizations/members")
       .then((data) => { if (!cancelled) setMembers(Array.isArray(data) ? data : []); })
       .catch(() => { /* non-fatal: dropdowns simply show no per-member options */ });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Email sequences — fetched once for the bulk «В рассылку» picker. Only
+  // «active» ones are valid enrollment targets, so keep just those.
+  useEffect(() => {
+    let cancelled = false;
+    api<EmailSequence[]>("/outreach/sequences")
+      .then((data) => {
+        if (!cancelled) setSequences(Array.isArray(data) ? data.filter((s) => s.status === "active") : []);
+      })
+      .catch(() => { /* non-fatal: bulk bar simply hides the рассылка picker */ });
     return () => { cancelled = true; };
   }, [projectId]);
 
@@ -417,6 +431,26 @@ export default function ProjectDetailsPage() {
       if (kanbanLoaded) await fetchKanbanLeads();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Не удалось выполнить действие");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // Enroll the current selection into an email sequence. Backend skips leads
+  // without email / opted-out / already enrolled. A 400 means email isn't
+  // configured — surface its detail verbatim. Clears selection on success.
+  const bulkEnroll = async (seqId: string) => {
+    if (!seqId || selectedIds.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const res = await api<{ enrolled: number; skipped: number }>(
+        `/outreach/sequences/${seqId}/enroll`,
+        { method: "POST", body: JSON.stringify({ lead_ids: selectedIds }) },
+      );
+      toast.success(`Добавлено в рассылку: ${res.enrolled} (пропущено ${res.skipped})`);
+      setSelectedIds([]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось добавить в рассылку");
     } finally {
       setBulkBusy(false);
     }
@@ -841,6 +875,22 @@ export default function ProjectDetailsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+
+                {/* Enroll into an email sequence — only «active» targets */}
+                {sequences.length > 0 && (
+                  <Select value="" onValueChange={(val: string | null) => { if (val) void bulkEnroll(val); }} disabled={bulkBusy}>
+                    <SelectTrigger className="h-8 w-auto min-w-[150px] text-xs" aria-label="Добавить в рассылку">
+                      <SelectValue placeholder="В рассылку">
+                        {() => <span className="inline-flex items-center gap-1.5"><Send size={12} /> В рассылку</span>}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sequences.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
                 {/* Add tag */}
                 <div className="flex items-center gap-1.5">

@@ -106,6 +106,17 @@ export function Sidebar() {
       match: (p) => p.startsWith("/dashboard/tasks"),
     },
     {
+      href: "/dashboard/outreach" as Route,
+      label: "Рассылки",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M22 2L11 13" />
+          <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/outreach"),
+    },
+    {
       href: "/plans" as Route,
       label: "Тарифы",
       icon: (

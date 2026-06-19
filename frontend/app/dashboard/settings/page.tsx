@@ -16,6 +16,7 @@ import {
   UsersIcon,
   ShieldCheckIcon,
   ZapIcon,
+  SendIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -51,7 +52,7 @@ import { api } from "@/lib/api";
 import { clearToken, setOrgId } from "@/lib/auth";
 import { formatPlan } from "@/lib/plans";
 import { useAuthGuard } from "@/lib/hooks";
-import type { Organization } from "@/lib/types";
+import type { Organization, OutreachSettings } from "@/lib/types";
 
 type Invite = {
   id: string;
@@ -75,7 +76,7 @@ type ActionLog = {
   created_at: string;
 };
 
-type TabValue = "profile" | "organization" | "members" | "invites" | "activity" | "privacy";
+type TabValue = "profile" | "organization" | "members" | "invites" | "outreach" | "activity" | "privacy";
 
 function getInitials(name: string | undefined): string {
   if (!name) return "?";
@@ -308,6 +309,7 @@ export default function SettingsPage() {
       ? [{ value: "members" as TabValue, label: "Участники", icon: UsersIcon }]
       : []),
     { value: "invites", label: "Приглашения", icon: MailIcon },
+    { value: "outreach", label: "Email-рассылка", icon: SendIcon },
     ...(isAdmin
       ? [{ value: "activity" as TabValue, label: "Журнал", icon: ClipboardListIcon }]
       : []),
@@ -815,6 +817,11 @@ export default function SettingsPage() {
               </>
             )}
 
+            {/* Email outreach */}
+            {activeTab === "outreach" && (
+              <OutreachTab canEdit={isAdmin} userEmail={profile?.email ?? ""} />
+            )}
+
             {/* Activity */}
             {activeTab === "activity" && isAdmin && (
               <section className="panel p-6">
@@ -1145,6 +1152,417 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </>
+  );
+}
+
+
+/* ───────────────────────────────────────────────────────────────────
+   Email-рассылка — настройки SMTP/IMAP клиента.
+   Письма уходят ЧЕРЕЗ ПОЧТУ КЛИЕНТА (его сервер, его адрес/домен).
+   Редактирование доступно owner / admin; остальные видят статус read-only.
+   ─────────────────────────────────────────────────────────────────── */
+
+const OUTREACH_HINTS = [
+  { name: "Яндекс 360", host: "smtp.yandex.ru", port: 465, note: "SSL" },
+  { name: "Mail.ru", host: "smtp.mail.ru", port: 465, note: "SSL" },
+];
+
+type OutreachForm = {
+  from_name: string;
+  from_email: string;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_user: string;
+  smtp_password: string;
+  smtp_use_tls: boolean;
+  imap_host: string;
+  imap_port: string;
+  imap_user: string;
+  imap_password: string;
+  daily_limit: string;
+};
+
+function settingsToForm(s: OutreachSettings): OutreachForm {
+  return {
+    from_name: s.from_name ?? "",
+    from_email: s.from_email ?? "",
+    smtp_host: s.smtp_host ?? "",
+    smtp_port: String(s.smtp_port || 587),
+    smtp_user: s.smtp_user ?? "",
+    smtp_password: "",
+    smtp_use_tls: s.smtp_use_tls ?? true,
+    imap_host: s.imap_host ?? "",
+    imap_port: String(s.imap_port || 993),
+    imap_user: s.imap_user ?? "",
+    imap_password: "",
+    daily_limit: String(s.daily_limit || 50),
+  };
+}
+
+function OutreachTab({ canEdit, userEmail }: { canEdit: boolean; userEmail: string }) {
+  const [settings, setSettings] = useState<OutreachSettings | null>(null);
+  const [form, setForm] = useState<OutreachForm | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [imapOpen, setImapOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const s = await api<OutreachSettings>("/outreach/settings");
+      setSettings(s);
+      setForm(settingsToForm(s));
+      // Раскрыть IMAP-блок, если он уже заполнен.
+      if (s.imap_host || s.imap_user || s.imap_password_set) setImapOpen(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось загрузить настройки рассылки");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const set = <K extends keyof OutreachForm>(key: K, value: OutreachForm[K]) =>
+    setForm((f) => (f ? { ...f, [key]: value } : f));
+
+  const onSave = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form) return;
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        from_name: form.from_name.trim(),
+        from_email: form.from_email.trim(),
+        smtp_host: form.smtp_host.trim(),
+        smtp_port: Number(form.smtp_port) || 587,
+        smtp_user: form.smtp_user.trim(),
+        smtp_use_tls: form.smtp_use_tls,
+        imap_host: form.imap_host.trim(),
+        imap_port: Number(form.imap_port) || 993,
+        imap_user: form.imap_user.trim(),
+        daily_limit: Number(form.daily_limit) || 0,
+      };
+      // Пароли write-only: шлём только если пользователь ввёл новый.
+      if (form.smtp_password) body.smtp_password = form.smtp_password;
+      if (form.imap_password) body.imap_password = form.imap_password;
+
+      await api("/outreach/settings", { method: "PUT", body: JSON.stringify(body) });
+      toast.success("Настройки рассылки сохранены");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось сохранить настройки");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onTest = async () => {
+    const to = window.prompt("Куда отправить тестовое письмо?", userEmail || "");
+    if (!to) return;
+    setTesting(true);
+    try {
+      const res = await api<{ ok: boolean; error: string }>("/outreach/settings/test", {
+        method: "POST",
+        body: JSON.stringify({ to_email: to.trim() }),
+      });
+      if (res.ok) {
+        toast.success(`Тестовое письмо отправлено на ${to.trim()}`);
+        await load();
+      } else {
+        toast.error(res.error || "Не удалось отправить тестовое письмо");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось отправить тестовое письмо");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading || !form || !settings) {
+    return (
+      <section className="panel p-6">
+        <div className="eyebrow mb-4">email-рассылка</div>
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-10 rounded-lg bg-[var(--surface-1)] animate-pulse" />
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  const ready = settings.configured && settings.verified;
+
+  return (
+    <>
+      <section className="panel p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <div className="eyebrow">email-рассылка</div>
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono ${
+              ready ? "" : "t-56"
+            }`}
+          >
+            <span className={`dot ${ready ? "dot-em" : "dot-am"}`} />
+            {ready ? "Подключено ✓ / проверено" : "Не настроено"}
+          </span>
+        </div>
+        <p className="text-[12px] t-56 mb-3">
+          Рассылка идёт через вашу почту (ваш SMTP): письма уходят с вашего адреса и домена.
+          Перед отправкой убедитесь, что у вас есть согласие получателей — это ваша ответственность.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          <span className="inline-flex items-center rounded-md panel-flat px-2 py-0.5 text-[11px] mono t-72">
+            Отправлено сегодня:{" "}
+            <span className="text-[var(--t-100)] ml-1 tnum">
+              {settings.sent_today}
+            </span>
+            <span className="t-48 ml-1">/ {settings.daily_limit}</span>
+          </span>
+        </div>
+
+        <form onSubmit={onSave} className="space-y-4">
+          {/* Отправитель */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="o-from-name" className="eyebrow">имя отправителя</label>
+              <input
+                id="o-from-name"
+                className="input"
+                type="text"
+                value={form.from_name}
+                placeholder="Например, Иван из ПРО ЛЕС"
+                onChange={(e) => set("from_name", e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="o-from-email" className="eyebrow">email отправителя *</label>
+              <input
+                id="o-from-email"
+                className="input"
+                type="email"
+                value={form.from_email}
+                placeholder="you@company.ru"
+                onChange={(e) => set("from_email", e.target.value)}
+                disabled={!canEdit}
+                required
+              />
+            </div>
+          </div>
+
+          {/* SMTP */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="o-smtp-host" className="eyebrow">smtp-хост</label>
+              <input
+                id="o-smtp-host"
+                className="input"
+                type="text"
+                value={form.smtp_host}
+                placeholder="smtp.yandex.ru"
+                onChange={(e) => set("smtp_host", e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="o-smtp-port" className="eyebrow">smtp-порт</label>
+              <input
+                id="o-smtp-port"
+                className="input"
+                type="number"
+                value={form.smtp_port}
+                placeholder="587"
+                onChange={(e) => set("smtp_port", e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="o-smtp-user" className="eyebrow">smtp-логин</label>
+              <input
+                id="o-smtp-user"
+                className="input"
+                type="text"
+                value={form.smtp_user}
+                placeholder="you@company.ru"
+                onChange={(e) => set("smtp_user", e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="o-smtp-pass" className="eyebrow">smtp-пароль</label>
+              <input
+                id="o-smtp-pass"
+                className="input"
+                type="password"
+                value={form.smtp_password}
+                placeholder={settings.smtp_password_set ? "••• сохранён" : "Пароль приложения"}
+                onChange={(e) => set("smtp_password", e.target.value)}
+                disabled={!canEdit}
+                autoComplete="new-password"
+              />
+            </div>
+          </div>
+
+          {/* TLS + лимит */}
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <span className="eyebrow">шифрование</span>
+              <button
+                type="button"
+                onClick={() => canEdit && set("smtp_use_tls", !form.smtp_use_tls)}
+                disabled={!canEdit}
+                aria-pressed={form.smtp_use_tls}
+                className="focus-ring flex items-center gap-2.5 rounded-full panel-thin px-3 py-2 text-[12px] disabled:opacity-50 disabled:pointer-events-none w-full"
+              >
+                <span
+                  className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
+                  style={{
+                    background: form.smtp_use_tls ? "var(--mint)" : "var(--surface-3)",
+                  }}
+                >
+                  <span
+                    className="inline-block size-4 rounded-full bg-[var(--on-accent)] transition-transform"
+                    style={{ transform: form.smtp_use_tls ? "translateX(18px)" : "translateX(2px)" }}
+                  />
+                </span>
+                <span className="t-84">TLS</span>
+                <span className="t-48 mono text-[11px] ml-auto">
+                  {form.smtp_use_tls ? "вкл" : "выкл"}
+                </span>
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="o-daily" className="eyebrow">лимит писем в день</label>
+              <input
+                id="o-daily"
+                className="input"
+                type="number"
+                min={0}
+                value={form.daily_limit}
+                placeholder="50"
+                onChange={(e) => set("daily_limit", e.target.value)}
+                disabled={!canEdit}
+              />
+            </div>
+          </div>
+
+          {/* Подсказки провайдеров */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="text-[11px] t-48 mono">подсказки:</span>
+            {OUTREACH_HINTS.map((h) => (
+              <span key={h.name} className="text-[11px] t-56">
+                <span className="t-84">{h.name}:</span>{" "}
+                <span className="mono t-72">{h.host}:{h.port}</span>{" "}
+                <span className="t-48">{h.note}</span>
+              </span>
+            ))}
+          </div>
+
+          {/* IMAP — collapsible */}
+          <div className="panel-flat p-4">
+            <button
+              type="button"
+              onClick={() => setImapOpen((v) => !v)}
+              className="focus-ring flex w-full items-center justify-between gap-2 text-left"
+            >
+              <span>
+                <span className="eyebrow block">IMAP — авто-остановка при ответе</span>
+                <span className="text-[11px] t-48">
+                  Необязательно. Если получатель ответил — последовательность для него остановится автоматически.
+                </span>
+              </span>
+              <span className="text-[12px] mono t-56 shrink-0">{imapOpen ? "скрыть" : "показать"}</span>
+            </button>
+
+            {imapOpen && (
+              <div className="grid gap-4 sm:grid-cols-2 mt-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="o-imap-host" className="eyebrow">imap-хост</label>
+                  <input
+                    id="o-imap-host"
+                    className="input"
+                    type="text"
+                    value={form.imap_host}
+                    placeholder="imap.yandex.ru"
+                    onChange={(e) => set("imap_host", e.target.value)}
+                    disabled={!canEdit}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="o-imap-port" className="eyebrow">imap-порт</label>
+                  <input
+                    id="o-imap-port"
+                    className="input"
+                    type="number"
+                    value={form.imap_port}
+                    placeholder="993"
+                    onChange={(e) => set("imap_port", e.target.value)}
+                    disabled={!canEdit}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="o-imap-user" className="eyebrow">imap-логин</label>
+                  <input
+                    id="o-imap-user"
+                    className="input"
+                    type="text"
+                    value={form.imap_user}
+                    placeholder="you@company.ru"
+                    onChange={(e) => set("imap_user", e.target.value)}
+                    disabled={!canEdit}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="o-imap-pass" className="eyebrow">imap-пароль</label>
+                  <input
+                    id="o-imap-pass"
+                    className="input"
+                    type="password"
+                    value={form.imap_password}
+                    placeholder={settings.imap_password_set ? "••• сохранён" : "Пароль приложения"}
+                    onChange={(e) => set("imap_password", e.target.value)}
+                    disabled={!canEdit}
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          {canEdit ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end pt-1">
+              <button
+                type="button"
+                onClick={onTest}
+                disabled={testing || saving}
+                className="btn btn-ghost shrink-0"
+              >
+                <SendIcon className="size-3.5" />
+                {testing ? "Отправляем…" : "Отправить тест"}
+              </button>
+              <button
+                type="submit"
+                disabled={saving || testing}
+                className="brand rounded-full px-5 py-2.5 text-[13px] disabled:opacity-50 disabled:pointer-events-none shrink-0"
+              >
+                {saving ? "Сохранение…" : "Сохранить"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-[12px] t-48 pt-1">
+              Изменять настройки рассылки могут только владелец и админ.
+            </p>
+          )}
+        </form>
+      </section>
     </>
   );
 }

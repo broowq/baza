@@ -4,13 +4,13 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2, PhoneCall,
   Plus, Trash2, Calendar, User, Banknote, Sparkles, ArrowRightLeft, UserPlus, UserMinus,
-  StickyNote, CheckCircle2, ListChecks, CircleDot,
+  StickyNote, CheckCircle2, ListChecks, CircleDot, Send,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
 import type {
-  Lead, LeadCallNote, LeadDetail, OrgMember, LeadTask, LeadActivity,
+  Lead, LeadCallNote, LeadDetail, OrgMember, LeadTask, LeadActivity, EmailSequence,
 } from "@/lib/types";
 
 /* ─────────────────────────────────────────────────────────────────
@@ -265,6 +265,12 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
+  /* ── Email sequence enrollment (lazy: fetched on first open) ── */
+  const [sequences, setSequences] = useState<EmailSequence[] | null>(null);
+  const [seqLoading, setSeqLoading] = useState(false);
+  const [selectedSeqId, setSelectedSeqId] = useState("");
+  const [enrolling, setEnrolling] = useState(false);
+
   const drawerRef = useRef<HTMLElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -350,6 +356,21 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     return () => { cancelled = true; };
   }, [leadId]);
 
+  /* Lazily fetch sequences once when the drawer opens — keep only «active»
+     ones (the valid enrollment targets). Reset the picked sequence per lead. */
+  useEffect(() => {
+    if (!leadId) { setSelectedSeqId(""); return; }
+    setSelectedSeqId("");
+    if (sequences !== null || seqLoading) return;
+    let cancelled = false;
+    setSeqLoading(true);
+    api<EmailSequence[]>(`/outreach/sequences`)
+      .then((data) => { if (!cancelled) setSequences(Array.isArray(data) ? data : []); })
+      .catch(() => { if (!cancelled) setSequences([]); /* рассылки не критичны */ })
+      .finally(() => { if (!cancelled) setSeqLoading(false); });
+    return () => { cancelled = true; };
+  }, [leadId, sequences, seqLoading]);
+
   /* Focus the close button when drawer opens */
   useEffect(() => {
     if (isOpen) {
@@ -421,6 +442,27 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     if (isoToDateInput(iso) === isoToDateInput(current)) return;
     void patchLead({ expected_close_at: iso });
   };
+
+  /* Enroll THIS lead into the chosen active sequence. Backend skips leads
+     without email / opted-out / already enrolled (→ enrolled=0). A 400 means
+     the org's email isn't configured — surface its detail verbatim. */
+  const enrollInSequence = useCallback(async (seqId: string) => {
+    if (!leadId || !seqId) return;
+    setEnrolling(true);
+    try {
+      const res = await api<{ enrolled: number; skipped: number }>(
+        `/outreach/sequences/${seqId}/enroll`,
+        { method: "POST", body: JSON.stringify({ lead_ids: [leadId] }) },
+      );
+      if (res.enrolled > 0) toast.success("Добавлен в рассылку");
+      else toast("Пропущен (нет email или уже в рассылке)");
+      setSelectedSeqId("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось добавить в рассылку");
+    } finally {
+      setEnrolling(false);
+    }
+  }, [leadId]);
 
   /* Record a call: who (current user, attributed server-side) + optional comment.
      Side effects mirror mark_contacted: last_contacted_at=now, new → contacted. */
@@ -526,6 +568,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   /* Derive useful values */
   const websiteOk = detail?.website && /^https?:\/\//i.test(detail.website.trim());
   const isAccent = (detail?.score ?? 0) >= 80;
+  const activeSequences = (sequences ?? []).filter((s) => s.status === "active");
   const memberName = (uid?: string | null): string => {
     if (!uid) return "";
     const m = members.find((x) => x.user_id === uid);
@@ -743,6 +786,46 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                         <span className="mono t-72">{formatRub(detail.deal_value)} ₽</span>
                       </div>
                     )}
+
+                    {/* Email sequence enrollment — picker + «В рассылку» */}
+                    <div className="border-t pt-3" style={{ borderColor: "var(--line)" }}>
+                      <span className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                        <Send size={11} /> Рассылка
+                      </span>
+                      {activeSequences.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={selectedSeqId}
+                            disabled={enrolling}
+                            onChange={(e) => setSelectedSeqId(e.target.value)}
+                            className="input focus-ring h-9 min-w-0 flex-1 rounded-lg px-3 text-sm"
+                            style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)", minWidth: 130 }}
+                            aria-label="Выбрать рассылку"
+                          >
+                            <option value="">Выберите рассылку…</option>
+                            {activeSequences.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={enrolling || !selectedSeqId}
+                            onClick={() => void enrollInSequence(selectedSeqId)}
+                            className="btn btn-ghost focus-ring shrink-0 text-xs"
+                            style={{ height: 36, fontSize: 12 }}
+                          >
+                            {enrolling
+                              ? <Loader2 size={13} className="animate-spin" />
+                              : <><Send size={12} className="mr-1.5" /> В рассылку</>
+                            }
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="t-40 text-xs">
+                          {seqLoading ? "Загрузка…" : "Нет активных рассылок"}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </section>
 
