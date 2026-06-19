@@ -6,7 +6,7 @@ import time
 from html import unescape
 import logging
 import re
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import httpx
@@ -505,7 +505,7 @@ def _candidate_relevance_score(
     # 'Томская область' project even if it has a complete contact card. Only
     # fires on a confident city→region mismatch; blank/unknown cities fall
     # through to the soft scoring below (we don't drop what we can't classify).
-    if geography and (geography or "").strip().lower() not in _NATIONWIDE_GEOS:
+    if geography and not _is_broad_geo(geography):
         requested_region = _region_of(geography)
         candidate_region = _region_of(item.get("city", ""))
         if requested_region and candidate_region and candidate_region != requested_region:
@@ -2103,25 +2103,70 @@ def _geo_tiers(geo: str) -> list[str]:
 # "Россия". So for nationwide searches we fan the map queries out across these
 # cities and aggregate. Ordered by lead density so the oversample cap is hit
 # from the richest markets first.
+# Administrative centre of every Russian federal subject + the largest metros,
+# roughly ordered by business density. When a project is "Россия" (nationwide)
+# the geo-aware map sources (2GIS/Yandex) can't search a whole country in one
+# call, so we fan out across ALL of these — giving genuine all-regions coverage
+# (not just Москва/СПб). The fan-out caps per-city and rotates the start point
+# across runs so successive doses sweep different regions.
 _MAJOR_RU_CITIES = [
+    # Metros (highest density) — always queried first.
     "Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург",
     "Казань", "Нижний Новгород", "Челябинск", "Самара",
     "Краснодар", "Ростов-на-Дону", "Уфа", "Пермь",
     "Воронеж", "Волгоград", "Красноярск", "Тюмень",
+    # All remaining regional centres (every federal subject).
+    "Ижевск", "Саратов", "Барнаул", "Ульяновск", "Иркутск", "Хабаровск",
+    "Владивосток", "Ярославль", "Махачкала", "Томск", "Оренбург", "Кемерово",
+    "Рязань", "Астрахань", "Пенза", "Липецк", "Киров", "Чебоксары",
+    "Калининград", "Тула", "Курск", "Ставрополь", "Улан-Удэ", "Тверь",
+    "Брянск", "Иваново", "Белгород", "Владимир", "Архангельск", "Чита",
+    "Калуга", "Смоленск", "Якутск", "Саранск", "Вологда", "Курган",
+    "Орёл", "Грозный", "Мурманск", "Тамбов", "Петрозаводск", "Кострома",
+    "Нальчик", "Йошкар-Ола", "Сыктывкар", "Псков", "Великий Новгород",
+    "Благовещенск", "Майкоп", "Южно-Сахалинск", "Абакан", "Элиста",
+    "Черкесск", "Кызыл", "Горно-Алтайск", "Биробиджан", "Салехард",
+    "Ханты-Мансийск", "Магадан", "Нарьян-Мар", "Магас", "Симферополь",
+    "Севастополь",
+]
+
+# Near-abroad / CIS capitals — covered by 2GIS/Yandex Maps in those countries.
+# Used when the project geography is "СНГ" / "ближнее зарубежье".
+_CIS_CAPITALS = [
+    "Минск", "Алматы", "Астана", "Ташкент", "Баку",
+    "Ереван", "Бишкек", "Тбилиси", "Кишинёв",
 ]
 
 _NATIONWIDE_GEOS = {"", "россия", "рф", "ru", "russia", "вся россия", "по россии"}
+_CIS_GEOS = {"снг", "ближнее зарубежье", "зарубежье", "страны снг",
+             "россия и снг", "снг и россия", "россия + снг"}
+
+# Rotates the region fan-out start across runs so successive nationwide doses
+# sweep different regions (combined with warehouse no-repeat → full coverage
+# over time). Process-lifetime counter; the first N metros stay fixed for density.
+_FANOUT_METRO_HEAD = 8
+_nationwide_rotation = 0
+
+
+def _is_broad_geo(geo: str) -> bool:
+    """True for country-wide / multi-region geographies (Россия, СНГ) where the
+    per-region geo guard must NOT disqualify out-of-one-region candidates."""
+    g = (geo or "").strip().lower()
+    return g in _NATIONWIDE_GEOS or g in _CIS_GEOS
 
 
 def _maps_geo_targets(geo: str) -> list[str]:
     """Cities to actually query the map sources with.
 
     A specific city → [that city] (unchanged behaviour).
-    Nationwide ("Россия"/empty) → the major-cities fan-out, because 2GIS /
-    Yandex Maps can't resolve a country to a city_id and return nothing.
+    Nationwide ("Россия"/empty) → fan out across ALL regional centres.
+    "СНГ"/"ближнее зарубежье" → all RU regional centres + CIS capitals.
     """
-    if (geo or "").strip().lower() in _NATIONWIDE_GEOS:
+    g = (geo or "").strip().lower()
+    if g in _NATIONWIDE_GEOS:
         return list(_MAJOR_RU_CITIES)
+    if g in _CIS_GEOS:
+        return list(_MAJOR_RU_CITIES) + list(_CIS_CAPITALS)
     return [geo]
 
 
@@ -2306,12 +2351,30 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     # so popular niches fill from Москва+СПб while thin niches work through
     # more cities to reach target.
     maps_geo_targets = _maps_geo_targets(effective_geo)
+    # Nationwide / CIS: spread the budget across regions instead of draining it
+    # on Москва+СПб. Rotate the non-metro tail per run, and cap each city's
+    # contribution so a single dose touches many regions.
+    nationwide_fanout = _is_broad_geo(effective_geo) and len(maps_geo_targets) > 1
+    per_city_cap = oversample_limit
+    if nationwide_fanout:
+        if len(maps_geo_targets) > _FANOUT_METRO_HEAD:
+            global _nationwide_rotation
+            head = maps_geo_targets[:_FANOUT_METRO_HEAD]
+            tail = maps_geo_targets[_FANOUT_METRO_HEAD:]
+            off = _nationwide_rotation % len(tail)
+            maps_geo_targets = head + tail[off:] + tail[:off]
+            _nationwide_rotation += 1
+        # ~15-20 regions per dose; ≥3 so small doses still spread.
+        per_city_cap = max(3, oversample_limit // 15)
     for map_geo in maps_geo_targets:
         if _cap_full():
             break
+        _city_start_count = unique_count
         for term in map_search_terms:
             if _cap_full():
                 break
+            if nationwide_fanout and (unique_count - _city_start_count) >= per_city_cap:
+                break  # this region got its slice — move on to the next region
             # 2GIS: API first (licensed, stable, legally clean), public-scrape
             # only as a last-resort fallback if the API key is missing or returns
             # nothing. Previously scrape was primary — faster but violates 2GIS
@@ -2390,7 +2453,12 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         # плотных нишах бесплатный 2ГИС (без контактов) вытесняет его всегда.
         if use_yandex and map_search_terms:
             try:
-                yandex_budget = max(oversample_limit - unique_count, 20)
+                # Nationwide: cap Yandex per region too (don't let Москва eat
+                # the whole quota); otherwise grab the remaining headroom.
+                yandex_budget = (
+                    min(per_city_cap, max(oversample_limit - unique_count, 8))
+                    if nationwide_fanout else max(oversample_limit - unique_count, 20)
+                )
                 yandex_results = _search_yandex_maps(
                     effective_niche, map_geo, effective_segments, yandex_budget,
                     has_prompt=has_prompt,
@@ -2491,6 +2559,34 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     return []
 
 
+_ANCHOR_RE = re.compile(r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
+_CONTACT_LINK_KW = ("контакт", "contact", "kontakt", "связ", "реквизит", "о компании", "o-kompanii", "about")
+
+
+def _discover_contact_links(html: str, root_url: str, domain: str) -> list[str]:
+    """Find same-domain links to contact/about pages by anchor href OR text.
+
+    Handles non-standard slugs (/kontakty-i-rekvizity, /o-kompanii/kontakty, …)
+    that the fixed candidate-path list misses — a major cause of "the site has
+    contacts but enrichment returned nothing".
+    """
+    out: list[str] = []
+    for m in _ANCHOR_RE.finditer(html or ""):
+        href = m.group(1).strip()
+        if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+            continue
+        text = TAG_RE.sub(" ", m.group(2) or "").lower()
+        hay = f"{href.lower()} {text}"
+        if not any(kw in hay for kw in _CONTACT_LINK_KW):
+            continue
+        absu = normalize_url(urljoin(root_url.rstrip("/") + "/", href))
+        if absu and extract_domain(absu) == domain and absu not in out:
+            out.append(absu)
+        if len(out) >= 6:
+            break
+    return out
+
+
 def enrich_website_contacts(base_url: str) -> dict:
     parsed = urlparse(base_url if base_url.startswith(("http://", "https://")) else f"https://{base_url}")
     domain = extract_domain(base_url)
@@ -2555,38 +2651,56 @@ def enrich_website_contacts(base_url: str) -> dict:
             # Fix #3: hook fires on every request, including redirect hops
             event_hooks={"request": [_ssrf_guard]},
         ) as client:
-            for path in candidate_paths:
-                target = normalize_url(f"{root_url}{path}" if path != "/" else root_url)
-                if not target:
+            # Absolute-URL queue: homepage first, then the known contact paths.
+            # While fetching the homepage we DISCOVER real contact-page links
+            # (arbitrary slugs) and splice them in next — so we reach the actual
+            # «Контакты» page even when it isn't at a standard URL.
+            queue: list[str] = [root_url] + [
+                normalize_url(f"{root_url}{p}") for p in candidate_paths if p != "/"
+            ]
+            visited: set[str] = set()
+            qi = 0
+            MAX_PAGES = 10
+            while qi < len(queue) and pages_fetched < MAX_PAGES:
+                target = queue[qi]
+                qi += 1
+                if not target or target in visited:
                     continue
+                visited.add(target)
                 if not _is_safe_url(target):
                     continue
                 if robots and not robots.can_fetch(DEFAULT_USER_AGENT, target):
                     continue
+                is_home = target.rstrip("/") == root_url.rstrip("/")
                 try:
+                    response = None
                     for attempt in range(3):
                         response = client.get(target)
                         if response.status_code in (429, 503):
                             time.sleep(0.3 * (2**attempt))
                             continue
-                        if response.status_code < 400:
-                            gathered_html += f"\n{response.text[:50000]}"
-                            plain_text = TAG_RE.sub(" ", unescape(response.text))
-                            gathered_text += f"\n{plain_text[:25000]}"
-                            pages_fetched += 1
                         break
+                    if response is None or response.status_code >= 400:
+                        continue
+                    # Larger caps: real footers / «Контакты» blocks often sit
+                    # AFTER 50k of HTML — truncating there was a top cause of
+                    # "site has contacts but enrichment returned nothing".
+                    gathered_html += f"\n{response.text[:300000]}"
+                    plain_text = TAG_RE.sub(" ", unescape(response.text))
+                    gathered_text += f"\n{plain_text[:150000]}"
+                    pages_fetched += 1
+                    if is_home:
+                        for absu in _discover_contact_links(response.text, root_url, domain):
+                            if absu not in visited and absu not in queue:
+                                queue.insert(qi, absu)  # prioritise right after home
                 except httpx.TimeoutException:
-                    last_error = f"timeout on {path}"
+                    last_error = f"timeout on {target}"
                     continue
                 except Exception as exc:
-                    last_error = f"{type(exc).__name__} on {path}"
+                    last_error = f"{type(exc).__name__} on {target}"
                     continue
                 time.sleep(0.15)
-                # Fix #4 [perf]: early exit once both email AND phone are found.
-                # Previously the loop always fetched all ~22 paths even after
-                # contacts were already present, wasting Celery worker time.
-                # Use cheap inline regex checks on accumulated text rather than
-                # calling the full extract_contacts() parser on each iteration.
+                # Early exit once both email AND phone are found (saves worker time).
                 _has_email = bool(re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", gathered_text))
                 _has_phone = bool(re.search(r"\+7[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{2}[\s\-]?\d{2}", gathered_text))
                 if _has_email and _has_phone:

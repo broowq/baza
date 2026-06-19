@@ -64,3 +64,17 @@ def test_nationwide_geo_fans_out_to_cities(geo: str) -> None:
 def test_specific_city_is_passthrough(geo: str) -> None:
     """A concrete city queries only that city — no fan-out."""
     assert _maps_geo_targets(geo) == [geo]
+
+
+# ── nationwide fan-out now covers ALL regions (+ CIS) ────────────────────────
+
+def test_nationwide_fanout_covers_all_regions():
+    t = _maps_geo_targets("Россия")
+    assert len(t) > 50, "nationwide must fan out across all federal subjects, not a few metros"
+    for city in ("Москва", "Владивосток", "Калининград", "Махачкала", "Якутск", "Симферополь"):
+        assert city in t, f"{city} missing from nationwide fan-out"
+
+
+def test_cis_geo_includes_ru_regions_and_cis_capitals():
+    t = _maps_geo_targets("СНГ")
+    assert "Москва" in t and "Минск" in t and "Алматы" in t and "Ташкент" in t

@@ -308,7 +308,12 @@ def extract_contacts(text: str, html: str | None = None) -> dict:
     return {
         # Don't re-sort emails — preserve mailto-first + contact-prefix priority.
         "emails": emails[:5],
-        "phones": sorted(phones)[:5],
+        # Don't re-sort phones either. Discovery order = tel: links first (the
+        # canonical click-to-call number the company itself published), then
+        # free-text, then JSON-LD. Sorting alphabetically by E.164 picked an
+        # arbitrary/secondary number (8-800, fax, a partner's) as phones[0],
+        # which the lead then showed — the "wrong phone vs the site" bug.
+        "phones": phones[:5],
         "addresses": addresses[:3],
         "social": {
             "vk": vk_links[:3],

@@ -209,3 +209,15 @@ def test_get_base_domain():
     from app.utils.url_tools import get_base_domain
     assert get_base_domain("sub.example.ru") == "example.ru"
     assert get_base_domain("www.google.com") == "google.com"
+
+
+# ── phone order preserved (tel: first) — the "wrong phone vs site" fix ────────
+
+def test_extract_contacts_preserves_phone_order_not_sorted():
+    # tel: link (+7 812…) is the canonical click-to-call number; a secondary
+    # number (+7 495…) appears in body text. Sorting by E.164 would wrongly put
+    # +7495… first; we must keep the tel:-link number as phones[0].
+    html = '<a href="tel:+78121112233">Офис</a> <p>Доп. отдел: +7 (495) 000-11-22</p>'
+    res = extract_contacts("", html)
+    assert res["phones"][0] == "+78121112233", "tel: link must be the primary phone"
+    assert "+74950001122" in res["phones"]

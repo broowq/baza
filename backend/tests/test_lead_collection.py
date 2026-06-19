@@ -494,3 +494,21 @@ def test_merge_fields_carries_website_and_domain():
     assert target["phone"] == "+7 4912 21-44-80"
     assert target["website"] == "http://prizprint.ru"
     assert target["domain"] == "prizprint.ru"
+
+
+# ── enrichment: discover contact-page links with non-standard slugs ──────────
+
+def test_discover_contact_links_finds_nonstandard_and_same_domain_only():
+    from app.services.lead_collection import _discover_contact_links
+    html = (
+        '<a href="/kontakty-i-rekvizity">Контакты и реквизиты</a>'
+        '<a href="https://partner.com/contact">партнёр</a>'
+        '<a href="/o-kompanii">О компании</a>'
+        '<a href="/blog">Блог</a>'
+    )
+    links = _discover_contact_links(html, "https://acme.ru", "acme.ru")
+    joined = " ".join(links)
+    assert "kontakty-i-rekvizity" in joined
+    assert "o-kompanii" in joined
+    assert all("partner.com" not in l for l in links), "must stay same-domain"
+    assert all("/blog" not in l for l in links), "non-contact links excluded"
