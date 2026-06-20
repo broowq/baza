@@ -431,8 +431,39 @@ class OutreachMessage(Base):
     subject: Mapped[str] = mapped_column(String(300), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="sent", nullable=False)  # sent|failed
     error: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    # Open/click tracking (the pixel + link-redirect carry this token).
+    track_token: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    opens_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    clicked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    clicks_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True
+    )
+
+
+class OutreachReply(Base):
+    """A captured inbound reply from a lead (via IMAP poll) — powers the inbox."""
+    __tablename__ = "outreach_replies"
+    __table_args__ = (
+        Index("ix_outreach_replies_org_received", "organization_id", "received_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    enrollment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sequence_enrollments.id", ondelete="SET NULL"), nullable=True
+    )
+    lead_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    from_email: Mapped[str] = mapped_column(String(255), default="", nullable=False)
+    subject: Mapped[str] = mapped_column(String(300), default="", nullable=False)
+    snippet: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
     )
 
 

@@ -87,6 +87,9 @@ class SequenceStatsOut(BaseModel):
     bounced: int = 0
     stopped: int = 0
     sent_messages: int = 0
+    opened: int = 0          # messages with opened_at set
+    clicked: int = 0         # messages with clicked_at set
+    replies: int = 0         # captured inbound replies
 
 
 class SequenceOut(BaseModel):
@@ -122,3 +125,29 @@ class EnrollmentOut(BaseModel):
     current_step: int
     next_send_at: datetime | None = None
     last_sent_at: datetime | None = None
+
+
+# ── Replies inbox + AI email generation ──────────────────────────────────────
+
+class ReplyOut(BaseModel):
+    id: UUID
+    lead_id: UUID | None = None
+    lead_company: str = ""
+    from_email: str = ""
+    subject: str = ""
+    snippet: str = ""
+    received_at: datetime | None = None
+
+
+class AiGenerateRequest(BaseModel):
+    project_id: UUID | None = None     # derive niche/segments from a project, if given
+    niche: str = Field(default="", max_length=200)
+    segments: list[str] = Field(default_factory=list, max_length=30)
+    goal: str = Field(default="", max_length=300)
+    tone: str = Field(default="", max_length=120)
+    step_number: int = Field(default=1, ge=1, le=20)
+
+
+class AiGenerateResponse(BaseModel):
+    subject: str
+    body: str

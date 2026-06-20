@@ -115,8 +115,12 @@ def _org_settings(db, org_id) -> OrgEmailSettings | None:
 
 @pytest.fixture
 def fake_smtp(monkeypatch):
-    """Record calls to the SMTP sender; never touch the network. Worker imports
-    send_via_smtp into app.services.outreach, so patch it there."""
+    """Record calls to the SMTP sender; never touch the network.
+
+    The worker does `from app.services.outreach import send_via_smtp`, so once
+    app.tasks.outreach_tasks is imported it holds its OWN bound name — patching
+    only the service module would miss it (and the worker would hit the real
+    network → gaierror). So patch BOTH bindings; order-independent that way."""
     calls: list[dict] = []
 
     def _send(s, *, to_email, subject, html_body, text_body, unsub_url=None):
@@ -130,7 +134,9 @@ def fake_smtp(monkeypatch):
         return "<fake-msgid>"
 
     import app.services.outreach as outreach_svc
+    import app.tasks.outreach_tasks as tasks
     monkeypatch.setattr(outreach_svc, "send_via_smtp", _send, raising=True)
+    monkeypatch.setattr(tasks, "send_via_smtp", _send, raising=False)
     # The settings "test" endpoint goes through smtp_test → force a clean pass.
     monkeypatch.setattr(outreach_svc, "smtp_test", lambda s, to_email: (True, ""), raising=True)
     return calls

@@ -22,17 +22,20 @@ from app.models import (
     LeadStatus,
     OrgEmailSettings,
     OutreachMessage,
+    OutreachReply,
     SequenceEnrollment,
     SequenceStep,
 )
 from app.services.outreach import (
     _to_html,
     append_unsubscribe,
+    fetch_replies,
+    inject_tracking,
+    new_track_token,
     render_template,
     send_via_smtp,
     unsubscribe_url,
 )
-from app.services.outreach import poll_replies as imap_poll_replies
 from app.tasks.celery_app import celery
 
 logger = logging.getLogger(__name__)
@@ -156,13 +159,17 @@ def process_email_sequences() -> None:
                 unsub = unsubscribe_url(enr.unsubscribe_token)
                 body_html, body_text = append_unsubscribe(body_html, body_text, unsub)
 
+                # ── tracking: wrap links + open pixel (persisted on success) ─
+                tok = new_track_token()
+                tracked_html = inject_tracking(body_html, tok)
+
                 # ── send ──────────────────────────────────────────────────
                 try:
                     send_via_smtp(
                         settings,
                         to_email=lead.email,
                         subject=subject,
-                        html_body=body_html,
+                        html_body=tracked_html,
                         text_body=body_text,
                         unsub_url=unsub,
                     )
@@ -195,6 +202,7 @@ def process_email_sequences() -> None:
                     to_email=lead.email,
                     subject=subject,
                     status="sent",
+                    track_token=tok,
                 ))
                 settings.sent_today += 1
                 enr.last_sent_at = now
@@ -238,7 +246,10 @@ def poll_email_replies() -> None:
     """Poll each IMAP-configured org for replies; auto-stop matching enrollments."""
     db = SessionLocal()
     try:
-        now = datetime.now(timezone.utc)
+        # Naive-UTC: the DateTime columns (enrolled_at, received_at) are naive, so
+        # `since`/`floor` must be too or the max()/comparisons below raise
+        # "can't compare offset-naive and offset-aware datetimes".
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         # Orgs with at least one active enrollment.
         org_ids = db.execute(
             select(SequenceEnrollment.organization_id)
@@ -275,10 +286,15 @@ def poll_email_replies() -> None:
                 earliest = min((e for _, e in rows if e is not None), default=now)
                 since = max(earliest, floor)
 
-                replied = imap_poll_replies(settings, since, addresses)
-                if not replied:
+                replies = fetch_replies(settings, since, addresses)
+                if not replies:
                     continue
-                replied_lc = {a.lower() for a in replied}
+                # Matched sender emails (lower-cased) drive enrollment stops.
+                replied_lc = {
+                    r["from_email"].lower()
+                    for r in replies
+                    if r.get("from_email")
+                }
 
                 active = db.execute(
                     select(SequenceEnrollment)
@@ -287,13 +303,41 @@ def poll_email_replies() -> None:
                     .where(SequenceEnrollment.status == "active")
                     .where(Lead.email.is_not(None))
                 ).scalars().all()
-                # Map enrollment -> lead email for matching.
+                # Map lead email (lower) -> enrollment for stop + reply linkage.
+                enr_by_email: dict[str, SequenceEnrollment] = {}
                 for enr in active:
                     lead = db.get(Lead, enr.lead_id)
                     if lead and lead.email and lead.email.lower() in replied_lc:
                         enr.status = "replied"
                         enr.stop_reason = "reply"
                         stopped_total += 1
+                        enr_by_email[lead.email.lower()] = enr
+
+                # Persist each reply for the inbox (dedupe on org+from+subj+date).
+                for r in replies:
+                    from_email = (r.get("from_email") or "").lower()
+                    matched = enr_by_email.get(from_email)
+                    subject = r.get("subject") or ""
+                    received_at = r.get("received_at")
+                    exists = db.execute(
+                        select(OutreachReply.id)
+                        .where(OutreachReply.organization_id == org_id)
+                        .where(OutreachReply.from_email == from_email)
+                        .where(OutreachReply.subject == subject)
+                        .where(OutreachReply.received_at == received_at)
+                        .limit(1)
+                    ).first()
+                    if exists:
+                        continue
+                    db.add(OutreachReply(
+                        organization_id=org_id,
+                        enrollment_id=matched.id if matched else None,
+                        lead_id=matched.lead_id if matched else None,
+                        from_email=from_email,
+                        subject=subject,
+                        snippet=r.get("snippet") or "",
+                        received_at=received_at,
+                    ))
                 db.commit()
             except Exception:
                 logger.exception("poll_email_replies: failed on org=%s", org_id)

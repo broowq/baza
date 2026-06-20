@@ -14,6 +14,7 @@ from app.models.entities import (
     Organization,
     OrgEmailSettings,
     OutreachMessage,
+    OutreachReply,
     PlanType,
     Project,
     SequenceEnrollment,
@@ -44,4 +45,5 @@ __all__ = [
     "SequenceStep",
     "SequenceEnrollment",
     "OutreachMessage",
+    "OutreachReply",
 ]

@@ -14,6 +14,8 @@ import {
   ChevronDown,
   Mail,
   Loader2,
+  Sparkles,
+  Inbox,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ import { api } from "@/lib/api";
 import { useAuthGuard } from "@/lib/hooks";
 import type {
   EmailSequence,
+  OutreachReply,
   OutreachSettings,
   SequenceEnrollment,
   SequenceStep,
@@ -44,6 +47,44 @@ import type {
 const MAX_STEPS = 20;
 
 const PLACEHOLDER_HINT = "Доступные подстановки: {{company}}, {{city}}, {{email}}";
+
+/** Built-in RU templates for instant, no-API step prefilling. */
+const STEP_TEMPLATES: { key: string; label: string; subject: string; body: string }[] = [
+  {
+    key: "cold",
+    label: "Холодное первое касание",
+    subject: "Сотрудничество с {{company}}",
+    body:
+      "Здравствуйте!\n\n" +
+      "Меня заинтересовала компания {{company}} — мы помогаем подобным компаниям " +
+      "привлекать больше клиентов.\n\n" +
+      "Будет ли вам удобно созвониться на 10–15 минут на этой неделе, чтобы я коротко " +
+      "рассказал, чем можем быть полезны?\n\n" +
+      "С уважением",
+  },
+  {
+    key: "followup",
+    label: "Follow-up",
+    subject: "Re: Сотрудничество с {{company}}",
+    body:
+      "Здравствуйте!\n\n" +
+      "Поднимаю своё прошлое письмо — возможно, оно затерялось.\n\n" +
+      "Подскажите, актуален ли для {{company}} вопрос привлечения новых клиентов? " +
+      "Если да, я с радостью покажу пару идей именно под вашу сферу.\n\n" +
+      "С уважением",
+  },
+  {
+    key: "last",
+    label: "Последнее касание",
+    subject: "Закрываю вопрос по {{company}}",
+    body:
+      "Здравствуйте!\n\n" +
+      "Не хочу быть навязчивым, поэтому это моё последнее письмо.\n\n" +
+      "Если тема привлечения клиентов для {{company}} сейчас неактуальна — просто " +
+      "ответьте «не сейчас», и я не побеспокою. Если же интересно — буду рад обсудить.\n\n" +
+      "Спасибо за внимание!",
+  },
+];
 
 const STATUS_META: Record<
   EmailSequence["status"],
@@ -76,8 +117,11 @@ function toDrafts(steps: SequenceStep[]): StepDraft[] {
 
 /* ─────────────────────────────────────────────────────────────────────── */
 
+type Tab = "sequences" | "replies";
+
 export default function OutreachPage() {
   const authed = useAuthGuard();
+  const [tab, setTab] = useState<Tab>("sequences");
   const [sequences, setSequences] = useState<EmailSequence[]>([]);
   const [settings, setSettings] = useState<OutreachSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -196,10 +240,32 @@ export default function OutreachPage() {
         <p className="t-56 text-[13px] mt-2">
           Автоматические письма-цепочки по лидам: тема, текст и задержки между шагами.
         </p>
+
+        {/* ── Цепочки | Ответы toggle ── */}
+        <div className="mt-4 inline-flex gap-1 rounded-full p-1" style={{ background: "var(--surface-1)", border: "1px solid var(--line)" }}>
+          <button
+            type="button"
+            onClick={() => setTab("sequences")}
+            className={`seg-btn ${tab === "sequences" ? "!text-[var(--t-100)] !bg-[var(--surface-2)]" : ""}`}
+            aria-pressed={tab === "sequences"}
+          >
+            <Mail className="h-3 w-3" />
+            Цепочки
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("replies")}
+            className={`seg-btn ${tab === "replies" ? "!text-[var(--t-100)] !bg-[var(--surface-2)]" : ""}`}
+            aria-pressed={tab === "replies"}
+          >
+            <Inbox className="h-3 w-3" />
+            Ответы
+          </button>
+        </div>
       </div>
 
       {/* ── Mail-not-configured banner ── */}
-      {settings && !settings.configured && (
+      {tab === "sequences" && settings && !settings.configured && (
         <div
           className="panel-flat rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3"
           style={{ borderColor: "rgba(251,191,36,0.18)" }}
@@ -219,8 +285,11 @@ export default function OutreachPage() {
         </div>
       )}
 
+      {/* ── Replies inbox ── */}
+      {tab === "replies" && <RepliesInbox />}
+
       {/* ── Body ── */}
-      {loading ? (
+      {tab === "sequences" && (loading ? (
         <OutreachSkeleton />
       ) : error ? (
         <div className="panel p-8 text-center space-y-4">
@@ -258,7 +327,7 @@ export default function OutreachPage() {
             />
           ))}
         </div>
-      )}
+      ))}
 
       {/* ── Create / edit modal ── */}
       <SequenceFormDialog
@@ -351,6 +420,17 @@ function SequenceCard({
               <Stat label="Отписались" value={stats?.unsubscribed ?? 0} tone="rose" />
             </span>
           </div>
+
+          {/* Tracking stats row */}
+          <div className="lead-card__sub">
+            <span className="flex items-center gap-3 flex-wrap">
+              <Stat label="Открыто" value={stats?.opened ?? 0} />
+              <span className="t-28">·</span>
+              <Stat label="Клики" value={stats?.clicked ?? 0} />
+              <span className="t-28">·</span>
+              <Stat label="Ответы" value={stats?.replies ?? 0} tone="mint" />
+            </span>
+          </div>
         </div>
 
         {/* Actions */}
@@ -421,6 +501,110 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: "mi
       <span className="t-40">{label}: </span>
       <span className="tnum" style={{ color }}>{value.toLocaleString("ru-RU")}</span>
     </span>
+  );
+}
+
+/* ── Replies inbox ─────────────────────────────────────────────────────── */
+
+function RepliesInbox() {
+  const [rows, setRows] = useState<OutreachReply[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    setRows(null);
+    try {
+      const data = await api<OutreachReply[]>("/outreach/replies");
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Не удалось загрузить ответы");
+      setRows([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (rows === null) {
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-[88px] animate-pulse rounded-2xl border border-[var(--line)] bg-[var(--surface-1)]"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="panel p-8 text-center space-y-4">
+        <p className="t-72 text-sm">{error}</p>
+        <button className="btn btn-brand" onClick={() => void load()}>
+          Повторить
+        </button>
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="empty-state panel-glass elev-1">
+        <div className="empty-state__icon">
+          <Inbox style={{ color: "var(--mint)", width: 28, height: 28 }} />
+        </div>
+        <h3 className="empty-state__title">Ответов пока нет</h3>
+        <p className="empty-state__body">
+          Когда лиды ответят на письма из ваших цепочек, их ответы появятся здесь.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {rows.map((r, idx) => (
+        <motion.div
+          key={r.id}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: Math.min(idx * 0.04, 0.24) }}
+          className="lead-card"
+        >
+          <div className="flex items-start gap-3">
+            <span className="dot dot-mt shrink-0 mt-1.5" />
+            <div className="min-w-0 flex-1">
+              <div className="lead-card__row" style={{ gap: 8, marginBottom: 2 }}>
+                <span className="lead-card__name truncate min-w-0">
+                  {r.lead_company || r.from_email || "—"}
+                </span>
+                <span className="mono t-40 text-[10.5px] shrink-0">{shortDate(r.received_at)}</span>
+              </div>
+              <div className="mono t-48 text-[11px] truncate">{r.from_email}</div>
+              {r.subject && (
+                <div className="text-[13px] t-84 mt-1.5 truncate">{r.subject}</div>
+              )}
+              {r.snippet && (
+                <p
+                  className="t-56 text-[12.5px] mt-1 leading-relaxed"
+                  style={{
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {r.snippet}
+                </p>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      ))}
+    </div>
   );
 }
 
@@ -629,68 +813,15 @@ function SequenceFormDialog({
             </div>
 
             {steps.map((step, idx) => (
-              <div
+              <StepEditor
                 key={idx}
-                className="rounded-2xl border border-[var(--line-2)] p-3 grid gap-2.5"
-                style={{ background: "var(--surface-1)" }}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="mono-cap t-56 text-[11px]">Шаг {idx + 1}</span>
-                  {steps.length > 1 && (
-                    <button
-                      type="button"
-                      className="btn-icon hover:!text-[var(--rose)]"
-                      onClick={() => removeStep(idx)}
-                      aria-label={`Удалить шаг ${idx + 1}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-
-                <div className="grid gap-1.5">
-                  <Label htmlFor={`step-${idx}-delay`} className="text-xs text-muted-foreground">
-                    Задержка (дней){idx === 0 ? " · 0 = сразу" : ""}
-                  </Label>
-                  <Input
-                    id={`step-${idx}-delay`}
-                    type="number"
-                    min={0}
-                    max={365}
-                    value={step.delay_days}
-                    onChange={(e) => updateStep(idx, { delay_days: e.target.value })}
-                    className="max-w-[140px]"
-                  />
-                </div>
-
-                <div className="grid gap-1.5">
-                  <Label htmlFor={`step-${idx}-subject`} className="text-xs text-muted-foreground">
-                    Тема
-                  </Label>
-                  <Input
-                    id={`step-${idx}-subject`}
-                    value={step.subject}
-                    maxLength={300}
-                    placeholder="Тема письма"
-                    onChange={(e) => updateStep(idx, { subject: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid gap-1.5">
-                  <Label htmlFor={`step-${idx}-body`} className="text-xs text-muted-foreground">
-                    Текст письма
-                  </Label>
-                  <Textarea
-                    id={`step-${idx}-body`}
-                    value={step.body}
-                    rows={4}
-                    placeholder={"Здравствуйте!\n\nМеня заинтересовала компания {{company}} из города {{city}}…"}
-                    onChange={(e) => updateStep(idx, { body: e.target.value })}
-                    className="min-h-[96px] rounded-xl px-3 py-2.5 leading-relaxed"
-                  />
-                  <p className="mono-cap t-40 text-[10px]">{PLACEHOLDER_HINT}</p>
-                </div>
-              </div>
+                idx={idx}
+                step={step}
+                canRemove={steps.length > 1}
+                projectId={target?.project_id ?? null}
+                onChange={(patch) => updateStep(idx, patch)}
+                onRemove={() => removeStep(idx)}
+              />
             ))}
 
             <button
@@ -728,6 +859,210 @@ function SequenceFormDialog({
   );
 }
 
+/* ── Single step editor (with templates + AI generation) ───────────────── */
+
+function StepEditor({
+  idx,
+  step,
+  canRemove,
+  projectId,
+  onChange,
+  onRemove,
+}: {
+  idx: number;
+  step: StepDraft;
+  canRemove: boolean;
+  projectId?: string | null;
+  onChange: (patch: Partial<StepDraft>) => void;
+  onRemove: () => void;
+}) {
+  const [aiOpen, setAiOpen] = useState(false);
+  const [niche, setNiche] = useState("");
+  const [goal, setGoal] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  const applyTemplate = (key: string) => {
+    if (!key) return;
+    const tpl = STEP_TEMPLATES.find((t) => t.key === key);
+    if (!tpl) return;
+    onChange({ subject: tpl.subject, body: tpl.body });
+    toast.success(`Шаблон «${tpl.label}» применён`);
+  };
+
+  const generate = async () => {
+    const trimmedNiche = niche.trim();
+    if (!trimmedNiche) {
+      toast.error("Укажите нишу / о чём письмо");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await api<{ subject: string; body: string }>("/outreach/ai/generate-email", {
+        method: "POST",
+        body: JSON.stringify({
+          ...(projectId ? { project_id: projectId } : {}),
+          niche: trimmedNiche,
+          ...(goal.trim() ? { goal: goal.trim() } : {}),
+          step_number: idx + 1,
+        }),
+      });
+      onChange({ subject: res.subject ?? "", body: res.body ?? "" });
+      toast.success("Письмо сгенерировано");
+      setAiOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось сгенерировать письмо");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-2xl border border-[var(--line-2)] p-3 grid gap-2.5"
+      style={{ background: "var(--surface-1)" }}
+    >
+      <div className="flex items-center justify-between">
+        <span className="mono-cap t-56 text-[11px]">Шаг {idx + 1}</span>
+        {canRemove && (
+          <button
+            type="button"
+            className="btn-icon hover:!text-[var(--rose)]"
+            onClick={onRemove}
+            aria-label={`Удалить шаг ${idx + 1}`}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
+      {/* Template dropdown + AI toggle */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <select
+          className="input text-[12px] max-w-[200px]"
+          value=""
+          onChange={(e) => {
+            applyTemplate(e.target.value);
+            e.target.value = "";
+          }}
+          aria-label="Готовый шаблон"
+        >
+          <option value="">Шаблон…</option>
+          {STEP_TEMPLATES.map((t) => (
+            <option key={t.key} value={t.key}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="seg-btn"
+          onClick={() => setAiOpen((v) => !v)}
+          aria-expanded={aiOpen}
+        >
+          <Sparkles className="h-3 w-3" />
+          Сгенерировать с AI
+        </button>
+      </div>
+
+      <AnimatePresence initial={false}>
+        {aiOpen && (
+          <motion.div
+            key="ai"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div
+              className="grid gap-2 rounded-xl p-2.5"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--line)" }}
+            >
+              <Input
+                value={niche}
+                maxLength={200}
+                placeholder="Ниша / о чём (напр. студия веб-дизайна)"
+                onChange={(e) => setNiche(e.target.value)}
+                className="text-[12.5px]"
+              />
+              <Input
+                value={goal}
+                maxLength={200}
+                placeholder="Цель (необязательно, напр. записать на созвон)"
+                onChange={(e) => setGoal(e.target.value)}
+                className="text-[12.5px]"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="btn btn-brand"
+                  onClick={() => void generate()}
+                  disabled={generating}
+                >
+                  {generating ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Генерируем…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3.5 w-3.5" />
+                      Сгенерировать
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={`step-${idx}-delay`} className="text-xs text-muted-foreground">
+          Задержка (дней){idx === 0 ? " · 0 = сразу" : ""}
+        </Label>
+        <Input
+          id={`step-${idx}-delay`}
+          type="number"
+          min={0}
+          max={365}
+          value={step.delay_days}
+          onChange={(e) => onChange({ delay_days: e.target.value })}
+          className="max-w-[140px]"
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={`step-${idx}-subject`} className="text-xs text-muted-foreground">
+          Тема
+        </Label>
+        <Input
+          id={`step-${idx}-subject`}
+          value={step.subject}
+          maxLength={300}
+          placeholder="Тема письма"
+          onChange={(e) => onChange({ subject: e.target.value })}
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor={`step-${idx}-body`} className="text-xs text-muted-foreground">
+          Текст письма
+        </Label>
+        <Textarea
+          id={`step-${idx}-body`}
+          value={step.body}
+          rows={4}
+          placeholder={"Здравствуйте!\n\nМеня заинтересовала компания {{company}} из города {{city}}…"}
+          onChange={(e) => onChange({ body: e.target.value })}
+          className="min-h-[96px] rounded-xl px-3 py-2.5 leading-relaxed"
+        />
+        <p className="mono-cap t-40 text-[10px]">{PLACEHOLDER_HINT}</p>
+      </div>
+    </div>
+  );
+}
+
 /* ── Skeleton ──────────────────────────────────────────────────────────── */
 
 function OutreachSkeleton() {
@@ -744,6 +1079,19 @@ function OutreachSkeleton() {
 }
 
 /* ── Helpers ───────────────────────────────────────────────────────────── */
+
+/** Short RU date for reply timestamps, e.g. "20 июн" or "20 июн 2025". */
+function shortDate(iso?: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString("ru-RU", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
 
 function pluralSteps(n: number): string {
   const rule = new Intl.PluralRules("ru").select(n);

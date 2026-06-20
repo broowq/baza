@@ -8,11 +8,12 @@ the schemas expose only *_set booleans.
 """
 from __future__ import annotations
 
+import base64
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,17 +25,21 @@ from app.models import (
     Organization,
     OrgEmailSettings,
     OutreachMessage,
+    OutreachReply,
     Project,
     SequenceEnrollment,
     SequenceStep,
     User,
 )
 from app.schemas.outreach import (
+    AiGenerateRequest,
+    AiGenerateResponse,
     EmailSettingsIn,
     EmailSettingsOut,
     EnrollRequest,
     EnrollResult,
     EnrollmentOut,
+    ReplyOut,
     SequenceIn,
     SequenceOut,
     SequenceStatsOut,
@@ -42,6 +47,7 @@ from app.schemas.outreach import (
     SequenceUpdate,
     TestEmailRequest,
 )
+from app.services import outreach
 from app.services.crypto import encrypt_secret
 from app.services.outreach import new_unsubscribe_token, smtp_test
 
@@ -212,21 +218,44 @@ def _stats_for_sequences(db: Session, sequence_ids: list) -> dict:
         if attr is not None:
             setattr(st, attr, getattr(st, attr) + count)
 
-    # Sent-message counts grouped by sequence (via the enrollment join).
+    # Sent-message counts + open/click engagement grouped by sequence (via the
+    # enrollment join). One pass over outreach_messages yields all three so we
+    # stay free of N+1 / extra round-trips.
     msg_rows = db.execute(
         select(
             SequenceEnrollment.sequence_id,
-            func.count(OutreachMessage.id),
+            func.count(OutreachMessage.id).filter(
+                OutreachMessage.status == "sent"
+            ),
+            func.count(OutreachMessage.id).filter(
+                OutreachMessage.opened_at.isnot(None)
+            ),
+            func.count(OutreachMessage.id).filter(
+                OutreachMessage.clicked_at.isnot(None)
+            ),
         )
         .join(OutreachMessage, OutreachMessage.enrollment_id == SequenceEnrollment.id)
-        .where(
-            SequenceEnrollment.sequence_id.in_(sequence_ids),
-            OutreachMessage.status == "sent",
-        )
+        .where(SequenceEnrollment.sequence_id.in_(sequence_ids))
         .group_by(SequenceEnrollment.sequence_id)
     ).all()
-    for sid, count in msg_rows:
-        stats[sid].sent_messages = count
+    for sid, sent, opened, clicked in msg_rows:
+        st = stats[sid]
+        st.sent_messages = sent
+        st.opened = opened
+        st.clicked = clicked
+
+    # Captured inbound replies grouped by sequence (via the enrollment join).
+    reply_rows = db.execute(
+        select(
+            SequenceEnrollment.sequence_id,
+            func.count(OutreachReply.id),
+        )
+        .join(OutreachReply, OutreachReply.enrollment_id == SequenceEnrollment.id)
+        .where(SequenceEnrollment.sequence_id.in_(sequence_ids))
+        .group_by(SequenceEnrollment.sequence_id)
+    ).all()
+    for sid, count in reply_rows:
+        stats[sid].replies = count
 
     return stats
 
@@ -572,3 +601,132 @@ def unsubscribe(token: str, db: Session = Depends(get_db)):
         body="Больше писем от этой компании на ваш адрес не придёт.",
     )
     return HTMLResponse(content=html, status_code=200)
+
+
+# ── Public open/click tracking (NO auth) ─────────────────────────────────────
+
+# A 1×1 transparent GIF, always returned by the open-pixel endpoint regardless
+# of whether the token resolved — so we never reveal token validity and never
+# break the recipient's email client.
+_PIXEL_GIF = base64.b64decode(
+    "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+)
+
+
+def _find_message_by_token(db: Session, token: str) -> OutreachMessage | None:
+    if not token:
+        return None
+    return db.execute(
+        select(OutreachMessage).where(OutreachMessage.track_token == token)
+    ).scalar_one_or_none()
+
+
+@router.get("/t/o/{token}")
+def track_open(token: str, db: Session = Depends(get_db)):
+    """Public open-pixel. The pixel URL ends in `.gif`; strip it to get the raw
+    token. Records the open (first one stamps opened_at) then ALWAYS returns the
+    1×1 GIF — unknown/invalid tokens are a silent no-op, never an error."""
+    if token.endswith(".gif"):
+        token = token[: -len(".gif")]
+    msg = _find_message_by_token(db, token)
+    if msg is not None:
+        if msg.opened_at is None:
+            msg.opened_at = _now_utc()
+        msg.opens_count = (msg.opens_count or 0) + 1
+        db.commit()
+    return Response(
+        content=_PIXEL_GIF,
+        media_type="image/gif",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/t/c/{token}")
+def track_click(token: str, u: str = "", db: Session = Depends(get_db)):
+    """Public click-tracker. Records the click (and implicitly an open) then
+    redirects to the decoded target. Unknown tokens / bad targets fall back to
+    the site base; never errors."""
+    msg = _find_message_by_token(db, token)
+    if msg is not None:
+        now = _now_utc()
+        if msg.clicked_at is None:
+            msg.clicked_at = now
+        msg.clicks_count = (msg.clicks_count or 0) + 1
+        # A click implies the email was opened, even if the pixel never loaded.
+        if msg.opened_at is None:
+            msg.opened_at = now
+        db.commit()
+    target = outreach.decode_click_target(u) or outreach._base_url()
+    return RedirectResponse(url=target, status_code=302)
+
+
+# ── Replies inbox ────────────────────────────────────────────────────────────
+
+@router.get("/replies", response_model=list[ReplyOut])
+def list_replies(
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Captured inbound replies for the org, newest first (nulls last), with the
+    lead's company joined in."""
+    rows = db.execute(
+        select(OutreachReply, Lead.company)
+        .outerjoin(Lead, Lead.id == OutreachReply.lead_id)
+        .where(OutreachReply.organization_id == organization.id)
+        .order_by(
+            OutreachReply.received_at.desc().nullslast(),
+            OutreachReply.created_at.desc(),
+        )
+        .limit(200)
+    ).all()
+    return [
+        ReplyOut(
+            id=reply.id,
+            lead_id=reply.lead_id,
+            lead_company=company or "",
+            from_email=reply.from_email or "",
+            subject=reply.subject or "",
+            snippet=reply.snippet or "",
+            received_at=reply.received_at,
+        )
+        for reply, company in rows
+    ]
+
+
+# ── AI email generation ──────────────────────────────────────────────────────
+
+@router.post("/ai/generate-email", response_model=AiGenerateResponse)
+def ai_generate_email(
+    payload: AiGenerateRequest,
+    organization: Organization = Depends(get_current_org),
+    membership=Depends(require_org_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Draft a subject + body via the LLM. When a project of this org is given,
+    derive niche/segments from it; otherwise use the request fields."""
+    niche = payload.niche
+    segments = payload.segments
+
+    if payload.project_id is not None:
+        project = db.get(Project, payload.project_id)
+        if (
+            project is not None
+            and project.organization_id == organization.id
+            and project.deleted_at is None
+        ):
+            niche = project.niche or niche
+            segments = project.segments or segments
+
+    result = outreach.generate_email(
+        niche=niche,
+        segments=segments,
+        goal=payload.goal,
+        tone=payload.tone,
+        step_number=payload.step_number,
+        organization_id=str(organization.id),
+    )
+    if result is None:
+        raise HTTPException(
+            status_code=503, detail="AI недоступен, попробуйте позже"
+        )
+    return AiGenerateResponse(subject=result["subject"], body=result["body"])

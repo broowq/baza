@@ -213,6 +213,19 @@ export type SequenceStats = {
   bounced: number;
   stopped: number;
   sent_messages: number;
+  opened: number;
+  clicked: number;
+  replies: number;
+};
+
+export type OutreachReply = {
+  id: string;
+  lead_id?: string | null;
+  lead_company: string;
+  from_email: string;
+  subject: string;
+  snippet: string;
+  received_at?: string | null;
 };
 
 export type EmailSequence = {
