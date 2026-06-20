@@ -341,6 +341,10 @@ def test_worker_injects_open_pixel_into_sent_html(
     html = sent.get("html_body") or ""
     # Open pixel path injected by the worker (inject_tracking appends it).
     assert "/api/outreach/t/o/" in html, html[:500]
+    # The pixel URL must NOT end in ".gif": prod nginx has a static-asset regex
+    # location (\.(...|gif|...)$) that intercepts any *.gif before it can be
+    # proxied to the backend → the pixel would 404. Keep it extensionless.
+    assert ".gif" not in html, "tracking pixel must be extensionless (nginx static-gif trap)"
     # The http link in the step body is rewritten through the click-tracker.
     assert "/api/outreach/t/c/" in html, html[:500]
 

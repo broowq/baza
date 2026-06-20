@@ -66,7 +66,13 @@ def _base_url() -> str:
 
 
 def tracking_pixel_url(token: str) -> str:
-    return f"{_base_url()}/api/outreach/t/o/{token}.gif"
+    # No ".gif" suffix on purpose: nginx's static-asset regex location
+    # (location ~* \.(...|gif|...)$) would otherwise intercept the request and
+    # serve a 404 instead of proxying to the backend. Email clients render the
+    # image from the Content-Type header, not the URL extension, so an
+    # extensionless URL works everywhere. The route still strips a trailing
+    # ".gif" defensively for any already-sent links.
+    return f"{_base_url()}/api/outreach/t/o/{token}"
 
 
 def click_url(token: str, target: str) -> str:
