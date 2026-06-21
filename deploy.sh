@@ -65,8 +65,13 @@ echo "=== Service Status ==="
 docker compose -f docker-compose.prod.yml ps
 
 echo ""
-echo "=== Running database migrations ==="
-docker compose -f docker-compose.prod.yml exec -T backend alembic upgrade head 2>/dev/null || echo "Migrations skipped (alembic not configured or already up to date)"
+# Migrations run inside each backend/worker/beat container ENTRYPOINT on start
+# (backend/entrypoint.sh → `alembic upgrade head`), serialized by a Postgres
+# advisory lock in alembic/env.py so the concurrent container starts can't race
+# into a DuplicateColumn crash. We do NOT run `alembic upgrade` here — a 4th
+# concurrent runner is pointless and its failure used to be hidden by 2>/dev/null.
+echo "=== DB schema version (migrations applied by container entrypoints) ==="
+docker compose -f docker-compose.prod.yml exec -T backend alembic current 2>/dev/null || echo "  (could not read alembic version — check backend logs)"
 
 echo ""
 echo "=== Reloading nginx (refresh upstream IPs) ==="

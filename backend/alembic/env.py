@@ -3,11 +3,21 @@ from os import getenv
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
+from sqlalchemy import text
 
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
 from app.models import entities  # noqa: F401
+
+# Serializes concurrent `alembic upgrade` runs. In prod the backend, worker
+# and beat containers all share one image+entrypoint that runs migrations on
+# start, so a deploy fires 3+ upgrades at once → a TOCTOU race where two
+# runners both pass the "column absent?" guard and both ALTER → DuplicateColumn
+# crash (which took the frontend down once, 2026-06-20). A session-level
+# Postgres advisory lock makes the first runner migrate while the rest block,
+# then find the DB already at head and no-op. Arbitrary but stable key.
+_ALEMBIC_LOCK_KEY = 845_127_001
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -71,12 +81,29 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        is_pg = connection.dialect.name == "postgresql"
+        if is_pg:
+            # Blocking, session-level lock. Commit to end the implicit txn the
+            # acquire opened — the advisory lock is session-scoped, not txn-
+            # scoped, so it stays held across alembic's own migration txns.
+            connection.execute(text("SELECT pg_advisory_lock(:k)"), {"k": _ALEMBIC_LOCK_KEY})
+            connection.commit()
+        try:
+            context.configure(
+                connection=connection, target_metadata=target_metadata
+            )
 
-        with context.begin_transaction():
-            context.run_migrations()
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if is_pg:
+                # Explicit release for tidiness; closing the connection would
+                # drop the session lock anyway.
+                try:
+                    connection.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": _ALEMBIC_LOCK_KEY})
+                    connection.commit()
+                except Exception:
+                    pass
 
 
 if context.is_offline_mode():
