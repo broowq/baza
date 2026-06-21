@@ -53,6 +53,37 @@ class LeadOut(BaseModel):
         from_attributes = True
 
 
+class LeadCreateIn(BaseModel):
+    company: str = Field(min_length=1, max_length=180)
+    city: str = Field(default="", max_length=120)
+    website: str = Field(default="", max_length=300)
+    email: str = Field(default="", max_length=255)
+    phone: str = Field(default="", max_length=80)
+    address: str = Field(default="", max_length=300)
+    notes: str = Field(default="", max_length=10000)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    status: str = "new"
+    deal_value: int = Field(default=0, ge=0)
+    assigned_to_user_id: UUID | None = None
+
+
+class LeadImportRowError(BaseModel):
+    row: int
+    error: str
+
+
+class LeadImportResult(BaseModel):
+    total: int
+    created: int
+    duplicates: int
+    errors: list[LeadImportRowError] = Field(default_factory=list)
+    dry_run: bool
+    # field -> matched original header (e.g. {"company": "Название", "email": "Почта"})
+    detected_columns: dict[str, str] = Field(default_factory=dict)
+    unmapped_headers: list[str] = Field(default_factory=list)
+    sample: list[LeadOut] = Field(default_factory=list)
+
+
 class LeadWarehouseRef(BaseModel):
     """Cross-reference into the shared company warehouse for a lead.
 

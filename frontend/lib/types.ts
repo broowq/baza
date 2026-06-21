@@ -75,6 +75,42 @@ export type Lead = {
   demo?: boolean;
 };
 
+/* ── Manual create / bulk import ──────────────────────────────────── */
+
+// Body for POST /leads/project/{projectId} (manual single-lead create).
+// company is required; everything else is optional. Mirrors LeadCreateIn.
+export type LeadCreate = {
+  company: string;
+  city?: string;
+  website?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  notes?: string;
+  tags?: string[];
+  status?: LeadStatus;
+  deal_value?: number;
+  assigned_to_user_id?: string | null;
+};
+
+export type ImportRowError = {
+  row: number;
+  error: string;
+};
+
+// Result of POST /leads/project/{projectId}/import (dry-run preview or commit).
+export type ImportResult = {
+  total: number;
+  created: number;
+  duplicates: number;
+  errors: ImportRowError[];
+  dry_run: boolean;
+  // field -> matched original header, e.g. { company: "Название", email: "Почта" }
+  detected_columns: Record<string, string>;
+  unmapped_headers: string[];
+  sample: Lead[];
+};
+
 /* ── CRM ──────────────────────────────────────────────────────────── */
 
 export type LeadStatus = "new" | "contacted" | "qualified" | "proposal" | "won" | "rejected";

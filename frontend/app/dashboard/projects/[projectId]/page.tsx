@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Download, Loader2, Play, RefreshCw, Send, SlidersHorizontal, Sparkles, Trash2 } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, FileUp, Loader2, Play, RefreshCw, Send, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
+import { AddLeadDialog } from "@/components/dashboard/add-lead-dialog";
+import { ImportLeadsDialog } from "@/components/dashboard/import-leads-dialog";
 import { JobHistory } from "@/components/dashboard/job-history";
 import { LeadCards } from "@/components/dashboard/lead-cards";
 import { LeadsTable } from "@/components/dashboard/leads-table";
@@ -121,6 +123,9 @@ export default function ProjectDetailsPage() {
   const [bulkTag, setBulkTag] = useState("");
   // Active email sequences for the bulk «В рассылку» picker (fetched once).
   const [sequences, setSequences] = useState<EmailSequence[]>([]);
+  // Add-lead + bulk-import dialogs (user's OWN leads).
+  const [addLeadOpen, setAddLeadOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const debouncedSearch = useDebounce(search, 400);
   const leadsTableRef = useRef<HTMLDivElement>(null);
@@ -397,6 +402,15 @@ export default function ProjectDetailsPage() {
     }
   };
 
+  // After a manual create or a bulk import: refresh the table/stats, bump the
+  // funnel, and invalidate the Kanban full-set — exactly how the collect flow
+  // surfaces newly-landed leads.
+  const refreshAfterLeadAdd = useCallback(() => {
+    setFunnelKey((k) => k + 1);
+    setKanbanLoaded(false);
+    void fetchAll(true);
+  }, [fetchAll]);
+
   // Single source of truth for lead patches — keeps cards/table/board in sync.
   // A status change also refreshes the funnel (counts/value per stage move).
   const handleLeadUpdate = useCallback((leadId: string, patch: Partial<Lead>) => {
@@ -590,6 +604,24 @@ export default function ProjectDetailsPage() {
               <><Sparkles size={12} /> Обогатить новые</>
             )}
           </button>
+          {canManage && (
+            <>
+              <button
+                className="btn btn-ghost"
+                title="Добавить свой лид вручную"
+                onClick={() => setAddLeadOpen(true)}
+              >
+                <UserPlus size={12} /> Добавить лид
+              </button>
+              <button
+                className="btn btn-ghost"
+                title="Импорт лидов из CSV/XLSX"
+                onClick={() => setImportOpen(true)}
+              >
+                <FileUp size={12} /> Импорт
+              </button>
+            </>
+          )}
           <button
             className="btn btn-ghost"
             onClick={exportXlsx}
@@ -997,6 +1029,22 @@ export default function ProjectDetailsPage() {
         leadId={openLeadId}
         onClose={() => setOpenLeadId(null)}
         onLeadUpdate={handleLeadUpdate}
+      />
+
+      {/* Add a single lead manually + bulk import — user's own data (canManage) */}
+      <AddLeadDialog
+        projectId={projectId}
+        open={addLeadOpen}
+        onOpenChange={setAddLeadOpen}
+        members={members}
+        onCreated={refreshAfterLeadAdd}
+        onOpenLead={setOpenLeadId}
+      />
+      <ImportLeadsDialog
+        projectId={projectId}
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImported={refreshAfterLeadAdd}
       />
     </motion.main>
   );

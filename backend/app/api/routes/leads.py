@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -30,19 +30,118 @@ from app.schemas.leads import (
     CallNoteOut,
     CollectionJobOut,
     EnrichSelectedRequest,
+    LeadCreateIn,
     LeadDetailOut,
+    LeadImportResult,
+    LeadImportRowError,
     LeadOut,
     LeadUpdate,
     LeadWarehouseRef,
     PaginatedLeadsOut,
     RunCollectionRequest,
 )
-from app.services import company_warehouse
+from app.services import company_warehouse, lead_import
 from app.services.crm import log_activity, stage_label
 from app.services.quota import ensure_lead_quota
+from app.services.scoring import score_lead
 from app.services.audit import log_action
 from app.tasks.jobs import collect_leads_task, enrich_leads_task
-from app.utils.url_tools import extract_domain
+from app.utils.url_tools import extract_domain, is_aggregator_domain, is_real_domain
+
+
+def _clip(value: str, max_len: int) -> str:
+    return (value or "")[:max_len]
+
+
+def _build_website_and_domain(raw: str) -> tuple[str, str]:
+    """Resolve a user-supplied website into (website, domain).
+
+    Empty input → a unique stable placeholder ("manual://<uuid>") so the
+    NOT NULL + unique(project_id, website) constraint is satisfied without a
+    real URL. A bare domain ("acme.ru") gets an https:// scheme. domain is only
+    extracted for a real http(s) site whose host is a real, non-aggregator
+    domain; otherwise "".
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return f"manual://{uuid.uuid4().hex}", ""
+    website = raw
+    if "://" not in website:
+        website = f"https://{website}"
+    domain = ""
+    if website.startswith(("http://", "https://")):
+        d = extract_domain(website)
+        if d and is_real_domain(d) and not is_aggregator_domain(d):
+            domain = d
+    return _clip(website, 300), _clip(domain, 255)
+
+
+def _find_duplicate_lead_id(db: Session, project_id, *, company: str, city: str, domain: str, website: str):
+    """Return an existing lead id if this lead duplicates one in the project.
+
+    Mirrors the collector's rule: with a real domain → dup if website OR domain
+    matches; without a domain → dup if (company AND city) match case-insensitively.
+    """
+    if domain:
+        dup = db.execute(
+            select(Lead.id).where(
+                Lead.project_id == project_id,
+                (Lead.website == website) | (Lead.domain == domain),
+            )
+        ).first()
+    else:
+        dup = db.execute(
+            select(Lead.id).where(
+                Lead.project_id == project_id,
+                func.lower(Lead.company) == (company or "").lower(),
+                func.lower(Lead.city) == (city or "").lower(),
+            )
+        ).first()
+    return dup[0] if dup else None
+
+
+def _clean_tags(tags: list[str] | None) -> list[str]:
+    """Trim, dedupe (case-insensitive), cap 30 chars each, max 20 tags."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for t in tags or []:
+        t = (t or "").strip()[:30]
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            cleaned.append(t)
+        if len(cleaned) >= 20:
+            break
+    return cleaned
+
+
+def _fire_lead_webhook_best_effort(db: Session, organization: Organization, lead: Lead, project: Project) -> None:
+    """Reuse the existing CRM webhook (Bitrix24/AmoCRM/custom) for a new lead.
+
+    Fire-and-forget; never blocks or fails the request. Mirrors the payload the
+    enrichment loop pushes in app/tasks/jobs.py.
+    """
+    try:
+        if not organization.lead_webhook_url:
+            return
+        from app.tasks.webhook_tasks import push_lead_webhook
+
+        payload = {
+            "id": str(lead.id),
+            "company": lead.company,
+            "city": lead.city,
+            "email": lead.email,
+            "phone": lead.phone,
+            "address": lead.address,
+            "website": lead.website,
+            "score": lead.score,
+            "status": lead.status.value,
+            "tags": lead.tags or [],
+            "project_id": str(lead.project_id),
+            "project_name": project.name if project else "",
+        }
+        push_lead_webhook.delay(organization.lead_webhook_url, payload)
+    except Exception:
+        pass
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -542,6 +641,269 @@ def export_project_xlsx(
 # Full pipeline: new|contacted|qualified|proposal|won|rejected (derived from the
 # LeadStatus enum so a new stage automatically becomes accepted everywhere).
 VALID_STATUSES = {s.value for s in LeadStatus}
+
+# Hard cap on rows accepted per import — guards against memory/DB blow-up from a
+# malicious or accidental giant upload.
+MAX_IMPORT_ROWS = 5000
+
+
+@router.post("/project/{project_id}", response_model=LeadOut, status_code=201)
+def create_lead(
+    project_id: str,
+    payload: LeadCreateIn,
+    organization: Organization = Depends(get_current_org),
+    membership=Depends(require_org_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Manually add a single lead to a project (canManage gate).
+
+    The lead is the user's OWN data, so it does NOT consume the AI-collection
+    quota (organization.leads_used_current_month is left untouched).
+    """
+    project = db.get(Project, project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    if payload.status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Недопустимый статус. Допустимые значения: {', '.join(sorted(VALID_STATUSES))}",
+        )
+
+    # An assignee, if given, must be a member of THIS org (else 422).
+    if payload.assigned_to_user_id is not None:
+        is_member = db.scalar(
+            select(func.count(Membership.id)).where(
+                Membership.organization_id == organization.id,
+                Membership.user_id == payload.assigned_to_user_id,
+            )
+        ) or 0
+        if not is_member:
+            raise HTTPException(status_code=422, detail="Пользователь не в организации")
+
+    company = _clip(payload.company.strip(), 180)
+    city = _clip(payload.city.strip(), 120)
+    website, domain = _build_website_and_domain(payload.website)
+
+    dup_id = _find_duplicate_lead_id(
+        db, project.id, company=company, city=city, domain=domain, website=website
+    )
+    if dup_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "detail": "Такой лид уже есть в проекте",
+                "existing_lead_id": str(dup_id),
+            },
+        )
+
+    score = score_lead(
+        domain=domain,
+        company=company,
+        niche=project.niche,
+        has_email=bool(payload.email.strip()),
+        has_phone=bool(payload.phone.strip()),
+        has_address=bool(payload.address.strip()),
+        demo=False,
+    )
+
+    lead = Lead(
+        organization_id=organization.id,
+        project_id=project.id,
+        company=company,
+        city=city,
+        website=website,
+        domain=domain,
+        email=_clip(payload.email.strip(), 255),
+        phone=_clip(payload.phone.strip(), 80),
+        address=_clip(payload.address.strip(), 300),
+        notes=payload.notes or "",
+        tags=_clean_tags(payload.tags),
+        status=LeadStatus(payload.status),
+        deal_value=payload.deal_value,
+        assigned_to_user_id=payload.assigned_to_user_id,
+        score=score,
+        source="manual",
+        enriched=False,
+    )
+    db.add(lead)
+    db.flush()
+    log_activity(db, lead=lead, kind="created", text="Лид добавлен вручную")
+    db.commit()
+    db.refresh(lead)
+
+    _fire_lead_webhook_best_effort(db, organization, lead, project)
+    return lead
+
+
+@router.post("/project/{project_id}/import", response_model=LeadImportResult)
+def import_leads(
+    project_id: str,
+    file: UploadFile = File(...),
+    dry_run: bool = Query(False),
+    organization: Organization = Depends(get_current_org),
+    membership=Depends(require_org_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Bulk-import leads from a CSV/XLSX upload (canManage gate).
+
+    dry_run=True previews counts + column mapping + a small sample of leads that
+    WOULD be created, inserting nothing. Imported leads are the user's own data
+    and do NOT consume the AI-collection quota.
+    """
+    project = db.get(Project, project_id)
+    if not project or project.organization_id != organization.id or project.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+
+    filename = file.filename or ""
+    lower = filename.lower()
+    if not (lower.endswith(".csv") or lower.endswith(".xlsx")):
+        raise HTTPException(status_code=422, detail="Поддерживаются только файлы .csv или .xlsx")
+
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=422, detail="Пустой файл")
+
+    try:
+        headers, rows = lead_import.parse_upload(filename, content)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Не удалось прочитать файл") from exc
+
+    if len(rows) > MAX_IMPORT_ROWS:
+        raise HTTPException(status_code=422, detail=f"Слишком большой файл (макс {MAX_IMPORT_ROWS} строк)")
+
+    mapping, unmapped = lead_import.auto_map(headers)
+    lead_dicts = lead_import.build_lead_dicts(rows, mapping)
+
+    errors: list[LeadImportRowError] = []
+    duplicates = 0
+    created = 0
+    sample: list[Lead] = []
+    # In-batch dedup keys so two identical rows in the same file don't both insert.
+    seen_domain: set[str] = set()
+    seen_website: set[str] = set()
+    seen_company_city: set[tuple[str, str]] = set()
+
+    for idx, raw in enumerate(lead_dicts):
+        # Header is row 1; first data row is spreadsheet row 2.
+        row_num = idx + 2
+        company = _clip((raw.get("company") or "").strip(), 180)
+        if not company:
+            errors.append(LeadImportRowError(row=row_num, error="Пустая компания"))
+            continue
+        city = _clip((raw.get("city") or "").strip(), 120)
+        website, domain = _build_website_and_domain(raw.get("website") or "")
+
+        # Dedup within the batch first, then against existing project leads.
+        if domain:
+            if domain in seen_domain or website in seen_website:
+                duplicates += 1
+                continue
+        else:
+            key = (company.lower(), city.lower())
+            if key in seen_company_city:
+                duplicates += 1
+                continue
+        if _find_duplicate_lead_id(
+            db, project.id, company=company, city=city, domain=domain, website=website
+        ) is not None:
+            duplicates += 1
+            continue
+
+        # Record batch keys now that this row is accepted as new.
+        if domain:
+            seen_domain.add(domain)
+            seen_website.add(website)
+        else:
+            seen_company_city.add((company.lower(), city.lower()))
+
+        email = _clip((raw.get("email") or "").strip(), 255)
+        phone = _clip((raw.get("phone") or "").strip(), 80)
+        address = _clip((raw.get("address") or "").strip(), 300)
+        notes = (raw.get("notes") or "")[:10000]
+        score = score_lead(
+            domain=domain,
+            company=company,
+            niche=project.niche,
+            has_email=bool(email),
+            has_phone=bool(phone),
+            has_address=bool(address),
+            demo=False,
+        )
+        lead = Lead(
+            organization_id=organization.id,
+            project_id=project.id,
+            company=company,
+            city=city,
+            website=website,
+            domain=domain,
+            email=email,
+            phone=phone,
+            address=address,
+            notes=notes,
+            tags=[],
+            status=LeadStatus.new,
+            score=score,
+            source="manual",
+            enriched=False,
+        )
+        created += 1
+        if not dry_run:
+            db.add(lead)
+        if len(sample) < 5:
+            sample.append(lead)
+
+    if not dry_run and created:
+        db.commit()
+
+    # Build LeadOut samples. For dry_run the leads are unsaved (no id/created_at),
+    # so serialize a LeadOut-shaped dict rather than model_validate(lead).
+    sample_out: list[LeadOut] = []
+    if dry_run:
+        for lead in sample:
+            sample_out.append(
+                LeadOut(
+                    id=uuid.uuid4(),
+                    organization_id=organization.id,
+                    project_id=project.id,
+                    company=lead.company,
+                    city=lead.city,
+                    website=lead.website,
+                    domain=lead.domain,
+                    email=lead.email,
+                    email_status="",
+                    phone=lead.phone,
+                    address=lead.address,
+                    contacts={},
+                    contacts_json={},
+                    score=lead.score,
+                    notes=lead.notes or "",
+                    tags=[],
+                    status=lead.status,
+                    deal_value=0,
+                    source_url="",
+                    source=lead.source,
+                    external_id="",
+                    enriched=False,
+                    demo=False,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+    else:
+        for lead in sample:
+            db.refresh(lead)
+            sample_out.append(LeadOut.model_validate(lead))
+
+    return LeadImportResult(
+        total=len(lead_dicts),
+        created=created,
+        duplicates=duplicates,
+        errors=errors,
+        dry_run=dry_run,
+        detected_columns=mapping,
+        unmapped_headers=unmapped,
+        sample=sample_out,
+    )
 
 
 # Russian labels for the data source, used in the composed description.
