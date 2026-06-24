@@ -30,6 +30,7 @@ import { getToken } from "@/lib/auth";
 import { Reveal } from "@/components/reveal";
 import { Magnetic } from "@/components/magnetic";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { OceanBackdrop } from "@/components/landing/ocean-backdrop";
 
 /* ─────────────────────────────────────────────────────────────
    LIVE DEMO DATA — fed from the public, unauthenticated
@@ -592,10 +593,6 @@ function SplitLetters({ text, startIndex = 0 }: { text: string; startIndex?: num
 function HeroSection() {
   return (
     <section className="relative overflow-hidden" style={{ minHeight: "100vh" }}>
-      {/* Animated mesh gradient backdrop — stands in for a cinematic video
-          loop until Higgsfield credits are topped up. Three radial blobs
-          drift on Lissajous-like trajectories, giving the dark canvas a
-          living quality without dragging WebGL into the bundle. */}
       <div className="mesh-bg" aria-hidden>
         <div className="mesh-aux" />
       </div>
@@ -605,6 +602,26 @@ function HeroSection() {
       <div className="field parallax-slow" />
       <div className="grid-lines parallax-mid" />
       <div className="grain" />
+      {/* Bioluminescent pixel-ocean loop — the cinematic backdrop this slot
+          always wanted. Domain-warped layered FBM waves on an aspect-matched
+          grid, sitting above the parallax planes (z-2) and below the content
+          (z-10). Dimmed to a faint tint on the light theme via .ocean-canvas. */}
+      <OceanBackdrop />
+      {/* Readability scrim: darkens the left text column so the headline pops
+          over the ocean, fading to clear water on the right. Dark-theme only —
+          hidden on light via .ocean-scrim (where the ocean itself is faint). */}
+      <div
+        className="ocean-scrim"
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          zIndex: 3,
+          pointerEvents: "none",
+          background:
+            "linear-gradient(102deg, rgba(7,9,13,0.86) 0%, rgba(7,9,13,0.62) 26%, rgba(7,9,13,0.22) 50%, rgba(7,9,13,0) 72%)",
+        }}
+      />
 
       <div className="relative z-10 max-w-[1320px] mx-auto px-6 pt-24 pb-20">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
