@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CalendarClock, ChevronDown, Download, FileUp, Loader2, Play, RefreshCw, Send, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
+import { CalendarClock, ChevronDown, Download, FileUp, Loader2, MoreHorizontal, Play, RefreshCw, Send, SlidersHorizontal, Sparkles, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 
@@ -15,6 +15,8 @@ import { LeadsTable } from "@/components/dashboard/leads-table";
 import { PipelineBoard } from "@/components/dashboard/pipeline-board";
 import { FunnelBar } from "@/components/dashboard/funnel-bar";
 import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
+import { ProjectEmptyState } from "@/components/dashboard/project-empty-state";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -504,6 +506,12 @@ export default function ProjectDetailsPage() {
     (hasPhone !== "all" ? 1 : 0) +
     (assignedTo !== "all" ? 1 : 0);
 
+  // A genuinely fresh project: no leads at all, and not just hidden by a
+  // filter/search. Drives the guided onboarding (vs. the "no leads by filter"
+  // empty state) and hides the all-zeros stats/funnel/filters noise.
+  const projectEmpty =
+    !tableLoading && total === 0 && activeFilterCount === 0 && !search.trim();
+
   const resetFilters = () => {
     setPage(1);
     setStatus("all");
@@ -578,10 +586,11 @@ export default function ProjectDetailsPage() {
           </div>
         )}
 
-        {/* Action bar (sticky) */}
+        {/* Action bar (sticky) — one clear primary action; everything secondary
+            lives under «Ещё» so the bar isn't a wall of equal buttons. */}
         <div className="panel-flat px-5 flex items-center gap-2.5 flex-wrap" style={{ minHeight: 56, paddingTop: 8, paddingBottom: 8 }}>
           <button
-            className="btn btn-brand"
+            className={`btn btn-brand${projectEmpty && !collectBusy && canManage ? " cta-pulse" : ""}`}
             disabled={running || collectBusy || !canManage}
             title="Добавляет до 10 новых компаний (без повторов). Сначала из нашей базы, затем живой поиск."
             onClick={() => queueJob("collect", 10)}
@@ -592,52 +601,43 @@ export default function ProjectDetailsPage() {
               <><Play size={11} /> Собрать 10</>
             )}
           </button>
-          <button
-            className="btn btn-ghost"
-            disabled={running || enrichBusy || !canManage}
-            title="Обогатить лиды без контактов (до 200 за раз)"
-            onClick={() => queueJob("enrich", 200)}
-          >
-            {enrichBusy ? (
-              <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
-            ) : (
-              <><Sparkles size={12} /> Обогатить новые</>
-            )}
-          </button>
-          {canManage && (
-            <>
-              <button
-                className="btn btn-ghost"
-                title="Добавить свой лид вручную"
-                onClick={() => setAddLeadOpen(true)}
-              >
-                <UserPlus size={12} /> Добавить лид
-              </button>
-              <button
-                className="btn btn-ghost"
-                title="Импорт лидов из CSV/XLSX"
-                onClick={() => setImportOpen(true)}
-              >
-                <FileUp size={12} /> Импорт
-              </button>
-            </>
+          {total > 0 && (
+            <button
+              className="btn btn-ghost"
+              disabled={running || enrichBusy || !canManage}
+              title="Обогатить лиды без контактов (до 200 за раз)"
+              onClick={() => queueJob("enrich", 200)}
+            >
+              {enrichBusy ? (
+                <><Loader2 size={12} className="animate-spin" /> Обогащаем…</>
+              ) : (
+                <><Sparkles size={12} /> Обогатить</>
+              )}
+            </button>
           )}
-          <button
-            className="btn btn-ghost"
-            onClick={exportXlsx}
-            disabled={!!exporting}
-          >
-            {exporting === "xlsx" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            Excel
-          </button>
-          <button
-            className="btn btn-ghost"
-            onClick={exportCsv}
-            disabled={!!exporting}
-          >
-            {exporting === "csv" ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-            CSV
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger className="btn btn-ghost" disabled={!!exporting}>
+              <MoreHorizontal size={14} /> Ещё
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canManage && (
+                <DropdownMenuItem onClick={() => setAddLeadOpen(true)}>
+                  <UserPlus size={14} /> Добавить лид вручную
+                </DropdownMenuItem>
+              )}
+              {canManage && (
+                <DropdownMenuItem onClick={() => setImportOpen(true)}>
+                  <FileUp size={14} /> Импорт из CSV / Excel
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={exportXlsx} disabled={!!exporting}>
+                <Download size={14} /> Скачать Excel
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={exportCsv} disabled={!!exporting}>
+                <Download size={14} /> Скачать CSV
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <span className="mono-cap t-40 ml-auto mr-2">
             {jobs.length > 0
               ? `${JOB_KIND_RU[jobs[0].kind] ?? jobs[0].kind} · ${JOB_STATUS_RU[jobs[0].status] ?? jobs[0].status}`
@@ -650,7 +650,8 @@ export default function ProjectDetailsPage() {
         )}
       </div>
 
-      {/* Stats strip (v3) */}
+      {/* Stats strip (v3) — hidden on a fresh project (all-zeros is just noise). */}
+      {!projectEmpty && (
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {STAT_CARDS.map((s, i) => {
           const value = stats[s.key];
@@ -669,6 +670,7 @@ export default function ProjectDetailsPage() {
           );
         })}
       </div>
+      )}
 
       <Separator />
 
@@ -688,6 +690,18 @@ export default function ProjectDetailsPage() {
 
         <TabsContent value="leads" className="overflow-hidden">
           <div ref={leadsTableRef} className="space-y-4 min-w-0">
+            {projectEmpty ? (
+              <ProjectEmptyState
+                niche={project?.niche}
+                geography={project?.geography}
+                collecting={collectBusy}
+                canManage={canManage}
+                onCollect={() => queueJob("collect", 10)}
+                onAddLead={() => setAddLeadOpen(true)}
+                onImport={() => setImportOpen(true)}
+              />
+            ) : (
+            <>
             {/* Pipeline funnel — refreshes on stage changes / after collect */}
             <FunnelBar projectId={projectId} refreshKey={funnelKey} />
 
@@ -1012,6 +1026,8 @@ export default function ProjectDetailsPage() {
                 </Button>
               </div>
             </div>
+            )}
+            </>
             )}
           </div>
         </TabsContent>

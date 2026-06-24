@@ -135,6 +135,15 @@ body { overflow-x: hidden; }
 .ocean-scrim { opacity: 1; }
 .theme-light .ocean-scrim { opacity: 0; }
 
+/* Attention pulse for the one button a first-time user should press. */
+@keyframes ctaPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(168, 197, 192, 0.55); }
+  70%  { box-shadow: 0 0 0 14px rgba(168, 197, 192, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(168, 197, 192, 0); }
+}
+.cta-pulse { animation: ctaPulse 2.2s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) { .cta-pulse { animation: none; } }
+
 /* GLASS */
 .panel {
   background: var(--surface-2);
