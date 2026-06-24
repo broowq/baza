@@ -129,16 +129,11 @@ body { overflow-x: hidden; }
   opacity: 0.025; mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' seed='3'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
 }
-/* Bioluminescent ocean hero backdrop. Full strength on the (default) dark
-   theme; a faint cyan tint on the light theme so it never fights dark text.
-   The dark readability scrim is dark-only — hidden on light. */
-.ocean-canvas { opacity: 1; }
-.ocean-scrim  { opacity: 1; }
-.theme-light .ocean-canvas { opacity: 0.16; }
-.theme-light .ocean-scrim  { opacity: 0; }
-@media (prefers-reduced-motion: reduce) {
-  .ocean-canvas { opacity: 0.5; }
-}
+/* Bioluminescent ocean hero backdrop. The canvas blend + opacity are set per
+   theme in ocean-backdrop.tsx (deep-sea normal-blend on dark; soft teal
+   multiply-blend on light). The dark readability scrim is dark-only. */
+.ocean-scrim { opacity: 1; }
+.theme-light .ocean-scrim { opacity: 0; }
 
 /* GLASS */
 .panel {

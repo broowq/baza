@@ -9,10 +9,13 @@ import { useEffect, useRef } from "react";
  * canvas whose backing store matches the hero's aspect ratio (so the upscaled
  * pixels stay square) and shown with `image-rendering: pixelated`. All temporal
  * terms ride integer harmonics and time is `now % LOOP`, so the motion loops
- * seamlessly. The palette bottoms out at black; with `mix-blend-mode: screen`
- * the troughs vanish and the cyan crests glow — it lights up the dark hero and
- * only tints the light theme, never darkening text. A left→right mask fades it
- * out behind the headline. Honours reduced-motion; pauses off-screen/hidden.
+ * seamlessly.
+ *
+ * Theme-adaptive: on the dark theme it's the deep-sea bioluminescent loop
+ * (normal blend, full strength); on the light theme it re-renders as soft
+ * teal/mint ripples on white via a light palette + `multiply` blend, so it
+ * reads as elegant brand-coloured water instead of muddy smudges. Reacts to
+ * the live theme toggle, honours reduced-motion, and pauses off-screen/hidden.
  */
 export function OceanBackdrop({ className }: { className?: string }) {
   const ref = useRef<HTMLCanvasElement | null>(null);
@@ -31,31 +34,43 @@ export function OceanBackdrop({ className }: { className?: string }) {
     for (let i = 0; i < N; i++) S[i] = Math.sin((i / N) * TWO_PI);
     const fs = (x: number) => S[((x * K) | 0) & MASK];
 
-    const stops: number[][] = [
+    const buildPal = (stops: number[][]) => {
+      const pal = new Uint8Array(256 * 3);
+      for (let p = 0; p < 256; p++) {
+        const tt = p / 255;
+        let a = stops[0];
+        let b = stops[stops.length - 1];
+        for (let s = 0; s < stops.length - 1; s++) {
+          if (tt >= stops[s][0] && tt <= stops[s + 1][0]) {
+            a = stops[s];
+            b = stops[s + 1];
+            break;
+          }
+        }
+        const f = b[0] - a[0] > 0 ? (tt - a[0]) / (b[0] - a[0]) : 0;
+        pal[p * 3] = (a[1] + (b[1] - a[1]) * f) | 0;
+        pal[p * 3 + 1] = (a[2] + (b[2] - a[2]) * f) | 0;
+        pal[p * 3 + 2] = (a[3] + (b[3] - a[3]) * f) | 0;
+      }
+      return pal;
+    };
+
+    const palDark = buildPal([
       [0.0, 0, 0, 0],
       [0.3, 6, 40, 70],
       [0.52, 12, 110, 140],
       [0.7, 30, 180, 185],
       [0.85, 72, 230, 214],
       [1.0, 172, 250, 238],
-    ];
-    const PAL = new Uint8Array(256 * 3);
-    for (let p = 0; p < 256; p++) {
-      const tt = p / 255;
-      let a = stops[0];
-      let b = stops[stops.length - 1];
-      for (let s = 0; s < stops.length - 1; s++) {
-        if (tt >= stops[s][0] && tt <= stops[s + 1][0]) {
-          a = stops[s];
-          b = stops[s + 1];
-          break;
-        }
-      }
-      const f = b[0] - a[0] > 0 ? (tt - a[0]) / (b[0] - a[0]) : 0;
-      PAL[p * 3] = (a[1] + (b[1] - a[1]) * f) | 0;
-      PAL[p * 3 + 1] = (a[2] + (b[2] - a[2]) * f) | 0;
-      PAL[p * 3 + 2] = (a[3] + (b[3] - a[3]) * f) | 0;
-    }
+    ]);
+    const palLight = buildPal([
+      [0.0, 255, 255, 255],
+      [0.32, 226, 240, 238],
+      [0.54, 184, 220, 216],
+      [0.72, 138, 196, 192],
+      [0.86, 108, 176, 174],
+      [1.0, 86, 158, 156],
+    ]);
 
     const P2 = Math.PI * 2;
     const oc: number[][] = [
@@ -68,7 +83,13 @@ export function OceanBackdrop({ className }: { className?: string }) {
     const sumAmp = 2.19;
     const WARP = 0.1;
     const LOOP = 9000;
-    const GAIN = 1.15;
+
+    let PAL = palDark;
+    let SHR = 200;
+    let SHG = 235;
+    let SHB = 230;
+    let VIG = 0.5;
+    let GAIN = 1.15;
 
     let GW = 160;
     let GH = 90;
@@ -99,18 +120,18 @@ export function OceanBackdrop({ className }: { className?: string }) {
       let idx = 0;
       for (let y = 0; y < GH; y++) {
         const ny = y / GH;
-        const cy = y * invGW;
+        const cyc = y * invGW;
         for (let x = 0; x < GW; x++) {
           const nx = x / GW;
-          const cx = x * invGW;
+          const cxc = x * invGW;
           const wxv =
-            0.7 * fs(P2 * 0.9 * cx + P2 * 0.6 * cy + t) +
-            0.35 * fs(P2 * 1.6 * cy - P2 * 0.5 * cx + 2 * t + 1.7);
+            0.7 * fs(P2 * 0.9 * cxc + P2 * 0.6 * cyc + t) +
+            0.35 * fs(P2 * 1.6 * cyc - P2 * 0.5 * cxc + 2 * t + 1.7);
           const wyv =
-            0.7 * fs(P2 * 0.7 * cy - P2 * 0.5 * cx + t + 0.6) +
-            0.35 * fs(P2 * 1.8 * cx + P2 * 0.4 * cy - 2 * t + 2.2);
-          const wx = cx + WARP * wxv;
-          const wy = cy + WARP * wyv;
+            0.7 * fs(P2 * 0.7 * cyc - P2 * 0.5 * cxc + t + 0.6) +
+            0.35 * fs(P2 * 1.8 * cxc + P2 * 0.4 * cyc - 2 * t + 2.2);
+          const wx = cxc + WARP * wxv;
+          const wy = cyc + WARP * wyv;
           let h = 0;
           for (let k = 0; k < 5; k++) {
             const o = oc[k];
@@ -128,19 +149,52 @@ export function OceanBackdrop({ className }: { className?: string }) {
           if (crest < 0) crest = 0;
           const hl = sh * crest * crest;
           const pi = (v * 255) | 0;
-          const m = (1 - 0.5 * ((nx - 0.5) * (nx - 0.5) + (ny - 0.5) * (ny - 0.5))) * br * GAIN;
-          let r = (PAL[pi * 3] + hl * 200) * m;
-          let g = (PAL[pi * 3 + 1] + hl * 235) * m;
-          let b = (PAL[pi * 3 + 2] + hl * 230) * m;
-          data[idx] = r > 255 ? 255 : r;
-          data[idx + 1] = g > 255 ? 255 : g;
-          data[idx + 2] = b > 255 ? 255 : b;
+          const m = (1 - VIG * ((nx - 0.5) * (nx - 0.5) + (ny - 0.5) * (ny - 0.5))) * br * GAIN;
+          let r = (PAL[pi * 3] + hl * SHR) * m;
+          let g = (PAL[pi * 3 + 1] + hl * SHG) * m;
+          let b = (PAL[pi * 3 + 2] + hl * SHB) * m;
+          data[idx] = r < 0 ? 0 : r > 255 ? 255 : r;
+          data[idx + 1] = g < 0 ? 0 : g > 255 ? 255 : g;
+          data[idx + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
           data[idx + 3] = 255;
           idx += 4;
         }
       }
       ctx.putImageData(img, 0, 0);
     };
+
+    const applyTheme = () => {
+      const light = document.documentElement.classList.contains("theme-light");
+      if (light) {
+        PAL = palLight;
+        SHR = -26;
+        SHG = -22;
+        SHB = -22;
+        VIG = 0.12;
+        GAIN = 1.0;
+        cv.style.mixBlendMode = "multiply";
+        cv.style.opacity = "0.62";
+      } else {
+        PAL = palDark;
+        SHR = 200;
+        SHG = 235;
+        SHB = 230;
+        VIG = 0.5;
+        GAIN = 1.15;
+        cv.style.mixBlendMode = "normal";
+        cv.style.opacity = "1";
+      }
+    };
+    applyTheme();
+
+    const themeObs = new MutationObserver(() => {
+      applyTheme();
+      if (reduce) frame(0);
+    });
+    themeObs.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
 
     const reduce =
       typeof window !== "undefined" &&
@@ -149,7 +203,7 @@ export function OceanBackdrop({ className }: { className?: string }) {
 
     if (reduce) {
       frame(0);
-      return;
+      return () => themeObs.disconnect();
     }
 
     let raf = 0;
@@ -190,6 +244,7 @@ export function OceanBackdrop({ className }: { className?: string }) {
       stop();
       io.disconnect();
       ro.disconnect();
+      themeObs.disconnect();
       if (rraf) cancelAnimationFrame(rraf);
       document.removeEventListener("visibilitychange", onVis);
     };
