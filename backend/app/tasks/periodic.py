@@ -26,6 +26,7 @@ def reset_monthly_quotas() -> None:
             update(Organization).values(
                 leads_used_current_month=0,
                 ai_cost_used_kopecks_current_month=0,
+                yandex_requests_used_current_month=0,
             )
         )
         db.commit()

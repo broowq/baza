@@ -264,7 +264,7 @@ def test_search_one_tier_calls_yandex_once_per_geo(monkeypatch):
     всем списком сегментов — не внутри цикла по term (раньше до 24×)."""
     calls = []
 
-    def spy(niche, geo, segments, limit, *, has_prompt=False):
+    def spy(niche, geo, segments, limit, *, has_prompt=False, organization_id=None):
         calls.append({"geo": geo, "segments": list(segments), "limit": limit,
                       "has_prompt": has_prompt})
         return []

@@ -73,6 +73,18 @@ class Organization(Base):
     ai_cost_limit_kopecks_per_month: Mapped[int] = mapped_column(
         BigInteger, default=0, nullable=False, server_default="0"
     )
+    # ── Yandex Geosearch request meter (per-org, monthly) ─────────────────────
+    # Yandex Geosearch is the dominant variable cost — paid per request, and
+    # measured at ~0.21 request/lead. Without a per-org cap one heavy collector
+    # can drain the shared paid key and blow the tier's margin (one Business at
+    # full quota ≈ a whole 1k/day subscription). Capped per tier; resets on the
+    # 1st with leads_used / ai_cost_used. Starter/Free = 0 (Yandex is Pro/Team).
+    yandex_requests_used_current_month: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
+    yandex_requests_limit_per_month: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default="0"
+    )
     # ── 152-ФЗ retention policy (ст. 5 ч. 7) ──────────────────────────
     # Срок хранения собранных лидов. По истечении этого срока без
     # активности лид удаляется фоновым cron-таском (purge_old_leads).

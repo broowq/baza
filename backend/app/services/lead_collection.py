@@ -1003,6 +1003,34 @@ _RUSPROFILE_BLOCKED = False
 _YANDEX_BBOX_CACHE: dict[str, str | None] = {}
 
 
+def _charge_yandex_requests(organization_id: str | None, n: int) -> None:
+    """Add `n` consumed PAID Yandex Geosearch requests to the org's monthly
+    meter. Best-effort, self-contained session (mirrors llm_client._charge);
+    a metering failure never blocks collection."""
+    if not organization_id or n <= 0:
+        return
+    try:
+        from sqlalchemy import update
+        from app.db.session import SessionLocal
+        from app.models import Organization
+        db = SessionLocal()
+        try:
+            db.execute(
+                update(Organization)
+                .where(Organization.id == organization_id)
+                .values(
+                    yandex_requests_used_current_month=(
+                        Organization.yandex_requests_used_current_month + n
+                    )
+                )
+            )
+            db.commit()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001
+        logger.warning("Yandex request metering failed (org=%s, n=%d)", organization_id, n)
+
+
 def _search_yandex_maps(
     niche: str,
     geo: str,
@@ -1010,6 +1038,7 @@ def _search_yandex_maps(
     limit: int,
     *,
     has_prompt: bool = False,
+    organization_id: str | None = None,
 ) -> list[dict]:
     """Search Yandex Places ONCE per geo with a budget shared across segments.
 
@@ -1038,6 +1067,9 @@ def _search_yandex_maps(
     # query → следующий offset пагинации (-1 = исчерпан). Нужен, чтобы второй
     # (leftover) проход не перезапрашивал уже оплаченные страницы.
     query_skip: dict[str, int] = {}
+    # Billable org-search requests actually made (geocoder bbox lookup excluded);
+    # charged to the org's monthly Yandex meter in the finally below.
+    req_count = [0]
 
     try:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
@@ -1048,6 +1080,7 @@ def _search_yandex_maps(
             elif geo:
                 try:
                     bbox = _resolve_yandex_geo_bbox(client, geo, settings)
+                    req_count[0] += 1  # billable geo lookup (same endpoint, type=geo)
                     _YANDEX_BBOX_CACHE[geo_key] = bbox
                 except httpx.HTTPStatusError as exc:
                     # 401/403 = dead key, 429 = rate limited; both → skip future calls
@@ -1099,6 +1132,7 @@ def _search_yandex_maps(
                             query_skip[query] = -1
                             return False
                         raise
+                    req_count[0] += 1
                     features = response.json().get("features") or []
                     if not features:
                         skip = -1
@@ -1149,6 +1183,8 @@ def _search_yandex_maps(
                         return results[:limit]
     except Exception as exc:
         logger.warning("Yandex Maps search failed for '%s %s': %s", niche, geo, exc)
+    finally:
+        _charge_yandex_requests(organization_id, req_count[0])
 
     return results[:limit]
 
@@ -2461,7 +2497,7 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
                 )
                 yandex_results = _search_yandex_maps(
                     effective_niche, map_geo, effective_segments, yandex_budget,
-                    has_prompt=has_prompt,
+                    has_prompt=has_prompt, organization_id=organization_id,
                 )
                 collect_candidates(yandex_results)
                 if yandex_results:

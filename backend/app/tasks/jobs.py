@@ -12,6 +12,7 @@ from app.db.session import SessionLocal
 from app.core.config import get_settings
 from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
 from app.services import company_warehouse
+from app.services import quota
 from app.services.lead_collection import _NATIONWIDE_GEOS, enrich_2gis_lead, enrich_website_contacts, search_leads
 from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
@@ -245,9 +246,16 @@ def collect_leads_task(job_id: str) -> None:
         if (project.search_query or "").strip():
             effective_niche = project.search_query.strip()
 
-        # Yandex Maps only for Pro/Team plans (premium feature)
+        # Yandex Maps only for Pro/Team plans (premium feature), AND only while
+        # the org has paid Yandex-request budget left this month — the per-org
+        # cap that bounds the dominant variable cost. When exhausted, collection
+        # silently falls back to the free sources (2GIS/SearXNG) for this org.
         org = db.get(Organization, job.organization_id)
-        use_yandex = org.plan.value in ("pro", "team") if org else False
+        use_yandex = (
+            org.plan.value in ("pro", "team")
+            and quota.yandex_requests_remaining(org) > 0
+            if org else False
+        )
 
         # ─── Dosed, warehouse-first, no-repeat collection ─────────────────
         # Selection layer = our own company warehouse; seeding layer = live

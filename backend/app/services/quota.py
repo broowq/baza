@@ -21,22 +21,28 @@ from app.models import Organization, PlanType
 #   starter: 30000   (₽300/mo)
 #   pro:     300000  (₽3000/mo)
 #   team:    1500000 (₽15000/mo)
+# yandex_requests = monthly cap on PAID Yandex Geosearch requests (the dominant
+# variable cost — measured ~0.21 request/lead, see docs/unit-economics.md). The
+# cap bounds worst-case spend per org regardless of the Yandex tariff: at
+# ₽0.69/req (1k/day) pro≈₽4.1k, team≈₽13.8k. Starter/Free = 0 (Yandex is a
+# Pro/Team source; they collect from 2GIS/SearXNG). Tune up on the cheaper
+# 10k/day tariff or once the "с сохранением" rate is known.
 PLAN_LIMITS = {
     PlanType.free: {
         "projects": 1, "users": 1, "leads_per_month": 0,
-        "can_invite": False, "ai_cost_kopecks": 0,
+        "can_invite": False, "ai_cost_kopecks": 0, "yandex_requests": 0,
     },
     PlanType.starter: {
         "projects": 5, "users": 3, "leads_per_month": 5000,
-        "can_invite": True, "ai_cost_kopecks": 30000,
+        "can_invite": True, "ai_cost_kopecks": 30000, "yandex_requests": 0,
     },
     PlanType.pro: {
         "projects": 20, "users": 10, "leads_per_month": 25000,
-        "can_invite": True, "ai_cost_kopecks": 300000,
+        "can_invite": True, "ai_cost_kopecks": 300000, "yandex_requests": 6000,
     },
     PlanType.team: {
         "projects": 100, "users": 50, "leads_per_month": 100000,
-        "can_invite": True, "ai_cost_kopecks": 1500000,
+        "can_invite": True, "ai_cost_kopecks": 1500000, "yandex_requests": 20000,
     },
 }
 
@@ -48,6 +54,16 @@ def apply_plan_limits(organization: Organization) -> None:
     organization.leads_limit_per_month = limits["leads_per_month"]
     organization.can_invite_members = limits["can_invite"]
     organization.ai_cost_limit_kopecks_per_month = limits["ai_cost_kopecks"]
+    organization.yandex_requests_limit_per_month = limits["yandex_requests"]
+
+
+def yandex_requests_remaining(organization: Organization) -> int:
+    """Paid Yandex Geosearch requests the org has left this month (0 if no cap)."""
+    limit = organization.yandex_requests_limit_per_month or 0
+    if limit <= 0:
+        return 0
+    used = organization.yandex_requests_used_current_month or 0
+    return max(0, limit - used)
 
 
 def ensure_lead_quota(organization: Organization, requested: int) -> None:
