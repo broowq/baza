@@ -21,10 +21,14 @@ from app.models import Organization, PlanType
 #   starter: 30000   (₽300/mo)
 #   pro:     300000  (₽3000/mo)
 #   team:    1500000 (₽15000/mo)
+# Lead quotas cut 2026-06-25 to deliverable/profitable sizes (pro 25k→10k,
+# team 100k→30k) — the old numbers were unreachable for most niches and
+# loss-making at full Yandex use. Existing pilots keep their old limits (no
+# monthly re-apply; only a plan change reconciles).
 # yandex_requests = monthly cap on PAID Yandex Geosearch requests (the dominant
 # variable cost — measured ~0.21 request/lead, see docs/unit-economics.md). The
 # cap bounds worst-case spend per org regardless of the Yandex tariff: at
-# ₽0.69/req (1k/day) pro≈₽4.1k, team≈₽13.8k. Starter/Free = 0 (Yandex is a
+# ₽0.69/req (1k/day) pro≈₽2.1k, team≈₽6.9k. Starter/Free = 0 (Yandex is a
 # Pro/Team source; they collect from 2GIS/SearXNG). Tune up on the cheaper
 # 10k/day tariff or once the "с сохранением" rate is known.
 PLAN_LIMITS = {
@@ -37,12 +41,12 @@ PLAN_LIMITS = {
         "can_invite": True, "ai_cost_kopecks": 30000, "yandex_requests": 0,
     },
     PlanType.pro: {
-        "projects": 20, "users": 10, "leads_per_month": 25000,
-        "can_invite": True, "ai_cost_kopecks": 300000, "yandex_requests": 6000,
+        "projects": 20, "users": 10, "leads_per_month": 10000,
+        "can_invite": True, "ai_cost_kopecks": 300000, "yandex_requests": 3000,
     },
     PlanType.team: {
-        "projects": 100, "users": 50, "leads_per_month": 100000,
-        "can_invite": True, "ai_cost_kopecks": 1500000, "yandex_requests": 20000,
+        "projects": 100, "users": 50, "leads_per_month": 30000,
+        "can_invite": True, "ai_cost_kopecks": 1500000, "yandex_requests": 10000,
     },
 }
 
