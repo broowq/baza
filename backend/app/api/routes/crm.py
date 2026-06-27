@@ -25,6 +25,8 @@ from app.models import (
     LeadTask,
     Membership,
     Organization,
+    OutreachMessage,
+    OutreachReply,
     Project,
     User,
 )
@@ -269,8 +271,9 @@ def list_activities(
     organization: Organization = Depends(get_current_org),
     db: Session = Depends(get_db),
 ):
-    """Unified timeline: LeadActivity rows merged with LeadCallNote rows
-    (call notes rendered as kind="call"), newest first, limited."""
+    """Unified timeline: LeadActivity + LeadCallNote rows merged with the lead's
+    email comms (sent OutreachMessage with open/click status, inbound
+    OutreachReply), newest first, capped at 200 total."""
     _get_org_lead_or_404(db, lead_id, organization)
 
     activities = db.execute(
@@ -290,6 +293,26 @@ def list_activities(
             LeadCallNote.organization_id == organization.id,
         )
         .order_by(LeadCallNote.created_at.desc())
+        .limit(200)
+    ).scalars().all()
+
+    sent_emails = db.execute(
+        select(OutreachMessage)
+        .where(
+            OutreachMessage.lead_id == lead_id,
+            OutreachMessage.organization_id == organization.id,
+        )
+        .order_by(OutreachMessage.created_at.desc())
+        .limit(200)
+    ).scalars().all()
+
+    replies = db.execute(
+        select(OutreachReply)
+        .where(
+            OutreachReply.lead_id == lead_id,
+            OutreachReply.organization_id == organization.id,
+        )
+        .order_by(OutreachReply.created_at.desc())
         .limit(200)
     ).scalars().all()
 
@@ -314,6 +337,35 @@ def list_activities(
             created_at=note.created_at,
         )
         for note in call_notes
+    )
+    merged.extend(
+        ActivityOut(
+            id=f"msg:{m.id}",
+            kind="email_sent",
+            text=m.subject or "",
+            user_name="",
+            meta={
+                "subject": m.subject,
+                "status": m.status,
+                "opened": m.opened_at is not None,
+                "opens": m.opens_count,
+                "clicked": m.clicked_at is not None,
+                "clicks": m.clicks_count,
+            },
+            created_at=m.created_at,
+        )
+        for m in sent_emails
+    )
+    merged.extend(
+        ActivityOut(
+            id=f"reply:{r.id}",
+            kind="email_in",
+            text=r.snippet or "",
+            user_name=r.from_email or "",
+            meta={"from_email": r.from_email, "subject": r.subject},
+            created_at=(r.received_at or r.created_at),
+        )
+        for r in replies
     )
 
     merged.sort(key=lambda item: item.created_at, reverse=True)

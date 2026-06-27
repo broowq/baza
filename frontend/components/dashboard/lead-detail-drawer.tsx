@@ -4,7 +4,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ExternalLink, X, Copy, Check, Mail, Phone, MapPin, Building2, Loader2, PhoneCall,
   Plus, Trash2, Calendar, User, Banknote, Sparkles, ArrowRightLeft, UserPlus, UserMinus,
-  StickyNote, CheckCircle2, ListChecks, CircleDot, Send,
+  StickyNote, CheckCircle2, ListChecks, CircleDot, Send, ArrowUpRight, ArrowDownLeft,
+  MessageCircle, MailOpen, Eye, MousePointerClick,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -133,8 +134,29 @@ function activityVisual(kind: string): { Icon: typeof Sparkles; color: string } 
     case "call":          return { Icon: PhoneCall,      color: "var(--green)" };
     case "task_created":  return { Icon: ListChecks,     color: "var(--t-56)" };
     case "task_done":     return { Icon: CheckCircle2,   color: "var(--green)" };
+    case "email_sent":    return { Icon: ArrowUpRight,   color: "var(--sky)" };
+    case "email_in":      return { Icon: ArrowDownLeft,  color: "var(--mint)" };
+    case "touch":         return { Icon: PhoneCall,      color: "var(--green)" };
     default:              return { Icon: CircleDot,      color: "var(--t-48)" };
   }
+}
+
+/* Touch channels carry their own icon/colour via meta.channel. */
+function touchVisual(channel?: string): { Icon: typeof Sparkles; color: string; label: string } {
+  switch (channel) {
+    case "whatsapp": return { Icon: MessageCircle, color: "var(--green)", label: "WhatsApp" };
+    case "telegram": return { Icon: Send,          color: "var(--sky)",   label: "Telegram" };
+    case "call":     return { Icon: PhoneCall,     color: "var(--green)", label: "Звонок" };
+    default:         return { Icon: PhoneCall,     color: "var(--green)", label: "Контакт" };
+  }
+}
+
+/* Strip a phone string down to a leading «+» (if any) and digits. */
+function phoneDigits(phone?: string | null): string {
+  if (!phone) return "";
+  const trimmed = phone.trim();
+  const plus = trimmed.startsWith("+") ? "+" : "";
+  return plus + trimmed.replace(/\D/g, "");
 }
 
 /* ─────────────────────────────────────────────────────────────────
@@ -265,6 +287,14 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   const [activities, setActivities] = useState<LeadActivity[]>([]);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
 
+  /* ── Direct email composer (reply / write to the lead) ── */
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [aiDrafting, setAiDrafting] = useState(false);
+  const [touchingChannel, setTouchingChannel] = useState<string | null>(null);
+
   /* ── Email sequence enrollment (lazy: fetched on first open) ── */
   const [sequences, setSequences] = useState<EmailSequence[] | null>(null);
   const [seqLoading, setSeqLoading] = useState(false);
@@ -370,6 +400,13 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
       .finally(() => { if (!cancelled) setSeqLoading(false); });
     return () => { cancelled = true; };
   }, [leadId, sequences, seqLoading]);
+
+  /* Reset the email composer whenever a different lead opens */
+  useEffect(() => {
+    setComposerOpen(false);
+    setEmailSubject("");
+    setEmailBody("");
+  }, [leadId]);
 
   /* Focus the close button when drawer opens */
   useEffect(() => {
@@ -495,6 +532,104 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     }
   }, [leadId, detail, onLeadUpdate, refreshActivities]);
 
+  /* ── Direct email handlers ────────────────────────────────────── */
+
+  /* Fill the composer with an AI-drafted subject/body. niche falls back to
+     the lead's company when no project context is available here. */
+  const aiDraftEmail = useCallback(async () => {
+    if (!detail) return;
+    setAiDrafting(true);
+    try {
+      const res = await api<{ subject: string; body: string }>(
+        `/outreach/ai/generate-email`,
+        {
+          method: "POST",
+          body: JSON.stringify({ niche: detail.company || "", step_number: 1 }),
+        },
+      );
+      setEmailSubject(res.subject || "");
+      setEmailBody(res.body || "");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось сгенерировать черновик");
+    } finally {
+      setAiDrafting(false);
+    }
+  }, [detail]);
+
+  /* Send the composed email through the org SMTP. The send surfaces in the
+     timeline as kind="email_sent" — refresh the feed on success. */
+  const sendEmail = useCallback(async () => {
+    if (!leadId) return;
+    const subject = emailSubject.trim();
+    const body = emailBody.trim();
+    if (!subject || !body) {
+      toast.error("Заполните тему и текст письма");
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      await api<{ id: string; status: string }>(`/leads/${leadId}/email`, {
+        method: "POST",
+        body: JSON.stringify({ subject, body }),
+      });
+      toast.success("Письмо отправлено");
+      setComposerOpen(false);
+      setEmailSubject("");
+      setEmailBody("");
+      // Sending bumps last_contacted_at and may move new → contacted.
+      const nowIso = new Date().toISOString();
+      setDetail((prev) => prev
+        ? { ...prev, last_contacted_at: nowIso, status: prev.status === "new" ? "contacted" : prev.status }
+        : prev);
+      if (detail) {
+        onLeadUpdate?.(leadId, {
+          last_contacted_at: nowIso,
+          status: detail.status === "new" ? "contacted" : detail.status,
+        });
+      }
+      void refreshActivities();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Не удалось отправить письмо");
+    } finally {
+      setSendingEmail(false);
+    }
+  }, [leadId, emailSubject, emailBody, detail, onLeadUpdate, refreshActivities]);
+
+  /* One-click channel touch: open the channel app + log a touch (fire-and-forget),
+     then refresh the timeline. last_contacted_at / new → contacted updated locally. */
+  const channelTouch = useCallback((channel: "call" | "whatsapp" | "telegram") => {
+    if (!leadId || !detail) return;
+    const digits = phoneDigits(detail.phone);
+    if (!digits) return;
+    const bare = digits.replace(/^\+/, "");
+    if (channel === "call") window.open(`tel:${digits}`, "_self");
+    else if (channel === "whatsapp") window.open(`https://wa.me/${bare}`, "_blank", "noopener");
+    else window.open(`https://t.me/+${bare}`, "_blank", "noopener");
+
+    setTouchingChannel(channel);
+    void (async () => {
+      try {
+        await api<{ ok: boolean }>(`/leads/${leadId}/touch`, {
+          method: "POST",
+          body: JSON.stringify({ channel }),
+        });
+        const nowIso = new Date().toISOString();
+        setDetail((prev) => prev
+          ? { ...prev, last_contacted_at: nowIso, status: prev.status === "new" ? "contacted" : prev.status }
+          : prev);
+        onLeadUpdate?.(leadId, {
+          last_contacted_at: nowIso,
+          status: detail.status === "new" ? "contacted" : detail.status,
+        });
+        void refreshActivities();
+      } catch {
+        /* touch logging is best-effort — the channel already opened */
+      } finally {
+        setTouchingChannel(null);
+      }
+    })();
+  }, [leadId, detail, onLeadUpdate, refreshActivities]);
+
   const saveNotes = () => {
     const stripped = editNotes.trim();
     const current = stripNotesPrefix(detail?.notes ?? "");
@@ -575,6 +710,22 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     return m ? (m.full_name || m.email) : "";
   };
 
+  /* Per-lead engagement, derived from the unified timeline. */
+  const engagement = (() => {
+    let sent = 0, opened = 0, replies = 0;
+    for (const a of activities) {
+      if (a.kind === "email_sent") {
+        sent += 1;
+        if (a.meta?.opened) opened += 1;
+      } else if (a.kind === "email_in") {
+        replies += 1;
+      }
+    }
+    return { sent, opened, replies };
+  })();
+  const hasEngagement = engagement.sent > 0 || engagement.replies > 0;
+  const phone = phoneDigits(detail?.phone);
+
   return (
     <>
       {/* Scrim */}
@@ -635,6 +786,14 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       {detail.source && (
                         <span className="badge badge--source">
                           {SOURCE_LABELS[detail.source] ?? detail.source}
+                        </span>
+                      )}
+                      {hasEngagement && (
+                        <span
+                          className="chip chip-sans py-0.5 px-1.5 text-[10px]"
+                          title="Активность по письмам"
+                        >
+                          Отправлено {engagement.sent} · Открыто {engagement.opened} · Ответов {engagement.replies}
                         </span>
                       )}
                     </div>
@@ -1188,9 +1347,131 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   </div>
                 </section>
 
-                {/* ── Хронология (timeline) ────────────────── */}
+                {/* ── Переписка (unified communication hub) ── */}
                 <section>
-                  <div className="eyebrow mb-2">Хронология</div>
+                  <div className="eyebrow mb-2">Переписка</div>
+
+                  {/* Multi-channel one-click row — only when a phone exists */}
+                  {phone && (
+                    <div className="mb-2.5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => channelTouch("call")}
+                        disabled={touchingChannel === "call"}
+                        className="btn btn-ghost focus-ring flex-1"
+                        style={{ height: 34, fontSize: 12, minWidth: 96 }}
+                        aria-label="Позвонить лиду"
+                      >
+                        <PhoneCall size={13} className="mr-1.5" style={{ color: "var(--green)" }} />
+                        Позвонить
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => channelTouch("whatsapp")}
+                        disabled={touchingChannel === "whatsapp"}
+                        className="btn btn-ghost focus-ring flex-1"
+                        style={{ height: 34, fontSize: 12, minWidth: 96 }}
+                        aria-label="Написать в WhatsApp"
+                      >
+                        <MessageCircle size={13} className="mr-1.5" style={{ color: "var(--green)" }} />
+                        WhatsApp
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => channelTouch("telegram")}
+                        disabled={touchingChannel === "telegram"}
+                        className="btn btn-ghost focus-ring flex-1"
+                        style={{ height: 34, fontSize: 12, minWidth: 96 }}
+                        aria-label="Написать в Telegram"
+                      >
+                        <Send size={13} className="mr-1.5" style={{ color: "var(--sky)" }} />
+                        Telegram
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Compose / reply by email */}
+                  {!composerOpen ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setComposerOpen(true);
+                        if (!emailSubject && engagement.replies > 0) setEmailSubject("Re: ");
+                      }}
+                      className="btn btn-brand focus-ring mb-3 w-full"
+                      style={{ height: 34, fontSize: 12 }}
+                      aria-label={engagement.replies > 0 ? "Ответить письмом" : "Написать письмо"}
+                    >
+                      <Mail size={13} className="mr-1.5" />
+                      {engagement.replies > 0 ? "Ответить" : "Написать письмо"}
+                    </button>
+                  ) : (
+                    <div className="panel-glass mb-3 space-y-2 p-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                          {detail.email ? `Письмо → ${detail.email}` : "Письмо"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setComposerOpen(false)}
+                          aria-label="Закрыть составление письма"
+                          className="focus-ring inline-flex h-5 w-5 items-center justify-center rounded opacity-48 hover:opacity-80"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
+                      <input
+                        type="text"
+                        value={emailSubject}
+                        onChange={(e) => setEmailSubject(e.target.value)}
+                        disabled={sendingEmail || aiDrafting}
+                        placeholder="Тема письма"
+                        className="input focus-ring h-9 w-full rounded-lg px-3 text-sm"
+                        style={{ background: "var(--surface-input)", border: "1px solid var(--line-2)" }}
+                        aria-label="Тема письма"
+                      />
+                      <textarea
+                        value={emailBody}
+                        onChange={(e) => setEmailBody(e.target.value)}
+                        disabled={sendingEmail || aiDrafting}
+                        rows={6}
+                        placeholder="Текст письма…"
+                        className="input focus-ring w-full resize-none rounded-xl px-3 py-2.5 text-sm"
+                        style={{ height: "auto", background: "var(--surface-input)", border: "1px solid var(--line-2)" }}
+                        aria-label="Текст письма"
+                      />
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void aiDraftEmail()}
+                          disabled={aiDrafting || sendingEmail}
+                          className="btn btn-ghost focus-ring text-xs"
+                          style={{ height: 34, fontSize: 12 }}
+                        >
+                          {aiDrafting
+                            ? <Loader2 size={13} className="mr-1.5 animate-spin" />
+                            : <Sparkles size={13} className="mr-1.5" style={{ color: "var(--mint)" }} />
+                          }
+                          AI-черновик
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void sendEmail()}
+                          disabled={sendingEmail || aiDrafting || !emailSubject.trim() || !emailBody.trim()}
+                          className="btn btn-brand focus-ring ml-auto text-xs"
+                          style={{ height: 34, fontSize: 12 }}
+                        >
+                          {sendingEmail
+                            ? <Loader2 size={13} className="mr-1.5 animate-spin" />
+                            : <Send size={13} className="mr-1.5" />
+                          }
+                          Отправить
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Unified communication timeline */}
                   {activitiesLoading && activities.length === 0 ? (
                     <div className="space-y-2">
                       {[70, 90, 55].map((w, i) => (
@@ -1200,7 +1481,22 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                   ) : activities.length > 0 ? (
                     <ol className="relative space-y-3 pl-1">
                       {activities.map((a) => {
-                        const { Icon, color } = activityVisual(a.kind);
+                        const isTouch = a.kind === "touch";
+                        const isEmailSent = a.kind === "email_sent";
+                        const isEmailIn = a.kind === "email_in";
+                        const base = activityVisual(a.kind);
+                        const tv = isTouch ? touchVisual(a.meta?.channel as string | undefined) : null;
+                        const Icon = tv ? tv.Icon : base.Icon;
+                        const color = tv ? tv.color : base.color;
+
+                        const subject = (a.meta?.subject as string | undefined) || "";
+                        const fromEmail = (a.meta?.from_email as string | undefined) || a.user_name || "";
+                        const opens = Number(a.meta?.opens ?? 0);
+                        const clicks = Number(a.meta?.clicks ?? 0);
+                        const opened = !!a.meta?.opened;
+                        const clicked = !!a.meta?.clicked;
+                        const failed = a.meta?.status === "failed";
+
                         return (
                           <li key={a.id} className="flex gap-2.5">
                             <span
@@ -1211,12 +1507,64 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                               <Icon size={11} />
                             </span>
                             <div className="min-w-0 flex-1">
-                              <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
-                                {a.text}
-                              </div>
+                              {isEmailSent ? (
+                                <>
+                                  <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
+                                    {failed ? "Письмо не отправлено" : "Письмо отправлено"}
+                                    {subject && <span className="t-56">: {subject}</span>}
+                                  </div>
+                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                    {opened && (
+                                      <span className="chip chip-em py-0.5 px-1.5 text-[10px]">
+                                        <MailOpen size={9} className="mr-1" />
+                                        открыто{opens > 1 ? ` ${opens}` : ""}
+                                      </span>
+                                    )}
+                                    {!opened && !failed && (
+                                      <span className="chip chip-sans py-0.5 px-1.5 text-[10px]">
+                                        <Eye size={9} className="mr-1 opacity-56" />
+                                        не открыто
+                                      </span>
+                                    )}
+                                    {clicked && (
+                                      <span className="chip chip-mint py-0.5 px-1.5 text-[10px]">
+                                        <MousePointerClick size={9} className="mr-1" />
+                                        клик{clicks > 1 ? ` ${clicks}` : ""}
+                                      </span>
+                                    )}
+                                    {failed && (
+                                      <span className="chip chip-rs py-0.5 px-1.5 text-[10px]">ошибка</span>
+                                    )}
+                                  </div>
+                                </>
+                              ) : isEmailIn ? (
+                                <>
+                                  <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
+                                    Ответ от {fromEmail}
+                                    {subject && <span className="t-56">: {subject}</span>}
+                                  </div>
+                                  {a.text && (
+                                    <p
+                                      className="caption mt-0.5 italic"
+                                      style={{ color: "var(--t-56)", lineHeight: 1.5, overflowWrap: "anywhere" }}
+                                    >
+                                      «{a.text}»
+                                    </p>
+                                  )}
+                                </>
+                              ) : isTouch ? (
+                                <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
+                                  {tv?.label}
+                                  {a.text && <span className="t-56">: {a.text}</span>}
+                                </div>
+                              ) : (
+                                <div className="caption" style={{ color: "var(--t-84)", overflowWrap: "anywhere" }}>
+                                  {a.text}
+                                </div>
+                              )}
                               <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10.5px] text-[var(--t-40)]">
-                                {a.user_name && <span className="t-48">{a.user_name}</span>}
-                                {a.user_name && <span aria-hidden="true">·</span>}
+                                {a.user_name && !isEmailIn && <span className="t-48">{a.user_name}</span>}
+                                {a.user_name && !isEmailIn && <span aria-hidden="true">·</span>}
                                 <span>{shortDateTime(a.created_at)}</span>
                               </div>
                             </div>

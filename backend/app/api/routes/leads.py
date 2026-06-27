@@ -21,6 +21,7 @@ from app.models import (
     LeadStatus,
     Membership,
     Organization,
+    OutreachMessage,
     Project,
     User,
 )
@@ -32,9 +33,11 @@ from app.schemas.leads import (
     EnrichSelectedRequest,
     LeadCreateIn,
     LeadDetailOut,
+    LeadEmailIn,
     LeadImportResult,
     LeadImportRowError,
     LeadOut,
+    LeadTouchIn,
     LeadUpdate,
     LeadWarehouseRef,
     PaginatedLeadsOut,
@@ -1312,6 +1315,103 @@ def add_call_note(
     db.commit()
     db.refresh(note)
     return note
+
+
+@router.post("/{lead_id}/email")
+def send_lead_email(
+    lead_id: uuid.UUID,
+    payload: LeadEmailIn,
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Reply/write to the lead by email through the org's SMTP.
+
+    On success the OutreachMessage surfaces in the unified timeline (via crm) —
+    so we do NOT also log a duplicate LeadActivity here. Bumps last_contacted_at
+    and moves a lead still in "new" to "contacted".
+    """
+    from app.api.routes.outreach import _get_settings_row
+    from app.services import outreach
+
+    lead = _get_org_lead_or_404(db, lead_id, organization)
+    if not lead.email:
+        raise HTTPException(status_code=422, detail="У лида нет email")
+    if lead.email_opt_out:
+        raise HTTPException(status_code=409, detail="Лид отписался от писем")
+
+    s = _get_settings_row(db, organization.id)
+    if s is None or not s.smtp_host:
+        raise HTTPException(
+            status_code=409,
+            detail="Почта организации не настроена (Настройки → Email)",
+        )
+
+    subject = payload.subject
+    tok = outreach.new_track_token()
+    html = outreach.inject_tracking(outreach._to_html(payload.body), tok)
+    try:
+        outreach.send_via_smtp(
+            s,
+            to_email=lead.email,
+            subject=subject,
+            html_body=html,
+            text_body=payload.body,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Не удалось отправить: {exc}"[:300]
+        ) from exc
+
+    message = OutreachMessage(
+        organization_id=organization.id,
+        lead_id=lead.id,
+        enrollment_id=None,
+        to_email=lead.email,
+        subject=subject[:300],
+        status="sent",
+        track_token=tok,
+    )
+    db.add(message)
+    lead.last_contacted_at = datetime.now(timezone.utc)
+    if lead.status == LeadStatus.new:
+        lead.status = LeadStatus.contacted
+    db.commit()
+    db.refresh(message)
+    return {"id": str(message.id), "status": "sent"}
+
+
+@router.post("/{lead_id}/touch")
+def add_lead_touch(
+    lead_id: uuid.UUID,
+    payload: LeadTouchIn,
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Log a one-click channel touch (call / WhatsApp / Telegram button).
+
+    Records a "touch" activity in the unified timeline and mirrors the
+    mark-contacted side effects (last_contacted_at=now(); new → contacted).
+    """
+    lead = _get_org_lead_or_404(db, lead_id, organization)
+    channel = payload.channel
+    if channel not in ("call", "whatsapp", "telegram"):
+        raise HTTPException(status_code=422, detail="Недопустимый канал")
+
+    log_activity(
+        db,
+        lead=lead,
+        kind="touch",
+        text=payload.note,
+        user=user,
+        meta={"channel": channel},
+    )
+    lead.last_contacted_at = datetime.now(timezone.utc)
+    if lead.status == LeadStatus.new:
+        lead.status = LeadStatus.contacted
+    db.commit()
+    return {"ok": True}
 
 
 @router.delete("/{lead_id}", status_code=204)

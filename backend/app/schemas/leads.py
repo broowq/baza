@@ -159,6 +159,18 @@ class PaginatedLeadsOut(BaseModel):
     per_page: int
 
 
+class LeadEmailIn(BaseModel):
+    """Reply/write to the lead by email through the org's SMTP."""
+    subject: str = Field(min_length=1, max_length=300)
+    body: str = Field(min_length=1, max_length=20000)
+
+
+class LeadTouchIn(BaseModel):
+    """A one-click channel touch (call / WhatsApp / Telegram button)."""
+    channel: str  # "call" | "whatsapp" | "telegram"
+    note: str = Field(default="", max_length=500)
+
+
 class CallNoteCreate(BaseModel):
     """A call-journal entry. Comment is optional — just marking the call
     (who + when) is already valuable for a team splitting an outreach list."""
