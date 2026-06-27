@@ -75,6 +75,91 @@ class FunnelOut(BaseModel):
     conversion_rate: float   # won / (won + lost), 0..1
 
 
+# ── Org-wide dashboard analytics ─────────────────────────────────────────────
+
+class DashboardStatusOut(BaseModel):
+    status: str
+    count: int
+    value: int          # sum of deal_value in this stage (rubles)
+
+
+class DashboardSourceOut(BaseModel):
+    source: str         # empty source surfaced as "—"
+    count: int
+
+
+class DashboardAssigneeOut(BaseModel):
+    user_id: str | None  # null → unassigned bucket
+    name: str            # resolved member name, or "Не назначен"
+    leads: int
+    won: int
+
+
+class DashboardPointOut(BaseModel):
+    date: str            # "YYYY-MM-DD"
+    count: int
+
+
+class DashboardOut(BaseModel):
+    leads_total: int
+    leads_this_month: int
+    by_status: list[DashboardStatusOut]    # all 6 stages, pipeline order
+    won: int
+    lost: int
+    conversion_rate: float                 # won / (won + lost), 0..1
+    pipeline_value: int                    # open-stage deal_value sum
+    won_value: int
+    by_source: list[DashboardSourceOut]    # desc by count, top 8
+    by_assignee: list[DashboardAssigneeOut]  # desc by leads, top 12
+    over_time: list[DashboardPointOut]     # last 14 days incl. zero-days
+
+
+# ── Notifications (the in-app bell) ──────────────────────────────────────────
+
+class NotifTaskOut(BaseModel):
+    id: str
+    title: str
+    lead_id: str
+    lead_company: str
+    due_at: datetime | None = None
+
+
+class NotifReminderOut(BaseModel):
+    lead_id: str
+    company: str
+    reminder_at: datetime | None = None
+
+
+class NotifReplyOut(BaseModel):
+    id: str
+    lead_id: str | None = None
+    from_email: str
+    subject: str
+    received_at: datetime | None = None
+
+
+class NotifGroupTasks(BaseModel):
+    count: int
+    items: list[NotifTaskOut]
+
+
+class NotifGroupReminders(BaseModel):
+    count: int
+    items: list[NotifReminderOut]
+
+
+class NotifGroupReplies(BaseModel):
+    count: int
+    items: list[NotifReplyOut]
+
+
+class NotificationsOut(BaseModel):
+    overdue_tasks: NotifGroupTasks
+    due_reminders: NotifGroupReminders
+    new_replies: NotifGroupReplies
+    total: int           # drives the badge count
+
+
 # ── Bulk actions ─────────────────────────────────────────────────────────────
 
 class BulkLeadAction(BaseModel):

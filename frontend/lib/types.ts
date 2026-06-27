@@ -178,6 +178,76 @@ export type Funnel = {
   conversion_rate: number;
 };
 
+/* ── Org-wide dashboard analytics (GET /crm/dashboard) ────────────── */
+
+export type DashboardStatus = {
+  status: LeadStatus;
+  count: number;
+  value: number;
+};
+
+export type DashboardSource = {
+  source: string;
+  count: number;
+};
+
+export type DashboardAssignee = {
+  user_id: string | null;
+  name: string;
+  leads: number;
+  won: number;
+};
+
+export type DashboardPoint = {
+  date: string; // "YYYY-MM-DD"
+  count: number;
+};
+
+export type Dashboard = {
+  leads_total: number;
+  leads_this_month: number;
+  by_status: DashboardStatus[];
+  won: number;
+  lost: number;
+  conversion_rate: number; // 0..1
+  pipeline_value: number;
+  won_value: number;
+  by_source: DashboardSource[];
+  by_assignee: DashboardAssignee[];
+  over_time: DashboardPoint[];
+};
+
+/* ── In-app notifications (GET /crm/notifications) ────────────────── */
+
+export type NotifTask = {
+  id: string;
+  title: string;
+  lead_id: string;
+  lead_company: string;
+  due_at?: string | null;
+};
+
+export type NotifReminder = {
+  lead_id: string;
+  company: string;
+  reminder_at?: string | null;
+};
+
+export type NotifReply = {
+  id: string;
+  lead_id?: string | null;
+  from_email: string;
+  subject: string;
+  received_at?: string | null;
+};
+
+export type Notifications = {
+  overdue_tasks: { count: number; items: NotifTask[] };
+  due_reminders: { count: number; items: NotifReminder[] };
+  new_replies: { count: number; items: NotifReply[] };
+  total: number;
+};
+
 export type LeadWarehouse = {
   found: boolean;
   company_id?: string | null;

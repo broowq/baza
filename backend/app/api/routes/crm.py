@@ -9,10 +9,10 @@ leads routes.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, time, timezone
+from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import asc, func, select
+from sqlalchemy import Integer, asc, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_org, get_current_user
@@ -32,8 +32,20 @@ from app.models import (
 )
 from app.schemas.crm import (
     ActivityOut,
+    DashboardAssigneeOut,
+    DashboardOut,
+    DashboardPointOut,
+    DashboardSourceOut,
+    DashboardStatusOut,
     FunnelOut,
     FunnelStageOut,
+    NotificationsOut,
+    NotifGroupReminders,
+    NotifGroupReplies,
+    NotifGroupTasks,
+    NotifReminderOut,
+    NotifReplyOut,
+    NotifTaskOut,
     TaskCreate,
     TaskOut,
     TaskUpdate,
@@ -441,4 +453,295 @@ def get_funnel(
         won_value=won_value,
         open_value=open_value,
         conversion_rate=conversion_rate,
+    )
+
+
+# ── Org-wide dashboard ───────────────────────────────────────────────────────
+
+@router.get("/dashboard", response_model=DashboardOut)
+def get_dashboard(
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Org-wide analytics across every live project (soft-deleted projects
+    excluded via the Project join). All aggregates are grouped queries — no
+    per-lead/per-user round-trips. Mirrors get_funnel's aggregation style."""
+    now = datetime.now(timezone.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # ── by_status: count + sum(deal_value) per stage ─────────────────────────
+    status_rows = db.execute(
+        select(
+            Lead.status,
+            func.count(Lead.id),
+            func.coalesce(func.sum(Lead.deal_value), 0),
+        )
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+        )
+        .group_by(Lead.status)
+    ).all()
+
+    by_status_map: dict[str, tuple[int, int]] = {}
+    for status, count, value in status_rows:
+        key = status.value if isinstance(status, LeadStatus) else str(status)
+        by_status_map[key] = (int(count or 0), int(value or 0))
+
+    by_status: list[DashboardStatusOut] = []
+    leads_total = 0
+    pipeline_value = 0
+    won = 0
+    won_value = 0
+    for stage in PIPELINE_STAGES:
+        key = stage["key"]
+        count, value = by_status_map.get(key, (0, 0))
+        leads_total += count
+        if key in OPEN_STAGES:
+            pipeline_value += value
+        if key in WON_STAGES:
+            won += count
+            won_value += value
+        by_status.append(DashboardStatusOut(status=key, count=count, value=value))
+
+    lost = by_status_map.get(LeadStatus.rejected.value, (0, 0))[0]
+    denom = won + lost
+    conversion_rate = (won / denom) if denom else 0.0
+
+    # ── leads_this_month ─────────────────────────────────────────────────────
+    leads_this_month = int(
+        db.execute(
+            select(func.count(Lead.id))
+            .join(Project, Project.id == Lead.project_id)
+            .where(
+                Lead.organization_id == organization.id,
+                Project.deleted_at.is_(None),
+                Lead.created_at >= month_start,
+            )
+        ).scalar()
+        or 0
+    )
+
+    # ── by_source: top 8 desc by count ("—" for empty) ───────────────────────
+    source_rows = db.execute(
+        select(Lead.source, func.count(Lead.id))
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+        )
+        .group_by(Lead.source)
+        .order_by(func.count(Lead.id).desc())
+        .limit(8)
+    ).all()
+    by_source = [
+        DashboardSourceOut(source=(src or "—"), count=int(cnt or 0))
+        for src, cnt in source_rows
+    ]
+
+    # ── by_assignee: leads + won per owner, top 12 ───────────────────────────
+    assignee_rows = db.execute(
+        select(
+            Lead.assigned_to_user_id,
+            func.count(Lead.id),
+            func.coalesce(
+                func.sum(func.cast(Lead.status == LeadStatus.won, Integer)),
+                0,
+            ),
+        )
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+        )
+        .group_by(Lead.assigned_to_user_id)
+        .order_by(func.count(Lead.id).desc())
+        .limit(12)
+    ).all()
+
+    # Resolve owner names in a single Membership+User query (no N+1).
+    owner_ids = [uid for uid, _, _ in assignee_rows if uid is not None]
+    name_map: dict[uuid.UUID, str] = {}
+    if owner_ids:
+        name_rows = db.execute(
+            select(User.id, User.full_name, User.email)
+            .join(Membership, Membership.user_id == User.id)
+            .where(
+                Membership.organization_id == organization.id,
+                User.id.in_(owner_ids),
+            )
+        ).all()
+        for uid, full_name, email in name_rows:
+            name_map[uid] = full_name or email or "—"
+
+    by_assignee = [
+        DashboardAssigneeOut(
+            user_id=(str(uid) if uid is not None else None),
+            name=(name_map.get(uid, "—") if uid is not None else "Не назначен"),
+            leads=int(cnt or 0),
+            won=int(won_cnt or 0),
+        )
+        for uid, cnt, won_cnt in assignee_rows
+    ]
+
+    # ── over_time: leads/day for the last 14 days incl. zero-days ────────────
+    today = now.date()
+    window_start = datetime.combine(
+        today - timedelta(days=13), time.min, tzinfo=timezone.utc
+    )
+    day_expr = func.date(Lead.created_at)
+    over_rows = db.execute(
+        select(day_expr, func.count(Lead.id))
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+            Lead.created_at >= window_start,
+        )
+        .group_by(day_expr)
+    ).all()
+
+    counts_by_day: dict[str, int] = {}
+    for day, cnt in over_rows:
+        # func.date may return a date object (PG) or an ISO string (sqlite).
+        key = day.isoformat() if hasattr(day, "isoformat") else str(day)[:10]
+        counts_by_day[key] = int(cnt or 0)
+
+    over_time = []
+    for i in range(14):
+        d = (today - timedelta(days=13 - i)).isoformat()
+        over_time.append(DashboardPointOut(date=d, count=counts_by_day.get(d, 0)))
+
+    return DashboardOut(
+        leads_total=leads_total,
+        leads_this_month=leads_this_month,
+        by_status=by_status,
+        won=won,
+        lost=lost,
+        conversion_rate=conversion_rate,
+        pipeline_value=pipeline_value,
+        won_value=won_value,
+        by_source=by_source,
+        by_assignee=by_assignee,
+        over_time=over_time,
+    )
+
+
+# ── Notifications (the in-app bell) ──────────────────────────────────────────
+
+@router.get("/notifications", response_model=NotificationsOut)
+def get_notifications(
+    organization: Organization = Depends(get_current_org),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Drives the sidebar bell: overdue tasks, due reminders, fresh inbound
+    replies. Each group returns a count + up to 5 preview items. total is the
+    badge number."""
+    now = datetime.now(timezone.utc)
+
+    # ── overdue tasks (done=false, due in the past) ──────────────────────────
+    overdue_count = int(
+        db.execute(
+            select(func.count(LeadTask.id)).where(
+                LeadTask.organization_id == organization.id,
+                LeadTask.done.is_(False),
+                LeadTask.due_at.isnot(None),
+                LeadTask.due_at < now,
+            )
+        ).scalar()
+        or 0
+    )
+    overdue_rows = db.execute(
+        select(LeadTask, Lead.company)
+        .join(Lead, Lead.id == LeadTask.lead_id)
+        .where(
+            LeadTask.organization_id == organization.id,
+            LeadTask.done.is_(False),
+            LeadTask.due_at.isnot(None),
+            LeadTask.due_at < now,
+        )
+        .order_by(asc(LeadTask.due_at))  # soonest-overdue first
+        .limit(5)
+    ).all()
+    overdue_items = [
+        NotifTaskOut(
+            id=str(task.id),
+            title=task.title,
+            lead_id=str(task.lead_id),
+            lead_company=company or "",
+            due_at=task.due_at,
+        )
+        for task, company in overdue_rows
+    ]
+
+    # ── due reminders (Lead.reminder_at <= now) ──────────────────────────────
+    reminder_count = int(
+        db.execute(
+            select(func.count(Lead.id)).where(
+                Lead.organization_id == organization.id,
+                Lead.reminder_at.isnot(None),
+                Lead.reminder_at <= now,
+            )
+        ).scalar()
+        or 0
+    )
+    reminder_rows = db.execute(
+        select(Lead.id, Lead.company, Lead.reminder_at).where(
+            Lead.organization_id == organization.id,
+            Lead.reminder_at.isnot(None),
+            Lead.reminder_at <= now,
+        )
+        .order_by(asc(Lead.reminder_at))
+        .limit(5)
+    ).all()
+    reminder_items = [
+        NotifReminderOut(
+            lead_id=str(lid),
+            company=company or "",
+            reminder_at=reminder_at,
+        )
+        for lid, company, reminder_at in reminder_rows
+    ]
+
+    # ── new inbound replies in the last 7 days ───────────────────────────────
+    week_ago = now - timedelta(days=7)
+    recv = func.coalesce(OutreachReply.received_at, OutreachReply.created_at)
+    reply_count = int(
+        db.execute(
+            select(func.count(OutreachReply.id)).where(
+                OutreachReply.organization_id == organization.id,
+                recv >= week_ago,
+            )
+        ).scalar()
+        or 0
+    )
+    reply_rows = db.execute(
+        select(OutreachReply)
+        .where(
+            OutreachReply.organization_id == organization.id,
+            recv >= week_ago,
+        )
+        .order_by(recv.desc())  # newest first
+        .limit(5)
+    ).scalars().all()
+    reply_items = [
+        NotifReplyOut(
+            id=str(r.id),
+            lead_id=(str(r.lead_id) if r.lead_id is not None else None),
+            from_email=r.from_email or "",
+            subject=r.subject or "",
+            received_at=(r.received_at or r.created_at),
+        )
+        for r in reply_rows
+    ]
+
+    total = overdue_count + reminder_count + reply_count
+
+    return NotificationsOut(
+        overdue_tasks=NotifGroupTasks(count=overdue_count, items=overdue_items),
+        due_reminders=NotifGroupReminders(count=reminder_count, items=reminder_items),
+        new_replies=NotifGroupReplies(count=reply_count, items=reply_items),
+        total=total,
     )

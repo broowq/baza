@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { formatPlan } from "@/lib/plans";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { GlobalLeadSearch } from "@/components/layout/global-lead-search";
+import { NotificationBell, useNotifications } from "@/components/layout/notification-bell";
 import type { Organization } from "@/lib/types";
 
 type NavItem = {
@@ -19,6 +20,8 @@ type NavItem = {
   icon: React.ReactNode;
   match?: (path: string) => boolean;
   count?: () => string | undefined;
+  // When set, the count badge uses an attention tint (e.g. rose for overdue).
+  countTone?: "rose";
 };
 
 export function Sidebar() {
@@ -30,6 +33,10 @@ export function Sidebar() {
   const [userName, setUserName] = useState("");
   const [org, setOrg] = useState<Organization | null>(null);
   const [projectCount, setProjectCount] = useState<number | null>(null);
+  // Shared notifications poll — drives both the bell badge and the
+  // overdue-count badge on the «Задачи» nav item below.
+  const notifications = useNotifications();
+  const overdueCount = notifications?.overdue_tasks.count ?? 0;
 
   const fetchProjectCount = () => {
     const token = getToken();
@@ -108,6 +115,17 @@ export function Sidebar() {
       match: (p) => p.startsWith("/dashboard/leads"),
     },
     {
+      href: "/dashboard/analytics" as Route,
+      label: "Аналитика",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M3 3v18h18" />
+          <path d="M7 15l3-4 3 3 4-6" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/analytics"),
+    },
+    {
       href: "/dashboard/tasks" as Route,
       label: "Задачи",
       icon: (
@@ -118,6 +136,9 @@ export function Sidebar() {
         </svg>
       ),
       match: (p) => p.startsWith("/dashboard/tasks"),
+      // Surface overdue tasks right on the nav item (rose badge).
+      count: () => (overdueCount > 0 ? String(overdueCount) : undefined),
+      countTone: "rose",
     },
     {
       href: "/dashboard/outreach" as Route,
@@ -209,9 +230,13 @@ export function Sidebar() {
 
       <div className="hairline mx-4" />
 
-      {/* Global lead search — jumps to any lead from anywhere */}
-      <div className="px-3 pt-4">
-        <GlobalLeadSearch />
+      {/* Global lead search + notification bell — jump to any lead, or
+          get pulled back to inbound replies / overdue tasks / reminders. */}
+      <div className="px-3 pt-4 flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <GlobalLeadSearch />
+        </div>
+        <NotificationBell notifications={notifications} />
       </div>
 
       {/* Nav */}
@@ -229,7 +254,22 @@ export function Sidebar() {
             >
               {item.icon}
               <span className="truncate">{item.label}</span>
-              {count !== undefined && <span className="count">{count}</span>}
+              {count !== undefined && (
+                <span
+                  className="count"
+                  style={
+                    item.countTone === "rose"
+                      ? {
+                          color: "var(--rose)",
+                          background: "color-mix(in srgb, var(--rose) 14%, transparent)",
+                          borderColor: "color-mix(in srgb, var(--rose) 34%, transparent)",
+                        }
+                      : undefined
+                  }
+                >
+                  {count}
+                </span>
+              )}
             </Link>
           );
         })}
