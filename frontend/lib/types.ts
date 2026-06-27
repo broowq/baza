@@ -73,6 +73,10 @@ export type Lead = {
   external_id?: string;
   enriched: boolean;
   demo?: boolean;
+  // Set by the org-wide GET /leads/all endpoint so a lead row can show which
+  // project it belongs to. Absent on per-project responses.
+  project_id?: string;
+  project_name?: string;
 };
 
 /* ── Manual create / bulk import ──────────────────────────────────── */

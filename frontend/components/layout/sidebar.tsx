@@ -10,6 +10,7 @@ import { clearToken, getToken } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatPlan } from "@/lib/plans";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { GlobalLeadSearch } from "@/components/layout/global-lead-search";
 import type { Organization } from "@/lib/types";
 
 type NavItem = {
@@ -92,6 +93,19 @@ export function Sidebar() {
       match: (p) => p === "/dashboard" || p.startsWith("/dashboard/projects"),
       count: () =>
         projectCount === null ? undefined : String(projectCount),
+    },
+    {
+      href: "/dashboard/leads" as Route,
+      label: "Лиды",
+      icon: (
+        <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      ),
+      match: (p) => p.startsWith("/dashboard/leads"),
     },
     {
       href: "/dashboard/tasks" as Route,
@@ -194,6 +208,11 @@ export function Sidebar() {
       </div>
 
       <div className="hairline mx-4" />
+
+      {/* Global lead search — jumps to any lead from anywhere */}
+      <div className="px-3 pt-4">
+        <GlobalLeadSearch />
+      </div>
 
       {/* Nav */}
       <nav className="px-3 pt-4 flex flex-col gap-1.5">

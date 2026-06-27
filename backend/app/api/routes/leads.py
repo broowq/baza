@@ -117,6 +117,18 @@ def _clean_tags(tags: list[str] | None) -> list[str]:
     return cleaned
 
 
+def _ci_contains(col, term: str):
+    """Collation-independent case-insensitive substring match for lead search.
+
+    Plain ILIKE / lower() only case-fold ASCII under a C/POSIX database
+    collation, so a capitalised Cyrillic company ("Юникорн") could never be
+    found by a lowercase query — broken for a Russian-first CRM. Case-fold both
+    sides via the ICU root collation (`und-x-icu`), which folds Unicode case
+    regardless of the database's LC_CTYPE.
+    """
+    return func.lower(col.collate("und-x-icu")).like(f"%{term.lower()}%")
+
+
 def _fire_lead_webhook_best_effort(db: Session, organization: Organization, lead: Lead, project: Project) -> None:
     """Reuse the existing CRM webhook (Bitrix24/AmoCRM/custom) for a new lead.
 
@@ -225,25 +237,18 @@ def list_project_leads_table(
     count_query = select(func.count(Lead.id)).where(Lead.project_id == project.id)
 
     if q.strip():
-        pattern = f"%{q.strip()}%"
-        query = query.where(
-            Lead.company.ilike(pattern)
-            | Lead.website.ilike(pattern)
-            | Lead.city.ilike(pattern)
-            | Lead.domain.ilike(pattern)
-            | Lead.email.ilike(pattern)
-            | Lead.phone.ilike(pattern)
-            | Lead.address.ilike(pattern)
+        term = q.strip()
+        search_cond = (
+            _ci_contains(Lead.company, term)
+            | _ci_contains(Lead.website, term)
+            | _ci_contains(Lead.city, term)
+            | _ci_contains(Lead.domain, term)
+            | _ci_contains(Lead.email, term)
+            | _ci_contains(Lead.phone, term)
+            | _ci_contains(Lead.address, term)
         )
-        count_query = count_query.where(
-            Lead.company.ilike(pattern)
-            | Lead.website.ilike(pattern)
-            | Lead.city.ilike(pattern)
-            | Lead.domain.ilike(pattern)
-            | Lead.email.ilike(pattern)
-            | Lead.phone.ilike(pattern)
-            | Lead.address.ilike(pattern)
-        )
+        query = query.where(search_cond)
+        count_query = count_query.where(search_cond)
     if status:
         query = query.where(Lead.status == status)
         count_query = count_query.where(Lead.status == status)
@@ -307,6 +312,132 @@ def list_project_leads_table(
 
     total = db.scalar(count_query) or 0
     items = db.execute(query.offset((page - 1) * per_page).limit(per_page)).scalars().all()
+    return PaginatedLeadsOut(items=items, total=total, page=page, per_page=per_page)
+
+
+@router.get("/all", response_model=PaginatedLeadsOut)
+def list_org_leads_table(
+    search: str = "",
+    status: str = "all",
+    project_id: UUID | None = None,
+    assigned_to: str = "all",  # "all" | "unassigned" | <user UUID>
+    sort: str = "score",  # score | created_at | last_contacted_at | company
+    order: str = "desc",
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=50, ge=1, le=100),
+    organization: Organization = Depends(get_current_org),
+    db: Session = Depends(get_db),
+):
+    """Org-wide leads list across ALL (non-deleted) projects.
+
+    Mirrors list_project_leads_table's filter/sort/pagination logic, but scopes
+    by organization (joined to Project, excluding soft-deleted projects) instead
+    of a single project, and stamps each row with its project_name.
+    """
+    # Base scope: org's leads joined to a live (non-deleted) project. The join
+    # itself enforces "project belongs to org AND is not soft-deleted".
+    base = (
+        select(Lead)
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+        )
+    )
+    count_base = (
+        select(func.count(Lead.id))
+        .join(Project, Project.id == Lead.project_id)
+        .where(
+            Lead.organization_id == organization.id,
+            Project.organization_id == organization.id,
+            Project.deleted_at.is_(None),
+        )
+    )
+
+    # Optional single-project filter — must belong to this org (and be live).
+    if project_id is not None:
+        proj = db.get(Project, project_id)
+        if (
+            not proj
+            or proj.organization_id != organization.id
+            or proj.deleted_at is not None
+        ):
+            raise HTTPException(status_code=404, detail="Проект не найден")
+        base = base.where(Lead.project_id == project_id)
+        count_base = count_base.where(Lead.project_id == project_id)
+
+    # Case-insensitive search across the main contact columns. Require >=2 chars
+    # so a stray single keystroke doesn't trigger a full ILIKE scan.
+    term = search.strip()
+    if len(term) >= 2:
+        search_clause = or_(
+            _ci_contains(Lead.company, term),
+            _ci_contains(Lead.email, term),
+            _ci_contains(Lead.phone, term),
+            _ci_contains(Lead.website, term),
+            _ci_contains(Lead.domain, term),
+            _ci_contains(Lead.city, term),
+        )
+        base = base.where(search_clause)
+        count_base = count_base.where(search_clause)
+
+    if status != "all":
+        base = base.where(Lead.status == status)
+        count_base = count_base.where(Lead.status == status)
+
+    token = (assigned_to or "all").strip().lower()
+    if token == "unassigned":
+        base = base.where(Lead.assigned_to_user_id.is_(None))
+        count_base = count_base.where(Lead.assigned_to_user_id.is_(None))
+    elif token != "all":
+        # Explicit user UUID. Malformed → 422; an unknown-but-valid UUID simply
+        # matches nothing (no cross-org leak — leads stay org-scoped).
+        try:
+            assignee_id = uuid.UUID(assigned_to)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="Некорректный идентификатор пользователя"
+            ) from exc
+        base = base.where(Lead.assigned_to_user_id == assignee_id)
+        count_base = count_base.where(Lead.assigned_to_user_id == assignee_id)
+
+    sort_column = {
+        "score": Lead.score,
+        "created_at": Lead.created_at,
+        "last_contacted_at": Lead.last_contacted_at,
+        "company": Lead.company,
+    }.get(sort, Lead.score)
+    order_cols = [sort_column.asc() if order == "asc" else sort_column.desc()]
+    # Stable secondary ordering so tied rows don't reshuffle between refetches.
+    if sort != "created_at":
+        order_cols.append(Lead.created_at.desc())
+    order_cols.append(Lead.id)
+    base = base.order_by(*order_cols)
+
+    total = db.scalar(count_base) or 0
+    leads = (
+        db.execute(base.offset((page - 1) * per_page).limit(per_page))
+        .scalars()
+        .all()
+    )
+
+    # Resolve project_name for just the page's projects — one extra query, no
+    # N+1 (a {project_id: name} map keyed by the leads actually on this page).
+    project_ids = {lead.project_id for lead in leads}
+    name_by_project: dict[UUID, str] = {}
+    if project_ids:
+        rows = db.execute(
+            select(Project.id, Project.name).where(Project.id.in_(project_ids))
+        ).all()
+        name_by_project = {pid: name for pid, name in rows}
+
+    items = [
+        LeadOut.model_validate(lead).model_copy(
+            update={"project_name": name_by_project.get(lead.project_id, "")}
+        )
+        for lead in leads
+    ]
     return PaginatedLeadsOut(items=items, total=total, page=page, per_page=per_page)
 
 

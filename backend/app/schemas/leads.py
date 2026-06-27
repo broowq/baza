@@ -48,6 +48,9 @@ class LeadOut(BaseModel):
     enriched: bool
     demo: bool
     created_at: datetime
+    # Name of the owning project. Default "" keeps every existing endpoint
+    # backward-compatible; only the org-wide /leads/all endpoint populates it.
+    project_name: str = ""
 
     class Config:
         from_attributes = True
