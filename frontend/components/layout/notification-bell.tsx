@@ -182,8 +182,8 @@ export function NotificationBell({ notifications }: Props) {
       {open && (
         <div
           role="menu"
-          className="panel absolute right-0 z-50 mt-1.5 overflow-hidden"
-          style={{ width: 320, maxHeight: 420, overflowY: "auto", padding: 6 }}
+          className="panel absolute left-0 z-50 mt-1.5 overflow-hidden"
+          style={{ width: 320, maxWidth: "calc(100vw - 24px)", maxHeight: 420, overflowY: "auto", padding: 6 }}
         >
           <div
             className="flex items-center justify-between px-2 py-1.5"
