@@ -11,7 +11,7 @@ from app.services import lead_collection as lc
 def test_apply_plan_limits_sets_yandex_caps():
     expected = {
         PlanType.free: 0, PlanType.starter: 0,
-        PlanType.pro: 3000, PlanType.team: 10000,
+        PlanType.pro: 1400, PlanType.team: 3800,
     }
     for plan, cap in expected.items():
         o = Organization(plan=plan)
@@ -23,10 +23,10 @@ def test_yandex_requests_remaining_boundary():
     o = Organization(plan=PlanType.pro)
     quota.apply_plan_limits(o)
     o.yandex_requests_used_current_month = 0
-    assert quota.yandex_requests_remaining(o) == 3000
-    o.yandex_requests_used_current_month = 2999
+    assert quota.yandex_requests_remaining(o) == 1400
+    o.yandex_requests_used_current_month = 1399
     assert quota.yandex_requests_remaining(o) == 1
-    o.yandex_requests_used_current_month = 3000
+    o.yandex_requests_used_current_month = 1400
     assert quota.yandex_requests_remaining(o) == 0
     o.yandex_requests_used_current_month = 9999  # overshoot clamps, never negative
     assert quota.yandex_requests_remaining(o) == 0

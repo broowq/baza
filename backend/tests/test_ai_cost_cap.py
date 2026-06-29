@@ -91,9 +91,9 @@ def test_remaining_kopecks_clamped_when_overspent():
 
 @pytest.mark.parametrize("plan,expected", [
     (PlanType.free, 0),
-    (PlanType.starter, 30_000),
-    (PlanType.pro, 300_000),
-    (PlanType.team, 1_500_000),
+    (PlanType.starter, 10_000),
+    (PlanType.pro, 20_000),
+    (PlanType.team, 50_000),
 ])
 def test_apply_plan_limits_sets_ai_cost_cap(plan, expected):
     org = Organization(name="t", plan=plan)

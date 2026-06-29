@@ -7,11 +7,12 @@ from app.services.quota import PLAN_LIMITS
 router = APIRouter(prefix="/plans", tags=["plans"])
 settings = get_settings()
 
-# Prices in rubles per month.
+# Prices in rubles per month. Set 2026-06-29 for a ×10 markup (see
+# docs/unit-economics.md): blended lever — moderate lead cuts + price rises.
 PLAN_PRICES_RUB = {
     "starter": 3900,
-    "pro": 12900,
-    "team": 34900,
+    "pro": 16900,
+    "team": 44900,
 }
 
 PLAN_NAMES = {

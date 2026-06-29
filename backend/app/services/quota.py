@@ -13,24 +13,20 @@ from fastapi import HTTPException
 from app.models import Organization, PlanType
 
 
-# Limits per plan. leads_per_month is the REAL enforced cap (see
-# ensure_lead_quota). Collection is now DOSED: each "Собрать" adds ≤10 NEW
-# companies (no repeats), so leads_per_month ÷ ~10 ≈ collections/month.
-# ai_cost_kopecks = monthly LLM spend ceiling in kopecks (₽ × 100).
-#   free:    0       (no LLM access — rule-based only)
-#   starter: 30000   (₽300/mo)
-#   pro:     300000  (₽3000/mo)
-#   team:    1500000 (₽15000/mo)
-# Lead quotas cut 2026-06-25 to deliverable/profitable sizes (pro 25k→10k,
-# team 100k→30k) — the old numbers were unreachable for most niches and
-# loss-making at full Yandex use. Existing pilots keep their old limits (no
-# monthly re-apply; only a plan change reconciles).
-# yandex_requests = monthly cap on PAID Yandex Geosearch requests (the dominant
-# variable cost — measured ~0.21 request/lead, see docs/unit-economics.md). The
-# cap bounds worst-case spend per org regardless of the Yandex tariff: at
-# ₽0.69/req (1k/day) pro≈₽2.1k, team≈₽6.9k. Starter/Free = 0 (Yandex is a
-# Pro/Team source; they collect from 2GIS/SearXNG). Tune up on the cheaper
-# 10k/day tariff or once the "с сохранением" rate is known.
+# Limits per plan. Sized 2026-06-29 for a GUARANTEED ×10 markup (cost-of-goods
+# ≤ 10% of price even at full utilisation), at the now-confirmed published
+# Yandex rate ₽0.69/req (1k/day). Worst-case cost = yandex_requests×0.69 +
+# ai_cost + 3% acquiring; see docs/unit-economics.md for the full table.
+#   Starter 3 900 ₽ · 5 000 leads · no Yandex      → ~217 ₽  (×18)
+#   Pro     16 900 ₽ · 7 000 leads · 1 400 Yandex  → ~1 673 ₽ (×10.1)
+#   Business44 900 ₽ · 20 000 leads · 3 800 Yandex → ~4 469 ₽ (×10.0)
+# Yandex «с сохранением» is NOT needed: Yandex allows storing API results ≤30
+# days on the regular tariff (support, 2026-06-29), so the published rate is our
+# real rate. ai_cost_kopecks = monthly LLM ceiling (₽×100); cut to ₽100/200/500
+# — typical spend (~₽50/80/200) sits well under, the cap just guarantees the ×10
+# floor. yandex_requests = monthly PAID-Geosearch-request cap (measured ~0.21
+# req/lead); when exhausted, collection falls back to 2GIS/SearXNG. Existing
+# pilots keep their old limits until a plan change reconciles.
 PLAN_LIMITS = {
     PlanType.free: {
         "projects": 1, "users": 1, "leads_per_month": 0,
@@ -38,15 +34,15 @@ PLAN_LIMITS = {
     },
     PlanType.starter: {
         "projects": 5, "users": 3, "leads_per_month": 5000,
-        "can_invite": True, "ai_cost_kopecks": 30000, "yandex_requests": 0,
+        "can_invite": True, "ai_cost_kopecks": 10000, "yandex_requests": 0,
     },
     PlanType.pro: {
-        "projects": 20, "users": 10, "leads_per_month": 10000,
-        "can_invite": True, "ai_cost_kopecks": 300000, "yandex_requests": 3000,
+        "projects": 20, "users": 10, "leads_per_month": 7000,
+        "can_invite": True, "ai_cost_kopecks": 20000, "yandex_requests": 1400,
     },
     PlanType.team: {
-        "projects": 100, "users": 50, "leads_per_month": 30000,
-        "can_invite": True, "ai_cost_kopecks": 1500000, "yandex_requests": 10000,
+        "projects": 100, "users": 50, "leads_per_month": 20000,
+        "can_invite": True, "ai_cost_kopecks": 50000, "yandex_requests": 3800,
     },
 }
 
