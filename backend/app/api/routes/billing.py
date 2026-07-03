@@ -53,6 +53,13 @@ _YOOKASSA_WEBHOOK_NETS = [
 
 class CheckoutRequest(BaseModel):
     plan: PlanType
+    # Согласие на сохранение способа оплаты + ежемесячные автосписания
+    # (чекбокс в UI, включён по умолчанию; отключается в настройках).
+    auto_renew: bool = True
+
+
+class AutoRenewRequest(BaseModel):
+    enabled: bool
 
 
 def _get_client() -> YooKassaClient:
@@ -115,6 +122,7 @@ def create_checkout(
         status="pending",
         current_period_start=datetime.now(timezone.utc),
         current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
+        auto_renew=payload.auto_renew,
     )
     db.add(subscription)
     db.flush()  # нужен subscription.id для idempotence + return_url
@@ -145,6 +153,7 @@ def create_checkout(
             metadata=metadata,
             receipt=receipt,
             idempotence_key=str(subscription.id),
+            save_payment_method=payload.auto_renew,
         )
     except YooKassaError as e:
         db.rollback()
@@ -254,6 +263,30 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
     if not org:
         raise HTTPException(status_code=404, detail="Организация не найдена")
 
+    # Кто «актор» для ActionLog (UUID, not null). У checkout-платежей в
+    # metadata всегда лежит валидный user_id; для автопродлений (или битой
+    # metadata) фолбэк — владелец организации. Иначе log_action упал бы на
+    # invalid-uuid и вебхук вечно отдавал бы 500 (ЮKassa ретраит бесконечно).
+    actor_id = metadata.get("user_id") or ""
+    try:
+        _uuid.UUID(actor_id)
+    except (ValueError, TypeError):
+        actor_id = ""
+    if not actor_id:
+        from app.models import Membership
+
+        owner_m = db.execute(
+            select(Membership).where(
+                Membership.organization_id == org.id, Membership.role == "owner"
+            )
+        ).scalars().first()
+        actor_id = str(owner_m.user_id) if owner_m else ""
+
+    def _log(action: str, meta: dict) -> None:
+        if actor_id:  # без валидного актора запись невозможна (UUID not null)
+            log_action(db, user_id=actor_id, organization_id=organization_id,
+                       action=action, meta=meta)
+
     payment_status = payment.get("status")  # pending / waiting_for_capture / succeeded / canceled
 
     # Возврат средств → немедленно откатываем доступ на free (не ждём конца
@@ -267,12 +300,9 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
         # cover the org, so we must NOT blindly downgrade to free. Exclude the
         # just-refunded row (its status change isn't flushed yet under autoflush=off).
         new_plan = reconcile_org_plan(db, org, exclude_sub_id=subscription.id)
-        log_action(
-            db,
-            user_id=metadata.get("user_id") or "",
-            organization_id=organization_id,
-            action="billing.refund.succeeded",
-            meta={"payment_id": payment_id, "subscription_id": subscription_id, "plan_after": new_plan.value},
+        _log(
+            "billing.refund.succeeded",
+            {"payment_id": payment_id, "subscription_id": subscription_id, "plan_after": new_plan.value},
         )
         db.commit()
         logger.info("Refund processed: org=%s plan now %s (payment=%s)",
@@ -300,15 +330,19 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
         subscription.current_period_start = now
         subscription.current_period_end = now + timedelta(days=30)
 
+        # Автопродление: если клиент дал согласие (save_payment_method при
+        # checkout) — ЮKassa вернула сохранённый способ оплаты. Запоминаем его
+        # id: именно им ночная задача renew_subscriptions делает списания.
+        pm = payment.get("payment_method") or {}
+        if pm.get("saved") and pm.get("id"):
+            subscription.payment_method_id = pm["id"]
+
         org.plan = plan_enum
         apply_plan_limits(org)
 
-        log_action(
-            db,
-            user_id=metadata.get("user_id") or "",
-            organization_id=organization_id,
-            action="billing.payment.succeeded",
-            meta={
+        _log(
+            "billing.payment.succeeded",
+            {
                 "payment_id": payment_id,
                 "plan": plan_id,
                 "amount": payment.get("amount", {}).get("value"),
@@ -323,12 +357,9 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
 
     if event_type == "payment.canceled" and payment_status == "canceled":
         subscription.status = "canceled"
-        log_action(
-            db,
-            user_id=metadata.get("user_id") or "",
-            organization_id=organization_id,
-            action="billing.payment.canceled",
-            meta={
+        _log(
+            "billing.payment.canceled",
+            {
                 "payment_id": payment_id,
                 "reason": (payment.get("cancellation_details") or {}).get("reason"),
                 "subscription_id": subscription_id,
@@ -369,4 +400,52 @@ def get_current_subscription(
         "current_period_end": subscription.current_period_end,
         "provider": "yookassa",
         "payment_id": subscription.provider_subscription_id or None,
+        "auto_renew": bool(subscription.auto_renew),
+        # Карта реально сохранена → автосписание технически возможно.
+        "payment_method_saved": bool(subscription.payment_method_id),
     }
+
+
+@router.post("/auto-renew")
+def set_auto_renew(
+    payload: AutoRenewRequest,
+    organization: Organization = Depends(get_current_org),
+    membership=Depends(require_org_roles("owner", "admin")),
+    db: Session = Depends(get_db),
+):
+    """Включить/выключить автопродление на последней активной подписке.
+
+    Выключение — обязательная возможность для рекуррентов в РФ: клиент в
+    любой момент отказывается от будущих списаний (текущий оплаченный период
+    не трогаем). Включение обратно возможно только пока сохранён способ
+    оплаты (иначе — просто нечем списывать: нужен новый checkout с галочкой).
+    """
+    subscription = db.execute(
+        select(Subscription)
+        .where(
+            Subscription.organization_id == organization.id,
+            Subscription.status == "active",
+        )
+        .order_by(Subscription.created_at.desc())
+        .limit(1)
+    ).scalars().first()
+    if not subscription:
+        raise HTTPException(status_code=404, detail="Активная подписка не найдена")
+    if payload.enabled and not subscription.payment_method_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Способ оплаты не сохранён — оплатите тариф с галочкой «Автопродление»",
+        )
+    subscription.auto_renew = payload.enabled
+    if payload.enabled:
+        # Свежая попытка с чистого листа (сбрасываем счётчик неудач).
+        subscription.renew_attempts = 0
+    log_action(
+        db,
+        user_id=str(membership.user_id),
+        organization_id=str(organization.id),
+        action="billing.auto_renew." + ("enabled" if payload.enabled else "disabled"),
+        meta={"subscription_id": str(subscription.id)},
+    )
+    db.commit()
+    return {"status": "ok", "auto_renew": subscription.auto_renew}

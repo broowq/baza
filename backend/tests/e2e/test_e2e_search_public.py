@@ -325,6 +325,59 @@ def test_search_companies_saves_into_owned_project(paid_account, new_project, db
     db.commit()
 
 
+def test_search_companies_consumes_lead_quota(paid_account, new_project, db, monkeypatch):
+    """Regression: search-and-save must COUNT against the monthly lead quota.
+
+    Before the fix the endpoint only CHECKED the quota (ensure_lead_quota) but
+    never incremented leads_used_current_month — an owner/admin could collect
+    leads for free via direct API calls, bypassing the metered collect flow."""
+    from sqlalchemy import delete, select
+    from app.models import Lead, Organization
+
+    project = new_project(paid_account)
+    pid = project["id"]
+
+    used_before = db.scalar(
+        select(Organization.leads_used_current_month).where(
+            Organization.id == paid_account.org_id
+        )
+    )
+
+    canned = [
+        {
+            "company": f"Квота {i}",
+            "domain": f"quota{i}.example",
+            "website": f"https://quota{i}.example",
+            "source": "2gis",
+            "city": "Москва",
+            "address": "",
+            "relevance_score": 50,
+        }
+        for i in (1, 2, 3)
+    ]
+    monkeypatch.setattr(search_route, "search_leads", lambda *a, **k: list(canned))
+
+    r = paid_account.post(
+        "/api/search/companies",
+        json={"query": "клиника", "limit": 10, "project_id": pid},
+    )
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 3
+
+    db.expire_all()
+    used_after = db.scalar(
+        select(Organization.leads_used_current_month).where(
+            Organization.id == paid_account.org_id
+        )
+    )
+    assert used_after == used_before + 3, (
+        f"quota must grow by the number of saved leads: {used_before} → {used_after}"
+    )
+
+    db.execute(delete(Lead).where(Lead.project_id == pid))
+    db.commit()
+
+
 # ── /api/public/landing — unauthenticated marketing stats ───────────────────
 
 def test_public_landing_no_auth_200_and_shape(client):

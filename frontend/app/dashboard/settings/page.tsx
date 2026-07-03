@@ -138,17 +138,31 @@ export default function SettingsPage() {
   );
   const [savingPassword, setSavingPassword] = useState(false);
   const [activeTab, setActiveTab] = useState<TabValue>("profile");
+  // Биллинг: последняя подписка (для блока автопродления в «Организации»).
+  const [subscription, setSubscription] = useState<{
+    status: string;
+    plan_id?: string;
+    current_period_end?: string | null;
+    auto_renew?: boolean;
+    payment_method_saved?: boolean;
+  } | null>(null);
+  const [togglingRenew, setTogglingRenew] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      const [me, org, membership] = await Promise.all([
+      const [me, org, membership, sub] = await Promise.all([
         api<{ email: string; full_name: string; is_admin: boolean }>("/auth/me").catch(() => null),
         api<Organization>("/organizations/me").catch(() => null),
         api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null),
+        api<{
+          status: string; plan_id?: string; current_period_end?: string | null;
+          auto_renew?: boolean; payment_method_saved?: boolean;
+        }>("/billing/subscription").catch(() => null),
       ]);
       if (me) setProfile(me);
       if (org) setOrganization(org);
       if (membership) setOrgRole(membership.role);
+      setSubscription(sub && sub.status !== "none" ? sub : null);
 
       if (!me && !org) {
         toast.error("Не удалось загрузить настройки. Проверьте соединение с сервером.");
@@ -182,6 +196,24 @@ export default function SettingsPage() {
   useEffect(() => {
     if (authed) void load();
   }, [authed, load]);
+
+  const toggleAutoRenew = async () => {
+    if (!subscription) return;
+    setTogglingRenew(true);
+    try {
+      const next = !subscription.auto_renew;
+      await api("/billing/auto-renew", {
+        method: "POST",
+        body: JSON.stringify({ enabled: next }),
+      });
+      setSubscription({ ...subscription, auto_renew: next });
+      toast.success(next ? "Автопродление включено" : "Автопродление отключено");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось изменить автопродление");
+    } finally {
+      setTogglingRenew(false);
+    }
+  };
 
   const createInvite = async (e: FormEvent) => {
     e.preventDefault();
@@ -495,6 +527,37 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="hairline my-6" />
+
+                {/* Автопродление — только для активной платной подписки */}
+                {subscription?.status === "active" && (orgRole === "owner" || orgRole === "admin") && (
+                  <>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="eyebrow mb-1">автопродление</div>
+                        <p className="text-[12px] t-72">
+                          {subscription.auto_renew
+                            ? subscription.payment_method_saved
+                              ? `Включено — спишем автоматически${subscription.current_period_end ? ` ${new Date(subscription.current_period_end).toLocaleDateString("ru-RU")}` : ""}.`
+                              : "Включено, но карта не сохранена — оплатите тариф заново с галочкой «Автопродление»."
+                            : "Отключено — после конца оплаченного периода организация перейдёт на Free."}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={toggleAutoRenew}
+                        disabled={togglingRenew || (!subscription.auto_renew && !subscription.payment_method_saved)}
+                        className="ghost rounded-full px-4 py-2 text-[13px] shrink-0 disabled:opacity-45"
+                      >
+                        {togglingRenew
+                          ? "Сохраняю..."
+                          : subscription.auto_renew
+                            ? "Отключить"
+                            : "Включить"}
+                      </button>
+                    </div>
+                    <div className="hairline my-6" />
+                  </>
+                )}
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-[12px] t-72">

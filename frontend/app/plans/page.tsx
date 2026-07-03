@@ -54,6 +54,9 @@ export default function PlansPage() {
   // Used to honestly mark the user's actual plan as "Текущий тариф" instead of
   // hardcoding Starter — which was wrong for anyone on Pro/Business.
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
+  // Согласие на автопродление (сохранение карты в ЮKassa + ежемесячные
+  // автосписания). По умолчанию включено; отключается тут же или в настройках.
+  const [autoRenew, setAutoRenew] = useState(true);
 
   const fetchPlans = () => {
     setLoading(true);
@@ -87,7 +90,7 @@ export default function PlansPage() {
       setRunningPlan(plan);
       const response = await api<{ checkout_url: string; message: string }>("/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, auto_renew: autoRenew }),
       });
       if (response.message) toast.success(response.message);
       // Same-tab redirect → ЮKassa возвращает на /billing/return после оплаты.
@@ -132,6 +135,22 @@ export default function PlansPage() {
               Попробовать снова
             </button>
           </div>
+        )}
+
+        {/* Auto-renew consent (только для залогиненных — анониму нечего оплачивать) */}
+        {isLoggedIn && !loading && plans.length > 0 && (
+          <label className="mt-10 flex cursor-pointer items-start justify-center gap-2.5 text-left sm:items-center">
+            <input
+              type="checkbox"
+              checked={autoRenew}
+              onChange={(e) => setAutoRenew(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-[var(--mint)] sm:mt-0"
+            />
+            <span className="text-[12px] t-72 max-w-[560px]">
+              Автопродление: согласен на сохранение способа оплаты и ежемесячные
+              списания по тарифу. Отключить можно в любой момент в настройках.
+            </span>
+          </label>
         )}
 
         {/* Plan cards (v3) */}

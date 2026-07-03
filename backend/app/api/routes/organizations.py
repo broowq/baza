@@ -166,6 +166,36 @@ def create_invite(
         )
     db.commit()
     db.refresh(invite)
+    # «Пригласить по email» должно реально приглашать: шлём письмо со ссылкой
+    # (тот же формат, что и «скопировать ссылку» в настройках). Best-effort
+    # ПОСЛЕ коммита — сбой почты не откатывает созданный инвайт, ссылку всё
+    # равно можно скопировать из UI.
+    if invite.email:
+        try:
+            from urllib.parse import urlencode
+
+            from app.tasks.email_tasks import send_email_task
+
+            settings = get_settings()
+            base_url = (settings.frontend_app_url or "https://usebaza.ru").rstrip("/")
+            qs = urlencode({"invite_token": invite.token, "email": invite.email})
+            send_email_task.delay(
+                f"Вас пригласили в «{organization.name}» на БАЗЕ",
+                (
+                    f"Вас пригласили присоединиться к организации «{organization.name}» "
+                    f"в БАЗА (роль: {invite.role}).\n\n"
+                    f"Принять приглашение: {base_url}/login?{qs}\n\n"
+                    "Ссылка действует 7 дней. Если у вас ещё нет аккаунта — "
+                    "зарегистрируйтесь с этим же email."
+                ),
+                invite.email,
+            )
+        except Exception:  # noqa: BLE001 — почта не должна ломать создание инвайта
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "invite email enqueue failed for %s", invite.email, exc_info=True
+            )
     return invite
 
 

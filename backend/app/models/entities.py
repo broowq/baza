@@ -593,4 +593,16 @@ class Subscription(Base):
     current_period_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     current_period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     provider_subscription_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    # ── Автопродление (ЮKassa recurring) ──────────────────────────────────
+    # Согласие на автосписание (чекбокс в checkout; выключается в настройках).
+    auto_renew: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Сохранённый способ оплаты ЮKassa (payment_method.id из первого платежа,
+    # когда payment_method.saved == true). Пустая строка = карты нет.
+    payment_method_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    # Счётчик неудачных попыток автосписания (ретраим до 3, потом сдаёмся —
+    # подписку добьёт ночной downgrade_expired_subscriptions).
+    renew_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Когда отправлено письмо «подписка скоро закончится» (для тех, кто без
+    # автопродления) — чтобы не спамить его каждую ночь.
+    expiry_reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

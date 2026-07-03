@@ -61,6 +61,13 @@ celery.conf.update(
             "task": "periodic.reset_monthly_quotas",
             "schedule": crontab(minute=5, hour=0, day_of_month=1),
         },
+        # Автопродление: списываем по сохранённой карте ЗА СУТКИ до конца
+        # периода (+ напоминания тем, кто без автопродления). Обязательно
+        # РАНЬШЕ ночного downgrade — чтобы продление успело активироваться.
+        "renew-subscriptions": {
+            "task": "periodic.renew_subscriptions",
+            "schedule": crontab(minute=30, hour=1),
+        },
         # Revert entitlements when a paid subscription period lapses (nightly).
         "downgrade-expired-subscriptions": {
             "task": "periodic.downgrade_expired_subscriptions",
@@ -76,6 +83,12 @@ celery.conf.update(
         "purge-old-leads": {
             "task": "periodic.purge_old_leads",
             "schedule": crontab(minute=0, hour=4),
+        },
+        # Yandex Geosearch ToS: сырые Яндекс-данные в складе ≤30 дней. Та же
+        # ночь, сразу после purge-old-leads.
+        "purge-yandex-warehouse-ttl": {
+            "task": "periodic.purge_yandex_warehouse_ttl",
+            "schedule": crontab(minute=30, hour=4),
         },
         "health-check": {
             "task": "periodic.health_check",

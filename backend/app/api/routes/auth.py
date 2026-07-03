@@ -22,6 +22,7 @@ from app.schemas.auth import (
     PasswordChangeRequest,
     RefreshTokenRequest,
     RegisterRequest,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     TokenResponse,
     VerifyEmailRequest,
@@ -311,6 +312,41 @@ def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)):
     db.commit()
     redis_client.delete(f"verify_email:{payload.token}")
     return {"message": "Email подтвержден"}
+
+
+@router.post("/resend-verification")
+def resend_verification(payload: ResendVerificationRequest, db: Session = Depends(get_db)):
+    """Переотправка письма подтверждения email.
+
+    Без неё истёкший токен (24 ч) означал навсегда заблокированный аккаунт:
+    логин отдаёт 403 «Подтвердите email», а нового письма взять неоткуда.
+
+    Ответ ВСЕГДА одинаковый 200 — по нему нельзя выяснить, существует ли
+    email в системе (анти-enumeration, как в /forgot-password). Повторная
+    отправка не чаще раза в 60 сек (Redis-кулдаун), старые токены не
+    отзываем — просто выпускаем ещё один (все истекут по своему TTL).
+    """
+    generic = {"message": "Если аккаунт существует и не подтверждён — письмо отправлено"}
+    normalized_email = payload.email.lower().strip()
+    user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    if not user or user.email_verified or not settings.email_verification_required:
+        return generic
+    # Кулдаун: nx=True выставит ключ только если его нет; иначе — молчим.
+    if not redis_client.set(f"verify_resend:{user.id}", "1", ex=60, nx=True):
+        return generic
+    verify_token = secrets.token_urlsafe(32)
+    redis_client.setex(
+        f"verify_email:{verify_token}",
+        settings.email_verification_expire_minutes * 60,
+        str(user.id),
+    )
+    verify_link = f"{settings.frontend_app_url}/verify-email?token={verify_token}"
+    send_email_task.delay(
+        "Подтвердите email в БАЗА",
+        f"Перейдите по ссылке для подтверждения email: {verify_link}",
+        user.email,
+    )
+    return generic
 
 
 # ─────────────────────────────────────────────────────────────────────────

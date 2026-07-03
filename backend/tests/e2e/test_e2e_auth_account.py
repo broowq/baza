@@ -315,6 +315,67 @@ def test_forgot_password_unknown_email_same_generic_message(client):
     assert r.json()["message"] == "Если email существует, инструкция отправлена"
 
 
+# ── resend-verification (no email leak, cooldown, real token) ────────────────
+
+_GENERIC_RESEND = "Если аккаунт существует и не подтверждён — письмо отправлено"
+
+
+def test_resend_verification_unknown_email_generic(client):
+    """Unknown email → SAME generic 200 (no account enumeration)."""
+    r = client.post("/api/auth/resend-verification", json={"email": _unique_email()})
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == _GENERIC_RESEND
+
+
+def test_resend_verification_verified_user_noop_generic(make_account):
+    """Already-verified user → generic 200, no token issued."""
+    acct = make_account()
+    r = acct.client.post("/api/auth/resend-verification", json={"email": acct.email})
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == _GENERIC_RESEND
+
+
+def test_resend_verification_issues_fresh_token_with_cooldown(make_account, db, monkeypatch):
+    """Unverified user (verification flag ON) → a NEW verify_email token lands
+    in Redis pointing at the user; an immediate second call hits the 60s
+    cooldown and issues nothing new (still generic 200)."""
+    from app.api.routes import auth as auth_route
+
+    acct = make_account()
+    user = db.execute(select(User).where(User.email == acct.email)).scalar_one()
+    user.email_verified = False
+    db.commit()
+    user_id = str(user.id)
+
+    monkeypatch.setattr(auth_route.settings, "email_verification_required", True, raising=False)
+    # Clean slate: no cooldown, no stale verify tokens for this user.
+    redis_client.delete(f"verify_resend:{user_id}")
+    for key in redis_client.scan_iter("verify_email:*"):
+        if redis_client.get(key) == user_id:
+            redis_client.delete(key)
+
+    r = acct.client.post("/api/auth/resend-verification", json={"email": acct.email})
+    assert r.status_code == 200, r.text
+    assert r.json()["message"] == _GENERIC_RESEND
+
+    tokens = [k for k in redis_client.scan_iter("verify_email:*") if redis_client.get(k) == user_id]
+    assert len(tokens) == 1, "resend must store exactly one fresh verify token"
+
+    # Cooldown: the second immediate call must NOT mint another token.
+    r2 = acct.client.post("/api/auth/resend-verification", json={"email": acct.email})
+    assert r2.status_code == 200
+    tokens2 = [k for k in redis_client.scan_iter("verify_email:*") if redis_client.get(k) == user_id]
+    assert len(tokens2) == 1, "cooldown must suppress a second token within 60s"
+
+    # The fresh token actually verifies the account (full loop).
+    token_value = tokens2[0].split("verify_email:", 1)[1]
+    rv = acct.client.post("/api/auth/verify-email", json={"token": token_value})
+    assert rv.status_code == 200, rv.text
+    db.expire_all()
+    assert db.execute(select(User).where(User.email == acct.email)).scalar_one().email_verified is True
+    redis_client.delete(f"verify_resend:{user_id}")
+
+
 def test_forgot_then_reset_password_full_flow(make_account):
     """Full reset flow: forgot-password writes a token to Redis; reset-password
     with that token sets a new password that then logs in (old fails)."""

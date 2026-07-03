@@ -107,6 +107,17 @@ def search_and_save(
         saved.append(row)
 
     if saved:
+        # Учёт квоты: каждый сохранённый лид тратит месячный лимит — ровно как
+        # в основном сборе (jobs.collect_leads). Без этого владелец/админ мог
+        # прямым API-вызовом собирать лидов МИМО счётчика (утечка выручки).
+        # Строку организации блокируем, чтобы параллельный сбор не потерял
+        # инкремент на гонке read-modify-write.
+        org_locked = db.execute(
+            select(Organization)
+            .where(Organization.id == organization.id)
+            .with_for_update()
+        ).scalar_one()
+        org_locked.leads_used_current_month += len(saved)
         log_action(
             db,
             user_id=str(membership.user_id),

@@ -43,6 +43,10 @@ class VerifyEmailRequest(BaseModel):
     token: str = Field(max_length=256)
 
 
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class AuthMessageResponse(BaseModel):
     message: str
     preview_url: str | None = None

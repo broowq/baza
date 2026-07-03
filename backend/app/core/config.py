@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     bing_api_key: str = ""
     yandex_maps_api_key: str = ""
     yandex_maps_lang: str = "ru_RU"
+    # Yandex Geosearch ToS: результаты работы API нельзя хранить дольше 30 дней
+    # на обычном тарифе (см. docs/unit-economics.md). Строки склада с Яндекс-
+    # происхождением, которых не видели столько дней, зачищаются от Яндекс-данных.
+    yandex_raw_ttl_days: int = 30
     twogis_api_key: str = ""  # optional, 2GIS catalog API
     frontend_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     refresh_cookie_secure: bool = True
