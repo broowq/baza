@@ -212,8 +212,10 @@ function RegisterContent() {
                   <Link href="/terms" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     условия использования
                   </Link>
+                  {/* Оферта = договорные условия (/terms), как в футере лендинга.
+                      Раньше вела на /privacy — акцептовался не тот документ. */}
                   {" "}и{" "}
-                  <Link href="/privacy" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
+                  <Link href="/terms" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     оферту
                   </Link>.
                 </span>

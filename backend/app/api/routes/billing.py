@@ -142,19 +142,45 @@ def create_checkout(
         amount_rub=amount,
     )
 
-    try:
-        payment = client.create_payment(
+    description = (
+        f"БАЗА · {PLAN_NAMES.get(payload.plan.value, payload.plan.value)} "
+        f"· {organization.name}"
+    )
+
+    def _create(save_method: bool, idem_suffix: str = ""):
+        # idem-ключ у фолбэка ДРУГОЙ: повтор с тем же ключом ЮKassa отдаст
+        # закешированный ответ первой (отклонённой) попытки, а не новый платёж.
+        return client.create_payment(
             amount_rub=amount,
-            description=(
-                f"БАЗА · {PLAN_NAMES.get(payload.plan.value, payload.plan.value)} "
-                f"· {organization.name}"
-            ),
+            description=description,
             return_url=return_url,
             metadata=metadata,
             receipt=receipt,
-            idempotence_key=str(subscription.id),
-            save_payment_method=payload.auto_renew,
+            idempotence_key=f"{subscription.id}{idem_suffix}",
+            save_payment_method=save_method,
         )
+
+    try:
+        try:
+            payment = _create(payload.auto_renew)
+        except YooKassaError as e:
+            # У магазина ещё не включены рекурренты → ЮKassa отвергает ЛЮБОЙ
+            # платёж с save_payment_method (403 "can't make recurring
+            # payments"). Не роняем оплату: повторяем БЕЗ сохранения карты,
+            # подписка становится разовой (auto_renew=False). Как только
+            # менеджер ЮKassa включит рекурренты — фолбэк перестанет
+            # срабатывать сам собой.
+            if payload.auto_renew and "recurring" in str(e).lower():
+                logger.warning(
+                    "YooKassa: рекурренты не включены у магазина — фолбэк на разовый "
+                    "платёж (org=%s plan=%s). Попроси менеджера ЮKassa включить "
+                    "«платежи по сохранённым способам оплаты».",
+                    organization.id, payload.plan.value,
+                )
+                subscription.auto_renew = False
+                payment = _create(False, idem_suffix="-noauto")
+            else:
+                raise
     except YooKassaError as e:
         db.rollback()
         logger.error("YooKassa checkout failed for org=%s plan=%s: %s",

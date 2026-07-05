@@ -249,3 +249,62 @@ def test_webhook_stores_saved_payment_method(db, org_with_owner, monkeypatch):
     sub = db.get(Subscription, sub.id)
     assert sub.status == "active"
     assert sub.payment_method_id == "pm-from-webhook"
+
+
+def test_checkout_falls_back_when_recurring_disabled(db, org_with_owner, monkeypatch):
+    """Магазин без включённых рекуррентов: ЮKassa 403 'can't make recurring
+    payments' на save_payment_method → checkout НЕ падает, а повторяет платёж
+    без сохранения карты (auto_renew=False), с НОВЫМ idempotence-ключом.
+
+    Роут вызываем напрямую (request в теле не используется): TestClient здесь
+    ловит «Event loop is closed» от app-state, привязанного к loop'у любого
+    ранее созданного клиента в том же процессе."""
+    from types import SimpleNamespace
+
+    from app.api.routes import billing
+    from app.api.routes.billing import CheckoutRequest
+    from app.models import Membership, User
+    from app.services.yookassa import YooKassaError
+
+    org = org_with_owner
+    owner_m = db.execute(
+        select(Membership).where(Membership.organization_id == org.id)
+    ).scalar_one()
+    owner = db.get(User, owner_m.user_id)
+
+    calls: list[dict] = []
+
+    class _C:
+        def create_payment(self, **kw):
+            calls.append(kw)
+            if kw.get("save_payment_method"):
+                raise YooKassaError(
+                    'HTTP 403: {"description":"This store can\'t make recurring payments"}'
+                )
+            return {"id": "pay-fb-1", "status": "pending",
+                    "confirmation": {"confirmation_url": "https://yoomoney.example/pay"}}
+
+    monkeypatch.setattr(billing, "_get_client", lambda: _C())
+
+    resp = billing.create_checkout(
+        CheckoutRequest(plan=PlanType.team, auto_renew=True),
+        request=None,
+        organization=org,
+        membership=SimpleNamespace(user_id=owner.id),
+        user=owner,
+        db=db,
+    )
+
+    assert resp["checkout_url"] == "https://yoomoney.example/pay"
+    assert resp["status"] == "pending"
+    # Первая попытка — с сохранением, вторая — фолбэк без; ключи разные.
+    assert [c.get("save_payment_method") for c in calls] == [True, False]
+    assert calls[0]["idempotence_key"] != calls[1]["idempotence_key"]
+    # Подписка стала разовой.
+    sub = db.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org.id,
+            Subscription.plan_id == "team",
+        )
+    ).scalar_one()
+    assert sub.auto_renew is False
