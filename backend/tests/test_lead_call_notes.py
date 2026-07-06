@@ -32,7 +32,7 @@ _client = TestClient(app)
 def _no_rate_limit(monkeypatch):
     import app.main as main
 
-    monkeypatch.setattr(main, "_get_rate_limit", lambda path: None)
+    monkeypatch.setattr(main, "_get_rate_limit", lambda *a, **k: None)
 
 
 @pytest.fixture

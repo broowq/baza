@@ -63,7 +63,7 @@ def _no_rate_limit(monkeypatch):
     """Disable the rate-limit middleware (TestClient hammers register/login)."""
     import app.main as main
 
-    monkeypatch.setattr(main, "_get_rate_limit", lambda path: None, raising=False)
+    monkeypatch.setattr(main, "_get_rate_limit", lambda *a, **k: None, raising=False)
 
 
 @pytest.fixture(autouse=True)

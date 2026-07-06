@@ -51,7 +51,10 @@ _rate_limit_redis = redis.asyncio.Redis.from_url(settings.redis_url, decode_resp
 # Rate limit tiers: path prefix -> (max_requests, window_seconds)
 # In development, use very generous limits to avoid blocking during dev/testing
 _is_dev = settings.app_env == "development"
-_RATE_LIMIT_TIERS: list[tuple[str, int, int]] = [
+# Each tier: (path_prefix, max_requests, window_seconds[, methods]).
+# `methods` (optional tuple) restricts the tier to those HTTP verbs — lets us
+# throttle POST /leads/project/*/collect hard while leaving GET reads generous.
+_RATE_LIMIT_TIERS: list[tuple] = [
     ("/api/auth/login", 100 if _is_dev else 10, 60),
     ("/api/auth/register", 100 if _is_dev else 10, 60),
     ("/api/auth/forgot-password", 100 if _is_dev else 10, 60),
@@ -60,36 +63,54 @@ _RATE_LIMIT_TIERS: list[tuple[str, int, int]] = [
     # LLM-backed endpoints (Anthropic/GigaChat) — cost real money per call,
     # so tier them tightly to prevent cost-explosion DoS vectors.
     ("/api/projects/enhance-prompt", 50 if _is_dev else 5, 60),
-    # External-API-hitting endpoints (2GIS, Yandex, scraping) — limit to
-    # reasonable human rate per IP to prevent quota burn + remote site blocks.
-    ("/api/leads/project", 100 if _is_dev else 20, 60),
+    # ── Lead collection (external APIs: 2GIS/Yandex/scraping + queue) ────────
+    # ONLY the write-side collect/enrich endpoints hit external sources and burn
+    # quota, so keep THEM tight. These prefixes are more specific than
+    # "/api/leads/project", and _get_rate_limit returns the FIRST match, so they
+    # must be listed BEFORE the generic leads-read tier below.
+    # NB: collect/enrich are additionally protected by a per-project "one active
+    # job" lock + Celery rate_limit (collect 6/m, enrich 10/m) + per-org quota,
+    # so this HTTP tier is defence-in-depth, not the only guard.
+    ("/api/leads/project", 100 if _is_dev else 20, 60, ("POST",)),
+    # Read-side lead endpoints (table/stats/export/get) are plain DB reads. The
+    # leads page fires table+stats per interaction (+ polling during a live
+    # collection), so an active user легко blows a 20/min bucket — that's what
+    # threw «Слишком много запросов» at paying users just browsing their leads.
+    # Give reads the same generous budget as the rest of the API.
+    ("/api/leads/project", 1000 if _is_dev else 120, 60, ("GET",)),
     ("/api/", 1000 if _is_dev else 120, 60),
 ]
 
 
-def _get_rate_limit(path: str) -> tuple[int, int] | None:
-    for prefix, max_req, window in _RATE_LIMIT_TIERS:
-        if path.startswith(prefix):
-            return max_req, window
+def _get_rate_limit(path: str, method: str = "GET") -> tuple[int, int, str] | None:
+    """First matching tier for (path, method). Returns (max_req, window, prefix).
+
+    A tier with a `methods` filter matches only those verbs; the generic tier
+    (no filter) matches any. Order matters — method-specific tiers are listed
+    before the catch-all so e.g. POST /leads/project/*/collect is throttled
+    tighter than GET reads under the same prefix.
+    """
+    for tier in _RATE_LIMIT_TIERS:
+        prefix, max_req, window = tier[0], tier[1], tier[2]
+        methods = tier[3] if len(tier) > 3 else None
+        if path.startswith(prefix) and (methods is None or method in methods):
+            return max_req, window, prefix
     return None
 
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
-    limit = _get_rate_limit(path)
+    limit = _get_rate_limit(path, request.method)
     if limit is None:
         return await call_next(request)
 
-    max_requests, window = limit
+    max_requests, window, matched_prefix = limit
     client_ip = request.headers.get("x-real-ip", request.client.host if request.client else "unknown")
-    # Use the matched prefix for the key so all sub-paths in a tier share the bucket
-    matched_prefix = path
-    for prefix, mr, w in _RATE_LIMIT_TIERS:
-        if path.startswith(prefix) and mr == max_requests and w == window:
-            matched_prefix = prefix
-            break
-    key = f"rate_limit:{client_ip}:{matched_prefix}:{int(time.time()) // window}"
+    # Key by the matched prefix so all sub-paths in a tier share one bucket, and
+    # by method so the GET-read and POST-collect tiers under the same prefix
+    # (e.g. /api/leads/project) don't share a bucket.
+    key = f"rate_limit:{client_ip}:{matched_prefix}:{request.method}:{int(time.time()) // window}"
     try:
         pipe = _rate_limit_redis.pipeline()
         pipe.incr(key)
