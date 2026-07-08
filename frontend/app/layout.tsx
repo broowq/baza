@@ -6,6 +6,7 @@ import { Toaster } from "sonner";
 
 import "@/app/globals.css";
 import Analytics from "@/components/analytics";
+import { ChunkReloadGuard } from "@/components/chunk-reload-guard";
 import { CookieConsent } from "@/components/cookie-consent";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Navbar } from "@/components/layout/navbar";
@@ -56,6 +57,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* ThemeProvider sets the resolved theme class on <html> before paint
             (no flash); default = system, with a manual toggle in the UI. */}
         <ThemeProvider>
+          {/* Устаревший бандл после деплоя → ChunkLoadError → тихая перезагрузка,
+              чтобы почти любая кнопка не отдавала «Что-то пошло не так». */}
+          <ChunkReloadGuard />
           {/* Top hairline that fills mint-to-white as the user scrolls.
               Driven by --scroll-progress emitted by SmoothScrollProvider. */}
           <div className="scroll-progress" aria-hidden />

@@ -2,29 +2,50 @@
 
 import React, { Component, type ErrorInfo, type ReactNode } from "react";
 
+import { isChunkLoadError, reloadOnceForChunkError } from "@/lib/chunk-error";
+
 type Props = { children: ReactNode };
-type State = { hasError: boolean; error: Error | null };
+type State = { hasError: boolean; error: Error | null; reloading: boolean };
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, reloading: false };
   }
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    // Устаревший бандл после деплоя (ChunkLoadError) — не пугаем пользователя
+    // «Что-то пошло не так», а сразу показываем «Обновляем…» и перезагружаемся.
+    return { hasError: true, error, reloading: isChunkLoadError(error) };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error("[ErrorBoundary]", error, info.componentStack);
+    if (isChunkLoadError(error)) {
+      // Тихо перезагружаемся один раз ради свежего бандла. Если защита от петли
+      // сработала (только что уже перезагружались) — падаем на обычный экран
+      // ошибки, чтобы не крутить reload бесконечно.
+      const reloading = reloadOnceForChunkError();
+      if (!reloading) this.setState({ reloading: false });
+    }
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, reloading: false });
   };
 
   render() {
     if (this.state.hasError) {
+      if (this.state.reloading) {
+        return (
+          <div className="flex min-h-[60vh] items-center justify-center px-6">
+            <div className="flex items-center gap-3 text-sm text-slate-400">
+              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
+              Обновляем приложение…
+            </div>
+          </div>
+        );
+      }
       return (
         <div className="flex min-h-[60vh] items-center justify-center px-6">
           <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0E0F12] p-8 text-center shadow-sm">
