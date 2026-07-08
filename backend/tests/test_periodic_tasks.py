@@ -282,7 +282,8 @@ def test_expired_higher_tier_reconciles_to_covering_lower_tier(db):
         db.expire_all()
         org = db.get(Organization, oid)
         assert org.plan == PlanType.pro, "lapsed Team but Pro still covers → reconcile to Pro"
-        assert org.leads_limit_per_month == 7000, "limits reconciled to Pro"
+        from app.services.quota import PLAN_LIMITS
+        assert org.leads_limit_per_month == PLAN_LIMITS[PlanType.pro]["leads_per_month"], "limits reconciled to Pro"
         assert db.get(Subscription, tid).status == "expired"
         assert db.get(Subscription, pid).status == "active"
     finally:
@@ -315,7 +316,8 @@ def test_reconcile_keeps_plan_when_other_active_sub_covers(db):
         result = reconcile_org_plan(db, db.get(Organization, oid), exclude_sub_id=rid)
         db.commit()
         assert result == PlanType.pro, "another active sub covers → keep Pro"
-        assert db.get(Organization, oid).leads_limit_per_month == 7000
+        from app.services.quota import PLAN_LIMITS
+        assert db.get(Organization, oid).leads_limit_per_month == PLAN_LIMITS[PlanType.pro]["leads_per_month"]
     finally:
         db.rollback()
         db.execute(delete(Subscription).where(Subscription.id.in_([rid, aid])))

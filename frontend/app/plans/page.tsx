@@ -22,6 +22,13 @@ type PlanRow = {
 
 const EXTRA_FEATURES: Record<string, string[]> = {
   starter: ["2ГИС + SearXNG поиск", "Экспорт в CSV", "Скоринг лидов"],
+  // growth = тир «Team» (enum-значение team занято тиром Business)
+  growth: [
+    "2ГИС + Яндекс Карты + SearXNG",
+    "Экспорт в CSV",
+    "Скоринг лидов",
+    "Обогащение контактов",
+  ],
   pro: [
     "2ГИС + Яндекс Карты + SearXNG",
     "Экспорт в CSV",
@@ -50,7 +57,7 @@ export default function PlansPage() {
   const [loading, setLoading] = useState(true);
   const [runningPlan, setRunningPlan] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  // null = anonymous (no current plan); "free"/"starter"/"pro"/"team" when logged in.
+  // null = anonymous (no current plan); "free"/"starter"/"growth"/"pro"/"team" when logged in.
   // Used to honestly mark the user's actual plan as "Текущий тариф" instead of
   // hardcoding Starter — which was wrong for anyone on Pro/Business.
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
@@ -107,7 +114,8 @@ export default function PlansPage() {
       <div className="grid-lines" />
       <div className="grain" />
 
-      <div className="relative z-10 mx-auto max-w-5xl">
+      {/* max-w-6xl: 4 тира в ряд на xl — в 5xl карточкам тесно (цена переносится) */}
+      <div className="relative z-10 mx-auto max-w-6xl">
         {/* Header */}
         <div className="mb-12 sm:mb-20 text-center">
           <div className="eyebrow mb-4">тарифы</div>
@@ -153,8 +161,8 @@ export default function PlansPage() {
           </label>
         )}
 
-        {/* Plan cards (v3) */}
-        <div className="grid items-start gap-5 md:grid-cols-3 mt-12">
+        {/* Plan cards (v3): 4 тира — на десктопе в один ряд, на планшете 2×2 */}
+        <div className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-4 mt-12">
           {plans.map((plan) => {
             const key = plan.id.toLowerCase();
             const isPro = key === "pro";
@@ -186,8 +194,9 @@ export default function PlansPage() {
                   </div>
                   <div className="mono-cap mt-2">
                     {isStarter ? "для старта"
+                      : key === "growth" ? "первый шаг с Яндекс.Картами"
                       : isPro ? "для растущих команд"
-                      : "от 5 рабочих мест"}
+                      : "для отделов продаж и сетей"}
                   </div>
                 </div>
 
@@ -219,7 +228,7 @@ export default function PlansPage() {
                     <span className="b" />
                     <span>
                       {plan.users_limit}{" "}
-                      {plan.users_limit === 1 ? "пользователь" : "пользователей"}
+                      {plan.users_limit === 1 ? "пользователь" : plan.users_limit < 5 ? "пользователя" : "пользователей"}
                     </span>
                   </div>
                   {extras.map((feat) => (

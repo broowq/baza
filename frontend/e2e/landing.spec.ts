@@ -33,11 +33,10 @@ test.describe("Landing Page", () => {
     await expect(page.getByText("Экспортируйте")).toBeVisible();
   });
 
-  test("should display pricing section with 3 plans", async ({ page }) => {
-    await page.evaluate(() => document.querySelector("#pricing")?.scrollIntoView());
-    await expect(page.getByText("Starter").first()).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("2 900 ₽")).toBeVisible();
-    await expect(page.getByText("7 900 ₽")).toBeVisible();
+  test("should mention the entry price (тарифы от 4 900)", async ({ page }) => {
+    // Лендинг v2 не содержит секции #pricing — тарифная сетка живёт на /plans;
+    // на лендинге цена входа упоминается текстом «тарифы от 4 900 ₽/мес».
+    await expect(page.getByText("4 900 ₽/мес").first()).toBeVisible({ timeout: 5000 });
   });
 
   test("should display FAQ section", async ({ page }) => {

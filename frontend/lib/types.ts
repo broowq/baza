@@ -1,4 +1,5 @@
-export type Plan = "starter" | "pro" | "team";
+// growth = тир «Team» (enum-значение team исторически занято тиром Business)
+export type Plan = "free" | "starter" | "growth" | "pro" | "team";
 
 export type Organization = {
   id: string;

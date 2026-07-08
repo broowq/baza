@@ -259,6 +259,9 @@ def update_org_plan(
         raise HTTPException(status_code=400, detail=f"Неверный тариф: {payload.plan}")
 
     org.plan = new_plan
+    # Grandfather-кап пилотов (yandex_requests_cap_override) применяется
+    # внутри apply_plan_limits; персональные обещания правятся прямым
+    # UPDATE колонки override, а не через грант плана.
     apply_plan_limits(org)
     db.commit()
     return {"message": f"Тариф изменён на {new_plan.value}"}

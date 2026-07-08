@@ -23,6 +23,10 @@ from app.db.base import Base
 class PlanType(str, enum.Enum):
     free = "free"
     starter = "starter"
+    # Исторический казус имён: enum-значение `team` занято тиром Business с
+    # первых миграций, поэтому средний тир «Team» живёт под значением `growth`.
+    # Отображаемые имена — в plans.PLAN_NAMES (growth → «Team», team → «Business»).
+    growth = "growth"
     pro = "pro"
     team = "team"
 
@@ -84,6 +88,17 @@ class Organization(Base):
     )
     yandex_requests_limit_per_month: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False, server_default="0"
+    )
+    # Персональный grandfather-кап НА PRO (сетка 2026-07-09 срезала шаблонный
+    # кап Pro 1 400 → 1 200, ранним пилотам обещано 1 400 НАВСЕГДА). NULL = нет
+    # оговорки. apply_plan_limits() применяет его ТОЛЬКО на PlanType.pro —
+    # обещание привязано к тарифу 16 900 ₽ и не переносится ни вниз (на Team
+    # 9 900 дало бы наценку ×7 — пробой ×10), ни на планы без капа. Переживает
+    # любые lapse/downgrade/повторные покупки — в отличие от прежней идеи «не
+    # срезать сохранённый лимит», которую адверсариал-ревью разнесло. Правится
+    # только прямым UPDATE (админ-эндпоинта сознательно нет).
+    yandex_requests_cap_override: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
     )
     # ── 152-ФЗ retention policy (ст. 5 ч. 7) ──────────────────────────
     # Срок хранения собранных лидов. По истечении этого срока без

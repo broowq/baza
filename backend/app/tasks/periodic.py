@@ -238,6 +238,10 @@ def renew_subscriptions() -> None:
                     if pm.get("saved") and pm.get("id"):
                         new_sub.payment_method_id = pm["id"]
                     org.plan = PlanType(sub.plan_id)
+                    # Grandfather-кап пилотов (yandex_requests_cap_override)
+                    # применяется внутри apply_plan_limits; кап админ-гранта
+                    # более высокого тира сюда НЕ переносится (ревью: раньше
+                    # безусловный preserve приваривал Business-кап к Pro).
                     apply_plan_limits(org)
                     renewed += 1
                     if owner_email:

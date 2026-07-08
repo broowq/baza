@@ -364,6 +364,8 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
             subscription.payment_method_id = pm["id"]
 
         org.plan = plan_enum
+        # Grandfather-кап пилотов (yandex_requests_cap_override) применяется
+        # внутри apply_plan_limits и переживает lapse/повторную покупку.
         apply_plan_limits(org)
 
         _log(

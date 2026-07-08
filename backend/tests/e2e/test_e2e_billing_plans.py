@@ -36,15 +36,31 @@ _NO_YOOKASSA_CREDS = not (settings.yookassa_shop_id and settings.yookassa_secret
 
 def test_plans_is_public_and_lists_paid_tiers(client):
     """`/plans` is the unauthenticated pricing page → no token required, and it
-    advertises exactly the three PAID tiers (free is never sold)."""
+    advertises exactly the four PAID tiers in ladder order (free is never sold).
+    `growth` — enum-значение тира «Team» (имя team занято тиром Business)."""
     r = client.get("/api/plans")
     assert r.status_code == 200, r.text
     plans = r.json()
     assert isinstance(plans, list)
 
     ids = [p["id"] for p in plans]
-    assert ids == ["starter", "pro", "team"], f"unexpected plan order/set: {ids}"
+    assert ids == ["starter", "growth", "pro", "team"], f"unexpected plan order/set: {ids}"
     assert "free" not in ids, "free tier must not appear in the public catalogue"
+
+
+def test_plans_prices_ascend_and_rub_per_lead_descends(client):
+    """Ценовая лестница 2026-07-09: цены строго растут, а ₽/лид с каждым тиром
+    НЕ растёт (мировой двигатель апгрейда — объём дешевеет с тиром).
+    Регресс против возврата анти-паттерна «₽/лид дороже на апгрейде»."""
+    plans = client.get("/api/plans").json()
+    prices = [p["price_monthly_rub"] for p in plans]
+    assert prices == sorted(prices) and len(set(prices)) == len(prices), prices
+    rub_per_lead = [
+        p["price_monthly_rub"] / p["leads_limit_per_month"] for p in plans
+    ]
+    for cheaper, upper in zip(rub_per_lead, rub_per_lead[1:]):
+        # небольшой допуск: Starter→Team почти плоско (0.98 → 0.99)
+        assert upper <= cheaper * 1.02, rub_per_lead
 
 
 def test_plans_limits_match_quota_and_prices(client):
@@ -53,7 +69,7 @@ def test_plans_limits_match_quota_and_prices(client):
     real billing bug (we'd promise quotas the enforcer doesn't grant)."""
     plans = {p["id"]: p for p in client.get("/api/plans").json()}
 
-    for plan in (PlanType.starter, PlanType.pro, PlanType.team):
+    for plan in (PlanType.starter, PlanType.growth, PlanType.pro, PlanType.team):
         pid = plan.value
         adv = plans[pid]
         limits = PLAN_LIMITS[plan]

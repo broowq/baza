@@ -246,13 +246,14 @@ def collect_leads_task(job_id: str) -> None:
         if (project.search_query or "").strip():
             effective_niche = project.search_query.strip()
 
-        # Yandex Maps only for Pro/Team plans (premium feature), AND only while
-        # the org has paid Yandex-request budget left this month — the per-org
-        # cap that bounds the dominant variable cost. When exhausted, collection
-        # silently falls back to the free sources (2GIS/SearXNG) for this org.
+        # Yandex Maps only for paid tiers with a Yandex cap (Team/Pro/Business —
+        # premium feature), AND only while the org has paid Yandex-request budget
+        # left this month — the per-org cap that bounds the dominant variable
+        # cost. When exhausted, collection silently falls back to the free
+        # sources (2GIS/SearXNG) for this org.
         org = db.get(Organization, job.organization_id)
         use_yandex = (
-            org.plan.value in ("pro", "team")
+            org.plan.value in ("growth", "pro", "team")
             and quota.yandex_requests_remaining(org) > 0
             if org else False
         )

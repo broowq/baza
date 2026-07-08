@@ -328,6 +328,7 @@ export default function AdminPage() {
                       <SelectContent>
                         <SelectItem value="free">Free</SelectItem>
                         <SelectItem value="starter">Starter</SelectItem>
+                        <SelectItem value="growth">Team</SelectItem>
                         <SelectItem value="pro">Pro</SelectItem>
                         <SelectItem value="team">Business</SelectItem>
                       </SelectContent>
