@@ -11,6 +11,8 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(max_length=1024)
+    # «Запомнить меня»: True → длинная сессия (30 дней), иначе 7 дней.
+    remember_me: bool = False
 
 
 class TokenResponse(BaseModel):

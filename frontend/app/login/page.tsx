@@ -23,6 +23,7 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -37,7 +38,7 @@ function LoginContent() {
     try {
       const data = await api<{ access_token: string }>("/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, remember_me: rememberMe }),
       });
       setToken(data.access_token);
 
@@ -132,6 +133,19 @@ function LoginContent() {
                 </button>
               </div>
             </div>
+
+            <label className="flex items-center gap-2.5 cursor-pointer select-none -mt-1">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="size-4 shrink-0 accent-[var(--mint)]"
+              />
+              <span className="text-[12.5px] t-72">
+                Запомнить меня
+                <span className="t-40"> — не выходить 30 дней</span>
+              </span>
+            </label>
 
             {formError && (
               <div role="alert" aria-live="assertive" className="panel-flat px-3 py-2.5 text-[12px]" style={{ color: "var(--rose)" }}>

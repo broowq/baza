@@ -12,7 +12,8 @@ class Settings(BaseSettings):
     api_port: int = 8000
     secret_key: str = "change-me-super-secret"  # Validated at startup in main.py
     access_token_expire_minutes: int = 30
-    refresh_token_expire_minutes: int = 10080
+    refresh_token_expire_minutes: int = 10080  # 7 дней — сессия без «Запомнить меня»
+    refresh_token_remember_expire_minutes: int = 43200  # 30 дней — с «Запомнить меня»
     database_url: str = "postgresql+psycopg2://lead:lead@localhost:5433/lead"
     redis_url: str = "redis://localhost:6379/0"
     celery_broker_url: str = "redis://localhost:6379/1"

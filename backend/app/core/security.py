@@ -29,12 +29,20 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 
-def create_refresh_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_refresh_token(
+    subject: str, expires_delta: timedelta | None = None, *, remember: bool = False
+) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.refresh_token_expire_minutes)
     )
-    payload: dict[str, Any] = {"sub": subject, "exp": expire, "type": "refresh", "jti": str(uuid4()), "iat": int(time.time())}
+    # `remember` survives refresh rotation: the /refresh endpoint reads it back
+    # and re-mints with the same long lifetime + cookie max-age, so «Запомнить
+    # меня» keeps the session alive for the full remember-window across refreshes.
+    payload: dict[str, Any] = {
+        "sub": subject, "exp": expire, "type": "refresh",
+        "jti": str(uuid4()), "iat": int(time.time()), "remember": bool(remember),
+    }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 

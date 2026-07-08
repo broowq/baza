@@ -165,6 +165,116 @@ def test_login_happy_path(make_account):
     assert me.json()["email"] == acct.email
 
 
+def _refresh_cookie_maxage(response) -> int | None:
+    """Max-Age refresh-cookie из Set-Cookie ответа (или None, если нет)."""
+    from app.core.config import get_settings
+    name = get_settings().refresh_cookie_name
+    for h in response.headers.get_list("set-cookie"):
+        if h.startswith(f"{name}="):
+            for part in h.split(";"):
+                p = part.strip().lower()
+                if p.startswith("max-age="):
+                    return int(p.split("=", 1)[1])
+    return None
+
+
+def test_remember_me_sets_30day_cookie_and_survives_refresh(make_account):
+    """«Запомнить меня» → refresh-cookie на 30 дней, и ротация при /refresh
+    сохраняет длинный срок (иначе через 7 дней сессия молча схлопнулась бы)."""
+    from app.core.config import get_settings
+    s = get_settings()
+    acct = make_account()
+
+    r = acct.client.post(
+        "/api/auth/login",
+        json={"email": acct.email, "password": acct.password, "remember_me": True},
+    )
+    assert r.status_code == 200, r.text
+    login_maxage = _refresh_cookie_maxage(r)
+    assert login_maxage == s.refresh_token_remember_expire_minutes * 60, login_maxage
+
+    # Рефреш по cookie должен ВЫДАТЬ такой же длинный срок (флаг пережил ротацию).
+    rr = acct.client.post("/api/auth/refresh", json={})
+    assert rr.status_code == 200, rr.text
+    assert _refresh_cookie_maxage(rr) == s.refresh_token_remember_expire_minutes * 60
+    # И новый access-токен рабочий.
+    me = acct.client.get(
+        "/api/auth/me", headers={"Authorization": f"Bearer {rr.json()['access_token']}"}
+    )
+    assert me.status_code == 200
+
+
+def test_login_without_remember_me_keeps_7day_cookie(make_account):
+    """Без «Запомнить меня» (по умолчанию False) — обычные 7 дней, и ротация тоже 7."""
+    from app.core.config import get_settings
+    s = get_settings()
+    acct = make_account()
+
+    r = acct.client.post(
+        "/api/auth/login",
+        json={"email": acct.email, "password": acct.password},  # remember_me не передан
+    )
+    assert r.status_code == 200, r.text
+    assert _refresh_cookie_maxage(r) == s.refresh_token_expire_minutes * 60
+
+    rr = acct.client.post("/api/auth/refresh", json={})
+    assert rr.status_code == 200, rr.text
+    assert _refresh_cookie_maxage(rr) == s.refresh_token_expire_minutes * 60
+
+
+def test_logout_revokes_remember_me_token_for_full_lifetime(make_account):
+    """Разлогин 30-дневной сессии («Запомнить меня») должен держать запись об
+    отзыве весь срок жизни токена, а не 7 дней — иначе тот же refresh
+    переигрывался бы на /refresh ещё ~23 дня после выхода (регресс remember-me)."""
+    from app.core.config import get_settings
+    from app.core.security import decode_token
+    s = get_settings()
+    acct = make_account()
+
+    r = acct.client.post(
+        "/api/auth/login",
+        json={"email": acct.email, "password": acct.password, "remember_me": True},
+    )
+    assert r.status_code == 200, r.text
+    refresh_token = r.json()["refresh_token"]
+    jti = decode_token(refresh_token)["jti"]
+
+    lo = acct.client.post("/api/auth/logout", json={"refresh_token": refresh_token})
+    assert lo.status_code == 200, lo.text
+
+    # Запись об отзыве держится на ~30 дней (весь срок токена), а не на 7.
+    ttl = redis_client.ttl(f"revoked_refresh:{jti}")
+    assert ttl > s.refresh_token_expire_minutes * 60, ttl
+    assert ttl <= s.refresh_token_remember_expire_minutes * 60, ttl
+
+    # И сам токен теперь отвергается на /refresh — сессия действительно убита.
+    rr = acct.client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    assert rr.status_code == 401, rr.text
+
+
+def test_logout_revocation_ttl_stays_7day_for_default_session(make_account):
+    """Без «Запомнить меня» TTL отзыва остаётся ~7 дней — длинный срок не
+    раздуваем на обычные сессии."""
+    from app.core.config import get_settings
+    from app.core.security import decode_token
+    s = get_settings()
+    acct = make_account()
+
+    r = acct.client.post(
+        "/api/auth/login", json={"email": acct.email, "password": acct.password}
+    )
+    assert r.status_code == 200, r.text
+    refresh_token = r.json()["refresh_token"]
+    jti = decode_token(refresh_token)["jti"]
+
+    lo = acct.client.post("/api/auth/logout", json={"refresh_token": refresh_token})
+    assert lo.status_code == 200, lo.text
+
+    ttl = redis_client.ttl(f"revoked_refresh:{jti}")
+    assert ttl > (s.refresh_token_expire_minutes - 60) * 60, ttl
+    assert ttl <= s.refresh_token_expire_minutes * 60, ttl
+
+
 def test_login_wrong_password_401(make_account):
     acct = make_account()
     r = acct.client.post(

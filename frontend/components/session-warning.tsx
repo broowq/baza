@@ -3,78 +3,75 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { getToken, getTokenExpirySeconds, setToken } from "@/lib/auth";
+import { clearToken, getToken, getTokenExpirySeconds, setToken } from "@/lib/auth";
 
-const WARNING_BEFORE_EXPIRY_SEC = 5 * 60; // 5 minutes
-const CHECK_INTERVAL_MS = 30_000; // check every 30s
+// Рефрешим access-токен, как только до его конца остаётся ≤ этого порога
+// (или он уже истёк — например, пока вкладка спала и интервал не тикал).
+const REFRESH_WHEN_REMAINING_SEC = 5 * 60; // 5 минут
+const CHECK_INTERVAL_MS = 30_000; // проверка каждые 30с
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 
 export function SessionWarning() {
-  const warningShown = useRef(false);
   const refreshing = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
     const check = async () => {
       const token = getToken();
-      if (!token) {
-        warningShown.current = false;
-        return;
-      }
+      if (!token) return; // не залогинен — нечего продлевать
 
       const remaining = getTokenExpirySeconds();
       if (remaining === null) return;
 
-      // Token already expired — redirect to login immediately
-      if (remaining <= 0) {
-        warningShown.current = false;
-        toast.error("Сессия истекла. Войдите снова.", {
-          duration: 5000,
-          action: {
-            label: "Войти",
-            onClick: () => router.push("/login"),
-          },
+      // Ещё далеко до конца — ничего не делаем.
+      if (remaining > REFRESH_WHEN_REMAINING_SEC || refreshing.current) return;
+
+      // Токен близок к истечению ИЛИ уже истёк (вкладка была в фоне/ноут спал).
+      // ТИХО продлеваем по httpOnly refresh-cookie. На /login кидаем ТОЛЬКО
+      // если refresh реально отвергнут (cookie истёк/отозван) — раньше здесь
+      // был баг: истёкший 30-мин access сразу выбрасывал на логин, хотя рядом
+      // лежал живой refresh на 7–30 дней.
+      refreshing.current = true;
+      try {
+        const res = await fetch(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({}),
         });
-        router.push("/login");
-        return;
-      }
-
-      // Show warning and auto-refresh when approaching expiry
-      if (remaining <= WARNING_BEFORE_EXPIRY_SEC && !warningShown.current && !refreshing.current) {
-        warningShown.current = true;
-        refreshing.current = true;
-
-        toast.warning("Сессия скоро истечёт. Обновляем токен...", { duration: 4000 });
-
-        try {
-          const res = await fetch(`${API_URL}/auth/refresh`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({}),
+        if (res.ok) {
+          const data = (await res.json()) as { access_token: string };
+          setToken(data.access_token);
+        } else if (res.status === 401) {
+          // Refresh недействителен — сессия действительно закончилась.
+          clearToken();
+          toast.error("Сессия истекла. Войдите снова.", {
+            duration: 6000,
+            action: { label: "Войти", onClick: () => router.push("/login") },
           });
-
-          if (res.ok) {
-            const data = (await res.json()) as { access_token: string };
-            setToken(data.access_token);
-            warningShown.current = false;
-            toast.success("Сессия продлена", { duration: 3000 });
-          } else {
-            toast.error("Не удалось продлить сессию. Войдите снова.", { duration: 5000 });
-          }
-        } catch {
-          toast.error("Ошибка при обновлении сессии", { duration: 5000 });
-        } finally {
-          refreshing.current = false;
+          router.push("/login");
         }
+        // Прочие коды (5xx/сеть) — НЕ разлогиниваем, повторим на след. тике.
+      } catch {
+        // Сетевая ошибка — молчим, попробуем снова через 30с.
+      } finally {
+        refreshing.current = false;
       }
     };
 
-    // Initial check
     void check();
     const interval = setInterval(() => void check(), CHECK_INTERVAL_MS);
-    return () => clearInterval(interval);
+    // Возврат на вкладку/пробуждение ноута — сразу проверить и продлить, не
+    // дожидаясь следующего 30-секундного тика.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [router]);
 
-  return null; // Invisible component, communicates via toasts
+  return null; // Невидимый компонент, общается тостами
 }

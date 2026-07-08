@@ -135,6 +135,28 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     )
 
 
+def _refresh_minutes(remember: bool) -> int:
+    """Срок жизни refresh-токена/cookie: 30 дней с «Запомнить меня», иначе 7."""
+    return (
+        settings.refresh_token_remember_expire_minutes
+        if remember
+        else settings.refresh_token_expire_minutes
+    )
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str, minutes: int) -> None:
+    """Единая установка httpOnly refresh-cookie (login + refresh идентичны)."""
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        httponly=True,
+        secure=settings.refresh_cookie_secure or settings.app_env != "development",
+        samesite=settings.refresh_cookie_samesite,
+        max_age=minutes * 60,
+        path="/",
+    )
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     normalized_email = payload.email.lower().strip()
@@ -150,18 +172,11 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     if settings.email_verification_required and not user.email_verified:
         raise HTTPException(status_code=403, detail="Подтвердите email перед входом")
     token = create_access_token(str(user.id), expires_delta=timedelta(minutes=settings.access_token_expire_minutes))
+    minutes = _refresh_minutes(payload.remember_me)
     refresh_token = create_refresh_token(
-        str(user.id), expires_delta=timedelta(minutes=settings.refresh_token_expire_minutes)
+        str(user.id), expires_delta=timedelta(minutes=minutes), remember=payload.remember_me
     )
-    response.set_cookie(
-        key=settings.refresh_cookie_name,
-        value=refresh_token,
-        httponly=True,
-        secure=settings.refresh_cookie_secure or settings.app_env != "development",
-        samesite=settings.refresh_cookie_samesite,
-        max_age=settings.refresh_token_expire_minutes * 60,
-        path="/",
-    )
+    _set_refresh_cookie(response, refresh_token, minutes)
     return TokenResponse(access_token=token, refresh_token=refresh_token)
 
 
@@ -185,19 +200,17 @@ def refresh(payload: RefreshTokenRequest, request: Request, response: Response):
     # Check user-level bulk revocation (e.g. after password change)
     if _is_refresh_token_revoked_for_user(user_id, decoded.get("iat")):
         raise HTTPException(status_code=401, detail="Refresh token отозван")
+    # Сохраняем «Запомнить меня» через ротацию: новый refresh наследует флаг и
+    # длинный срок жизни, иначе через 7 дней 30-дневная сессия молча схлопнулась бы.
+    remember = bool(decoded.get("remember"))
+    minutes = _refresh_minutes(remember)
     new_access = create_access_token(user_id, expires_delta=timedelta(minutes=settings.access_token_expire_minutes))
-    new_refresh = create_refresh_token(user_id, expires_delta=timedelta(minutes=settings.refresh_token_expire_minutes))
+    new_refresh = create_refresh_token(user_id, expires_delta=timedelta(minutes=minutes), remember=remember)
     if jti:
-        redis_client.setex(f"revoked_refresh:{jti}", settings.refresh_token_expire_minutes * 60, "1")
-    response.set_cookie(
-        key=settings.refresh_cookie_name,
-        value=new_refresh,
-        httponly=True,
-        secure=settings.refresh_cookie_secure or settings.app_env != "development",
-        samesite=settings.refresh_cookie_samesite,
-        max_age=settings.refresh_token_expire_minutes * 60,
-        path="/",
-    )
+        # TTL записи об отзыве — на весь срок старого токена, чтобы отозванный
+        # refresh нельзя было переиспользовать до его естественного истечения.
+        redis_client.setex(f"revoked_refresh:{jti}", minutes * 60, "1")
+    _set_refresh_cookie(response, new_refresh, minutes)
     return TokenResponse(access_token=new_access, refresh_token=new_refresh)
 
 
@@ -212,7 +225,12 @@ def logout(payload: RefreshTokenRequest, request: Request, response: Response):
             raise ValueError("wrong token type")
         jti = decoded.get("jti")
         if jti:
-            redis_client.setex(f"revoked_refresh:{jti}", settings.refresh_token_expire_minutes * 60, "1")
+            # TTL отзыва — на весь срок жизни токена (до 30 дней при «Запомнить
+            # меня»), как и в /refresh. Иначе разлогин 30-дневной сессии не
+            # убивал бы её: запись об отзыве истекала бы через 7 дней, а сам
+            # refresh оставался бы валиден и переигрывался на /refresh ещё ~23 дня.
+            minutes = _refresh_minutes(bool(decoded.get("remember")))
+            redis_client.setex(f"revoked_refresh:{jti}", minutes * 60, "1")
     except Exception:
         pass
     response.delete_cookie(
