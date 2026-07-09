@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_admin
 from app.db.session import get_db
 from app.models import ActionLog, CollectionJob, Lead, Membership, Organization, PlanType, Project, Subscription, User
-from app.services.quota import apply_plan_limits
+from app.services.quota import apply_plan_limits, reconcile_org_plan
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -23,6 +23,11 @@ class OrgLimitUpdate(BaseModel):
 
 class OrgPlanUpdate(BaseModel):
     plan: str
+
+
+class OrgGrantRequest(BaseModel):
+    plan: str
+    days: int = Field(ge=1, le=3650)
 
 
 class UserUpdate(BaseModel):
@@ -64,13 +69,20 @@ def get_stats(
     # inflate revenue with money nobody owes. An org only contributes once its
     # YooKassa payment succeeds (Subscription.status == "active").
     from app.api.routes.plans import PLAN_PRICES_RUB
-    active_plan_ids = db.execute(
-        select(Subscription.plan_id).where(
+    active_subs = db.execute(
+        select(Subscription.plan_id, Subscription.provider_subscription_id).where(
             Subscription.status == "active",
             Subscription.current_period_end > now,
         )
-    ).scalars().all()
-    revenue = sum(PLAN_PRICES_RUB.get(plan_id, 0) for plan_id in active_plan_ids)
+    ).all()
+    # Оплаченный MRR — только настоящие платежи ЮKassa. Ручные гранты пилотам
+    # (provider_subscription_id пустой или 'admin-grant') НЕ деньги (аудит 09.07:
+    # демо-грант до 2036 надувал MRR на 16 900 ₽ при реальном MRR 0).
+    def _is_paid(pid: str) -> bool:
+        p = (pid or "").strip().lower()
+        return bool(p) and not p.startswith("admin") and not p.startswith("manual")
+    revenue = sum(PLAN_PRICES_RUB.get(pl, 0) for pl, pid in active_subs if _is_paid(pid))
+    granted_active = sum(1 for _, pid in active_subs if not _is_paid(pid))
 
     # Plan distribution
     plan_dist = {}
@@ -94,7 +106,8 @@ def get_stats(
             "leads_today": leads_today,
             "leads_week": leads_week,
         },
-        "revenue_monthly_rub": revenue,
+        "revenue_monthly_rub": revenue,          # только оплаченные подписки
+        "granted_active": granted_active,        # активных грантов/пилотов
         "plan_distribution": plan_dist,
     }
 
@@ -193,6 +206,8 @@ def list_organizations(
         .scalars().all()
     )
 
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=7)
     result = []
     for o in orgs:
         members_count = db.scalar(select(func.count(Membership.id)).where(Membership.organization_id == o.id)) or 0
@@ -201,10 +216,40 @@ def list_organizations(
         ) or 0
         leads_count = db.scalar(select(func.count(Lead.id)).where(Lead.organization_id == o.id)) or 0
 
+        # Здоровье пилота: когда последний раз запускал сбор, активность за 7д.
+        # Аудит 09.07: три пилота — весь пайплайн продаж, а их «замолкание»
+        # (ТЕХНОКОМПЛЕКТ отвалился в день окончания пилота) видно было только SQL.
+        last_job_at = db.scalar(
+            select(func.max(CollectionJob.created_at)).where(CollectionJob.organization_id == o.id)
+        )
+        jobs_7d = db.scalar(
+            select(func.count(CollectionJob.id)).where(
+                CollectionJob.organization_id == o.id, CollectionJob.created_at >= week_ago
+            )
+        ) or 0
+        leads_7d = db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.organization_id == o.id, Lead.created_at >= week_ago
+            )
+        ) or 0
+        owner = db.execute(
+            select(User.email).join(Membership, Membership.user_id == User.id)
+            .where(Membership.organization_id == o.id, Membership.role == "owner").limit(1)
+        ).scalar()
+        # Активная подписка/грант и её окончание — для «пилот кончается».
+        sub = db.execute(
+            select(Subscription).where(
+                Subscription.organization_id == o.id,
+                Subscription.status == "active",
+                Subscription.current_period_end > now,
+            ).order_by(Subscription.current_period_end.desc()).limit(1)
+        ).scalar_one_or_none()
+
         result.append({
             "id": str(o.id),
             "name": o.name,
             "plan": o.plan.value,
+            "owner_email": owner or "",
             "members_count": members_count,
             "projects_count": projects_count,
             "leads_count": leads_count,
@@ -212,6 +257,11 @@ def list_organizations(
             "users_limit": o.users_limit,
             "leads_limit_per_month": o.leads_limit_per_month,
             "leads_used_current_month": o.leads_used_current_month,
+            "last_job_at": last_job_at.isoformat() if last_job_at else None,
+            "jobs_7d": jobs_7d,
+            "leads_7d": leads_7d,
+            "sub_ends_at": sub.current_period_end.isoformat() if sub and sub.current_period_end else None,
+            "sub_is_grant": bool(sub and (sub.provider_subscription_id or "").lower().startswith(("admin", "manual"))) if sub else False,
             "created_at": o.created_at.isoformat() if o.created_at else None,
         })
 
@@ -265,6 +315,60 @@ def update_org_plan(
     apply_plan_limits(org)
     db.commit()
     return {"message": f"Тариф изменён на {new_plan.value}"}
+
+
+@router.post("/organizations/{org_id}/grant")
+def grant_org_plan(
+    org_id: str,
+    payload: OrgGrantRequest,
+    _: User = Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Выдать пилоту тариф на N дней. Создаёт Subscription со сроком — тогда
+    существующие письма-напоминания и ночной downgrade_expired_subscriptions
+    заработают сами (аудит 09.07: бессрочные ручные гранты никогда не упирались
+    в paywall → пилот не конвертировался; ТЕХНОКОМПЛЕКТ отвалился молча)."""
+    try:
+        _UUID(org_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Некорректный ID")
+    org = db.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Организация не найдена")
+    try:
+        new_plan = PlanType(payload.plan)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Неверный тариф: {payload.plan}")
+    if new_plan == PlanType.free:
+        raise HTTPException(status_code=400, detail="Free не выдаётся грантом")
+
+    now = datetime.now(timezone.utc)
+    ends = now + timedelta(days=payload.days)
+    # Гасим прежние активные гранты той же орге, чтобы reconcile не путался.
+    for old_sub in db.execute(
+        select(Subscription).where(
+            Subscription.organization_id == org.id,
+            Subscription.status == "active",
+        )
+    ).scalars().all():
+        if (old_sub.provider_subscription_id or "").lower().startswith(("admin", "manual")):
+            old_sub.status = "canceled"
+    sub = Subscription(
+        organization_id=org.id,
+        plan_id=new_plan.value,
+        status="active",
+        current_period_start=now,
+        current_period_end=ends,
+        provider_subscription_id="admin-grant",
+        auto_renew=False,
+    )
+    db.add(sub)
+    db.flush()
+    # reconcile выберет ВЫСШИЙ из активных планов (грант vs уже оплаченная
+    # подписка) — грант не понизит платящего (ревью 09.07).
+    resulting = reconcile_org_plan(db, org)
+    db.commit()
+    return {"message": f"Выдан {new_plan.value} до {ends.date().isoformat()} (действует: {resulting.value})", "ends_at": ends.isoformat()}
 
 
 # ── Jobs ──

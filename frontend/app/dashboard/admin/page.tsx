@@ -23,6 +23,7 @@ type Stats = {
   totals: { users: number; organizations: number; projects: number; leads: number; jobs: number };
   recent: { users_today: number; users_week: number; users_month: number; jobs_today: number; jobs_week: number; leads_today: number; leads_week: number };
   revenue_monthly_rub: number;
+  granted_active?: number;
   plan_distribution: Record<string, number>;
 };
 
@@ -31,6 +32,8 @@ type OrgRow = {
   id: string; name: string; plan: string; members_count: number; projects_count: number;
   leads_count: number; projects_limit: number; users_limit: number;
   leads_limit_per_month: number; leads_used_current_month: number; created_at: string;
+  owner_email?: string; last_job_at?: string | null; jobs_7d?: number; leads_7d?: number;
+  sub_ends_at?: string | null; sub_is_grant?: boolean;
 };
 type JobRow = {
   id: string; project_name: string; org_name: string; status: string; kind: string;
@@ -145,6 +148,31 @@ export default function AdminPage() {
     }
   };
 
+  // Грант пилоту со сроком: Subscription с current_period_end → включает
+  // письма-напоминания и ночной downgrade (пилот дойдёт до paywall и решит).
+  const grantPlan = async (orgId: string, plan: string, days: number) => {
+    try {
+      const r = await api<{ message: string }>(`/admin/organizations/${orgId}/grant`, {
+        method: "POST", body: JSON.stringify({ plan, days }),
+      });
+      toast.success(r.message);
+      await load();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось выдать грант");
+    }
+  };
+
+  // Дней до конца гранта/подписки; <0 — истекла.
+  const daysLeft = (iso?: string | null): number | null => {
+    if (!iso) return null;
+    return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000);
+  };
+  // Пилот молчит N дней (last_job_at) — риск оттока.
+  const silentDays = (iso?: string | null): number | null => {
+    if (!iso) return null;
+    return Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  };
+
   const tabItems: { value: TabValue; label: string }[] = [
     { value: "overview", label: "Обзор" },
     { value: "users", label: "Пользователи" },
@@ -214,6 +242,7 @@ export default function AdminPage() {
               </div>
               <p className="text-[11px] mono t-48 mt-2">
                 MRR по оплаченным активным подпискам. Демо и неоплаченные тарифы не учитываются.
+                {(stats?.granted_active ?? 0) > 0 && <> · грантов/пилотов: {stats?.granted_active}</>}
               </p>
             </div>
 
@@ -316,9 +345,24 @@ export default function AdminPage() {
                 <div key={org.id} className="panel-flat p-4 space-y-3">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                      <p className="text-[14px] text-[var(--t-100)] font-medium truncate">{org.name}</p>
-                      <p className="text-[11px] mono t-48 mt-0.5">
-                        {org.members_count} участников · {org.projects_count} проектов · {org.leads_count} лидов
+                      <p className="text-[14px] text-[var(--t-100)] font-medium truncate">
+                        {org.name}
+                        {(() => {
+                          const sd = silentDays(org.last_job_at);
+                          const dl = daysLeft(org.sub_ends_at);
+                          if (org.plan !== "free" && sd !== null && sd >= 3)
+                            return <span className="ml-2 text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: "rgba(255,90,90,.14)", color: "var(--rose,#ff6b6b)" }}>молчит {sd}д</span>;
+                          if (dl !== null && dl <= 3 && dl >= 0)
+                            return <span className="ml-2 text-[10px] mono px-1.5 py-0.5 rounded" style={{ background: "rgba(255,180,60,.14)", color: "#e0a63c" }}>грант −{dl}д</span>;
+                          return null;
+                        })()}
+                      </p>
+                      <p className="text-[11px] mono t-48 mt-0.5 truncate">
+                        {org.owner_email ? org.owner_email + " · " : ""}{org.members_count} участ. · {org.projects_count} проектов · {org.leads_count} лидов
+                      </p>
+                      <p className="text-[11px] mono t-40 mt-0.5">
+                        7д: {org.jobs_7d ?? 0} сборов, {org.leads_7d ?? 0} лидов · посл. сбор: {org.last_job_at ? formatDate(org.last_job_at) : "никогда"}
+                        {org.sub_ends_at ? ` · ${org.sub_is_grant ? "грант" : "оплачено"} до ${formatDate(org.sub_ends_at)}` : ""}
                       </p>
                     </div>
                     <Select value={org.plan ?? "free"} onValueChange={(v) => changePlan(org.id, v)}>
@@ -337,6 +381,22 @@ export default function AdminPage() {
                   <p className="text-[11px] mono t-48">
                     Лиды: {org.leads_used_current_month} / {org.leads_limit_per_month} · Создана: {formatDate(org.created_at)}
                   </p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] mono t-40">Грант Pro:</span>
+                    {[14, 30, 90].map((d) => (
+                      <button key={d} onClick={() => void grantPlan(org.id, "pro", d)}
+                        className="ghost rounded-full px-2.5 py-1 text-[11px]">
+                        {d}д
+                      </button>
+                    ))}
+                    <span className="text-[10px] mono t-40 ml-2">Team:</span>
+                    {[14, 30].map((d) => (
+                      <button key={"t"+d} onClick={() => void grantPlan(org.id, "growth", d)}
+                        className="ghost rounded-full px-2.5 py-1 text-[11px]">
+                        {d}д
+                      </button>
+                    ))}
+                  </div>
                   <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
                     <input
                       className="input"
