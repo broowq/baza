@@ -589,6 +589,9 @@ def collect_leads_task(job_id: str) -> None:
                 source_url=_clip(c.get("source_url", ""), 400),
                 source=_clip(str(c.get("source") or ""), 24),
                 external_id=ext_id,
+                # «О компании»: реальный текст описания кандидата (2ГИС/веб/склад);
+                # сниппет НЕ дублируем — он и так уходит в notes ниже.
+                description=_clip(str(c.get("description") or ""), 2000),
                 score=base_score,
                 notes=notes_prefix + c.get("snippet", ""),
                 demo=bool(c.get("demo", False)),
@@ -922,6 +925,21 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                         logger.debug("2GIS fallback failed for %s", lead.company, exc_info=True)
             lead.contacts = contacts
             lead.contacts_json = contacts
+            # «О компании»: meta-description главной — лучший короткий ответ,
+            # чем занимается компания. Перезаписываем только пустое/куцое
+            # описание (sniппеты со сбора бывают обрубками), и дозаполняем
+            # склад — описание пригодится всем будущим выдачам этой компании.
+            site_desc = (contacts.get("site_description") or "").strip() if isinstance(contacts, dict) else ""
+            if site_desc and len(site_desc) > len(lead.description or ""):
+                lead.description = _clip(site_desc, 2000)
+                try:
+                    wh_company = company_warehouse.find_company_for_lead(
+                        db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
+                    )
+                    if wh_company is not None and not (wh_company.description or "").strip():
+                        wh_company.description = _clip(site_desc, 2000)
+                except Exception:
+                    logger.debug("warehouse description fill failed", exc_info=True)
             raw_email = (contacts.get("emails") or [""])[0] if isinstance(contacts, dict) else ""
             raw_phone = (contacts.get("phones") or [""])[0] if isinstance(contacts, dict) else ""
             raw_address = (contacts.get("addresses") or [""])[0] if isinstance(contacts, dict) else ""

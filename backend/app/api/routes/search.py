@@ -98,6 +98,7 @@ def search_and_save(
             website=website,
             domain=domain,
             address=row.get("address", "")[:300] if row.get("address") else "",
+            description=str(row.get("description") or "")[:2000],
             source_url=row.get("source_url", ""),
             demo=bool(row.get("demo", False)),
             score=row.get("relevance_score", 0),

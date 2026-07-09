@@ -1060,6 +1060,13 @@ def _compose_lead_description(lead: Lead, company) -> str:
     carry a real description (after stripping the internal "relevance=…;" /
     "demo=…;" prefixes the collector stores there), prefer that instead.
     """
+    # Приоритет — РЕАЛЬНЫЙ текст о компании, а не суррогат из метаданных:
+    # 1) lead.description (meta-description сайта с обогащения / описание
+    #    кандидата со сбора / бэкфилл со склада);
+    if (lead.description or "").strip():
+        return lead.description.strip()[:600]
+
+    # 2) сниппет, сохранённый в notes при сборе (за машинными префиксами).
     # The collector stores machine prefixes in notes ("relevance=NN; demo=true; ")
     # followed by the real snippet. Strip the prefixes to recover the snippet.
     note = (lead.notes or "")
@@ -1067,6 +1074,13 @@ def _compose_lead_description(lead: Lead, company) -> str:
     if note:
         return note[:600]
 
+    # 3) описание этой компании со склада (могло появиться после сбора —
+    #    например, из обогащения этой же компании другой организацией).
+    wh_desc = (getattr(company, "description", "") or "").strip() if company else ""
+    if wh_desc:
+        return wh_desc[:600]
+
+    # 4) суррогат из категорий/метаданных — лучше, чем пусто.
     parts: list[str] = []
     categories = list(getattr(company, "categories", []) or []) if company else []
     if categories:

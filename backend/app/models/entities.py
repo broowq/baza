@@ -213,6 +213,11 @@ class Lead(Base):
     contacts: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     contacts_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     score: Mapped[int] = mapped_column(Integer, default=0, nullable=False, index=True)
+    # «О компании»: чем занимается компания-лид. Источники по убыванию качества:
+    # meta-description с сайта (обогащение) > описание/сниппет кандидата при
+    # сборе (2ГИС/веб) > бэкфилл из склада companies (миграция). Пустая строка =
+    # описания нет; карточка тогда собирает суррогат из категорий/метаданных.
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False, server_default="")
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     # Workflow fields — sales user adds these after first contact
     tags: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)

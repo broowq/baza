@@ -2625,6 +2625,35 @@ def _discover_contact_links(html: str, root_url: str, domain: str) -> list[str]:
     return out
 
 
+_META_DESC_RE = re.compile(
+    r"<meta[^>]+(?:name=[\"\']description[\"\']|property=[\"\']og:description[\"\'])[^>]*?content=[\"\']([^\"\']{20,})[\"\']",
+    re.IGNORECASE | re.DOTALL,
+)
+_META_DESC_RE_REV = re.compile(
+    r"<meta[^>]+content=[\"\']([^\"\']{20,})[\"\'][^>]*?(?:name=[\"\']description[\"\']|property=[\"\']og:description[\"\'])",
+    re.IGNORECASE | re.DOTALL,
+)
+_TITLE_RE = re.compile(r"<title[^>]*>([^<]{10,200})</title>", re.IGNORECASE | re.DOTALL)
+
+
+def _extract_site_description(html: str) -> str:
+    """«Чем занимается компания» из HTML главной: meta description /
+    og:description (оба порядка атрибутов), фолбэк — <title>. Пустая строка,
+    если сайт ничего осмысленного о себе не говорит."""
+    if not html:
+        return ""
+    m = _META_DESC_RE.search(html) or _META_DESC_RE_REV.search(html)
+    text = m.group(1) if m else ""
+    if not text:
+        t = _TITLE_RE.search(html)
+        text = t.group(1) if t else ""
+    text = unescape(re.sub(r"\s+", " ", text)).strip()
+    # Мусорные заглушки не считаем описанием.
+    if len(text) < 20 or text.lower() in {"главная", "home", "index"}:
+        return ""
+    return text[:2000]
+
+
 def enrich_website_contacts(base_url: str) -> dict:
     parsed = urlparse(base_url if base_url.startswith(("http://", "https://")) else f"https://{base_url}")
     domain = extract_domain(base_url)
@@ -2645,6 +2674,7 @@ def enrich_website_contacts(base_url: str) -> dict:
     ]
     gathered_text = ""
     gathered_html = ""
+    home_html = ""
     pages_fetched = 0
     last_error: str | None = None
     # Fix #2 [robustness]: RobotFileParser.read() uses urllib internally with NO
@@ -2727,6 +2757,8 @@ def enrich_website_contacts(base_url: str) -> dict:
                     plain_text = TAG_RE.sub(" ", unescape(response.text))
                     gathered_text += f"\n{plain_text[:150000]}"
                     pages_fetched += 1
+                    if is_home and not home_html:
+                        home_html = response.text[:300000]
                     if is_home:
                         for absu in _discover_contact_links(response.text, root_url, domain):
                             if absu not in visited and absu not in queue:
@@ -2750,6 +2782,10 @@ def enrich_website_contacts(base_url: str) -> dict:
         )
 
     result = extract_contacts(gathered_text, gathered_html)
+    # «О компании»: meta-description главной — обычно лучший короткий ответ на
+    # вопрос «чем занимается компания». Возвращаем отдельным ключом; вызывающие
+    # без него живут как раньше (dict.get).
+    result["site_description"] = _extract_site_description(home_html)
     logger.info(
         "enrich_website_contacts: %s — %d pages, %d emails, %d phones, %d addresses%s",
         base_url,
