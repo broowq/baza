@@ -1087,6 +1087,7 @@ _SOURCE_LABELS_RU = {
     "yandex_maps": "Яндекс.Карты",
     "rusprofile": "Rusprofile",
     "searxng": "веб-поиск",
+    "yandex_search": "Яндекс.Поиск",
     "bing": "Bing",
     "maps_searxng": "картам",
     "warehouse": "базе компаний",

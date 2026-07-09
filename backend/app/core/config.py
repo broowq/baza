@@ -21,6 +21,17 @@ class Settings(BaseSettings):
     searxng_url: str = "http://localhost:58080"
     searxng_timeout_seconds: float = 12.0
     searxng_retry_count: int = 3
+    # ── Yandex Search API v2 (Yandex Cloud) — основной веб-источник ──────────
+    # Официальный API RU-выдачи (без капчи, в отличие от мёртвого SearXNG-
+    # скрейпинга). Когда оба поля заданы — веб-проход идёт через него; иначе
+    # молча падает на SearXNG. Ключ и folder_id — в server .env.production
+    # (см. docs/yandex-search-api-setup.md).
+    yandex_search_api_key: str = ""
+    yandex_search_folder_id: str = ""
+    # Регион выдачи (Yandex region id: 213=Москва, пусто=без региона —
+    # общероссийская выдача, что нам и нужно для B2B по всей стране).
+    yandex_search_region: str = ""
+    yandex_search_timeout_seconds: float = 15.0
     bing_api_key: str = ""
     yandex_maps_api_key: str = ""
     yandex_maps_lang: str = "ru_RU"

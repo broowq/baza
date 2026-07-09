@@ -1,3 +1,4 @@
+import base64
 import functools
 import hashlib
 import json as _json
@@ -172,6 +173,7 @@ _SOURCE_WEIGHTS = {
     "2gis": 52,
     "rusprofile": 45,        # legal-entity registry — high credibility but no contacts
     "maps_searxng": 40,
+    "yandex_search": 30,     # официальный Yandex Search API — надёжнее скрейпа
     "searxng": 26,
     "bing": 20,
 }
@@ -474,7 +476,7 @@ def _candidate_relevance_score(
         # niche words in the snippet. For web-search results, zero niche
         # match means the result is almost certainly off-topic (e.g. a
         # consulting firm surfacing for an "электрика" project).
-        if source in {"searxng", "bing"}:
+        if source in {"searxng", "bing", "yandex_search"}:
             score -= 32
         else:
             score -= 24
@@ -552,7 +554,7 @@ def _candidate_relevance_score(
         credibility_markers += 1
     if re.search(r"\+7[\s\-(]?\d", contact_text) or re.search(r"[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z]{2,}", contact_text):
         credibility_markers += 1
-    if source in {"searxng", "bing"} and credibility_markers < 2:
+    if source in {"searxng", "bing", "yandex_search"} and credibility_markers < 2:
         score -= 24
 
     if len(company.split()) > 12:
@@ -751,6 +753,127 @@ def _searxng_fetch_page(
                 return []
             time.sleep(0.3 * (2 ** attempt))
     return []
+
+
+# ── Yandex Search API v2 (Yandex Cloud) ─────────────────────────────────────
+# Официальная замена мёртвого SearXNG-скрейпинга: RU-выдача без капчи. Sync-
+# эндпоинт /v2/web/search сразу отдаёт {rawData: base64-XML} классической схемы
+# Яндекса. Форма запроса/ответа — по docs.yandex.cloud/search-api и рабочему
+# клиенту openclaw-yandex-search. При любой ошибке — тихий фолбэк на SearXNG.
+_YANDEX_SEARCH_URL = "https://searchapi.api.cloud.yandex.net/v2/web/search"
+_HLWORD_RE = re.compile(r"</?hlword[^>]*>", re.IGNORECASE)
+# Кап платных Yandex Search запросов на один tier-проход (ограничивает счёт на
+# разреженных нишах, где резерв веб-прохода не набирается). Обычный сбор упрётся
+# в web_reserve намного раньше — это страховка от worst-case fan-out.
+_YANDEX_SEARCH_MAX_REQ_PER_TIER = 60
+
+
+def _yandex_search_configured(settings) -> bool:
+    return bool(
+        getattr(settings, "yandex_search_api_key", "")
+        and getattr(settings, "yandex_search_folder_id", "")
+    )
+
+
+def _clean_yandex_xml_text(node) -> str:
+    """Текст XML-узла Яндекса с вычищенными <hlword>-подсветками и склейкой
+    вложенных элементов (title/passage приходят с inline-разметкой)."""
+    if node is None:
+        return ""
+    raw = "".join(node.itertext())
+    return _HLWORD_RE.sub("", raw).strip()
+
+
+class _YandexSearchError(Exception):
+    """Ошибка внутри XML-ответа Яндекса (HTTP 200 + <error code=…>). Отдельный
+    тип, чтобы диспетчер откатился на SearXNG, а не тихо получил 0 сайтов."""
+
+
+def _parse_yandex_search_xml(xml_text: str) -> list[dict]:
+    """Разобрать XML Яндекса (yandexsearch>response>results>grouping>group>doc)
+    в кандидатов той же формы, что и _parse_searxng_items.
+
+    Поднимает _YandexSearchError, если Яндекс вернул ошибку ВНУТРИ XML при
+    HTTP 200 (мисконфиг folder/ключа/биллинга) — иначе веб-проход тихо
+    остался бы без единственного источника сайтов/email (ревью 09.07)."""
+    import xml.etree.ElementTree as ET
+
+    items: list[dict] = []
+    try:
+        root = ET.fromstring(xml_text)
+    except Exception:
+        logger.warning("Yandex Search: не удалось распарсить XML-ответ")
+        return items
+    err = root.find(".//error")
+    if err is not None:
+        raise _YandexSearchError(
+            f"code={err.get('code', '?')}: {(err.text or '').strip()[:200]}"
+        )
+    for doc in root.iter("doc"):
+        url_el = doc.find("url")
+        target = normalize_url((url_el.text or "").strip() if url_el is not None else "")
+        domain = extract_domain(target)
+        if not target or not is_real_domain(domain) or is_aggregator_domain(domain):
+            continue
+        title = _clean_yandex_xml_text(doc.find("title"))
+        clean_title = re.sub(r"\s*[\|–\-]\s*.*$", "", title).strip()
+        company_name = clean_title[:180] if clean_title else domain.split(".")[0].capitalize()
+        passages_el = doc.find("passages")
+        snippet = _clean_yandex_xml_text(passages_el) if passages_el is not None else ""
+        if not snippet:
+            snippet = _clean_yandex_xml_text(doc.find("headline"))
+        items.append(
+            {
+                "company": company_name,
+                "city": "",
+                "website": target,
+                "domain": domain,
+                "source_url": (url_el.text or "").strip() if url_el is not None else "",
+                "snippet": snippet[:400],
+                "demo": False,
+                "source": "yandex_search",
+            }
+        )
+    return items
+
+
+def _yandex_search_fetch_page(
+    client: httpx.Client,
+    query: str,
+    page: int,
+    settings,
+) -> list[dict]:
+    """Одна страница выдачи Yandex Search API v2. page — 1-индексирован (как у
+    SearXNG-вызова); Яндекс page 0-индексирован, конвертируем внутри."""
+    body = {
+        "query": {
+            "searchType": "SEARCH_TYPE_RU",
+            "queryText": query,
+            "familyMode": "FAMILY_MODE_NONE",
+            "page": max(0, page - 1),
+        },
+        "groupSpec": {
+            "groupMode": "GROUP_MODE_DEEP",
+            "groupsOnPage": 20,
+            "docsInGroup": 1,
+        },
+        "maxPassages": 2,
+        "l10n": "LOCALIZATION_RU",
+        "folderId": settings.yandex_search_folder_id,
+        "responseFormat": "FORMAT_XML",
+    }
+    region = (getattr(settings, "yandex_search_region", "") or "").strip()
+    if region:
+        body["region"] = region
+    headers = {"Authorization": f"Api-Key {settings.yandex_search_api_key}"}
+    resp = client.post(_YANDEX_SEARCH_URL, json=body, headers=headers,
+                       timeout=settings.yandex_search_timeout_seconds)
+    resp.raise_for_status()
+    raw = (resp.json() or {}).get("rawData", "")
+    if not raw:
+        return []
+    xml_text = base64.b64decode(raw).decode("utf-8", errors="replace")
+    return _parse_yandex_search_xml(xml_text)
 
 
 def _search_bing(query: str, limit: int) -> list[dict]:
@@ -2520,12 +2643,43 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         def _web_pass_done() -> bool:
             return _cap_full() and web_unique >= web_reserve
 
-        with httpx.Client(timeout=settings.searxng_timeout_seconds, follow_redirects=True) as client:
+        # Основной веб-источник — Yandex Search API v2 (если ключ настроен);
+        # иначе SearXNG. На первой ошибке API разово откатываемся на SearXNG,
+        # чтобы временный сбой Яндекса не оставил проход без веб-источника.
+        use_yandex_search = _yandex_search_configured(settings)
+        client_timeout = (
+            settings.yandex_search_timeout_seconds if use_yandex_search
+            else settings.searxng_timeout_seconds
+        )
+        yandex_used = use_yandex_search  # был ли Яндекс основным на старте прохода
+        yx_requests = 0                  # платные запросы Yandex Search за проход
+        with httpx.Client(timeout=client_timeout, follow_redirects=True) as client:
             for search_query in queries:
                 if _web_pass_done():
                     break
                 for page_num in range(1, 4):
-                    items = _searxng_fetch_page(client, search_query, page_num, settings)
+                    if use_yandex_search:
+                        # Кап на платные запросы: на разреженной нише резерв
+                        # веб-прохода может не набраться, и без капа fan-out
+                        # запросов (до 24 сегм.×3 стр.) сжёг бы деньги впустую.
+                        if yx_requests >= _YANDEX_SEARCH_MAX_REQ_PER_TIER:
+                            logger.info(
+                                "Yandex Search: достигнут кап %d запросов на проход — стоп",
+                                _YANDEX_SEARCH_MAX_REQ_PER_TIER,
+                            )
+                            break
+                        yx_requests += 1
+                        try:
+                            items = _yandex_search_fetch_page(client, search_query, page_num, settings)
+                        except Exception as exc:
+                            logger.warning(
+                                "Yandex Search API failed (%s) — откат на SearXNG на этот проход",
+                                type(exc).__name__,
+                            )
+                            use_yandex_search = False
+                            items = _searxng_fetch_page(client, search_query, page_num, settings)
+                    else:
+                        items = _searxng_fetch_page(client, search_query, page_num, settings)
                     if not items:
                         break
 
@@ -2544,10 +2698,21 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
                     time.sleep(0.3)
                     if _web_pass_done():
                         break
+                if use_yandex_search and yx_requests >= _YANDEX_SEARCH_MAX_REQ_PER_TIER:
+                    break
                 time.sleep(0.15)
+        # Громкий сигнал мисконфига: Яндекс был основным, ни разу не откатились,
+        # но веб-проход не дал НИ ОДНОГО сайта — почти наверняка ключ/folder/
+        # биллинг (иначе тихо теряли бы единственный источник email).
+        if yandex_used and use_yandex_search and web_unique == 0:
+            logger.warning(
+                "Yandex Search настроен, но веб-проход вернул 0 сайтов за %d запросов — "
+                "проверьте ключ/folder/биллинг (docs/yandex-search-api-setup.md)",
+                yx_requests,
+            )
         searxng_accessible = True
     except Exception:
-        logger.exception("SearXNG search failed")
+        logger.exception("web search pass failed")
 
     try:
         # Fix [web-reserve]: тот же резерв действует и для Bing-гейта.

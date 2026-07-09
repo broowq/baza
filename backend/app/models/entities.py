@@ -240,7 +240,7 @@ class Lead(Base):
     email_opt_out: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     source_url: Mapped[str] = mapped_column(String(400), default="", nullable=False)
     # Data source that originally surfaced this lead:
-    # "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng"
+    # "yandex_maps" | "2gis" | "rusprofile" | "yandex_search" | "searxng" | "bing" | "maps_searxng"
     # Empty for legacy leads imported before this field existed.
     source: Mapped[str] = mapped_column(String(24), default="", nullable=False, index=True)
     # External identifier from the source: 2GIS firm_id, rusprofile.ru entity id,
@@ -593,7 +593,7 @@ class Company(Base):
     categories: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     # Distinct niche strings this company surfaced under (across all orgs).
     niches: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
-    # Distinct source strings: '2gis','yandex_maps','rusprofile','searxng','bing'.
+    # Distinct source strings: '2gis','yandex_maps','rusprofile','yandex_search','searxng','bing'.
     sources: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     twogis_firm_id: Mapped[str] = mapped_column(String(80), default="", nullable=False, index=True)
     rusprofile_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)

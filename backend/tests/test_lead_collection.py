@@ -512,3 +512,64 @@ def test_discover_contact_links_finds_nonstandard_and_same_domain_only():
     assert "o-kompanii" in joined
     assert all("partner.com" not in l for l in links), "must stay same-domain"
     assert all("/blog" not in l for l in links), "non-contact links excluded"
+
+
+# ── Диспетчер веб-прохода: Yandex Search API v2 vs SearXNG ──────────────────
+
+def _configure_yandex_search(monkeypatch):
+    """Включить Yandex Search в кэшированных settings на время теста."""
+    s = lc.get_settings()
+    monkeypatch.setattr(s, "yandex_search_api_key", "test-key", raising=False)
+    monkeypatch.setattr(s, "yandex_search_folder_id", "test-folder", raising=False)
+    monkeypatch.setattr(s, "yandex_search_timeout_seconds", 15.0, raising=False)
+    return s
+
+
+def test_web_pass_uses_yandex_when_configured(monkeypatch):
+    """Ключ задан → веб-проход идёт через Yandex Search, не через SearXNG."""
+    _configure_yandex_search(monkeypatch)
+    map_rows = [_make_map_item(i) for i in range(200)]
+    served = iter(range(10_000))
+    yx_calls, searx_calls = [], []
+
+    def yandex_pages(client, query, page, settings):
+        yx_calls.append(query)
+        return [dict(_make_web_item(next(served)), source="yandex_search")]
+
+    def searx_pages(client, query, page, settings):
+        searx_calls.append(query)
+        return []
+
+    _patch_collection_sources(monkeypatch, map_rows=map_rows, web_pages=searx_pages)
+    monkeypatch.setattr(lc, "_yandex_search_fetch_page", yandex_pages)
+
+    result = lc._search_leads_one_tier(
+        "кейтеринг", 10, niche="кейтеринг", geography="Томск", segments=[], prompt="",
+    )
+    assert yx_calls, "Yandex Search не вызван, хотя ключ настроен"
+    assert not searx_calls, "SearXNG вызван при настроенном Yandex Search"
+    assert any(r.get("source") == "yandex_search" for r in result)
+
+
+def test_web_pass_falls_back_to_searxng_on_yandex_error(monkeypatch):
+    """Ошибка Yandex API на первом же вызове → разовый откат на SearXNG."""
+    _configure_yandex_search(monkeypatch)
+    map_rows = [_make_map_item(i) for i in range(200)]
+    served = iter(range(10_000))
+    searx_calls = []
+
+    def yandex_boom(client, query, page, settings):
+        raise RuntimeError("yandex 500")
+
+    def searx_pages(client, query, page, settings):
+        searx_calls.append(query)
+        return [_make_web_item(next(served))]
+
+    _patch_collection_sources(monkeypatch, map_rows=map_rows, web_pages=searx_pages)
+    monkeypatch.setattr(lc, "_yandex_search_fetch_page", yandex_boom)
+
+    result = lc._search_leads_one_tier(
+        "кейтеринг", 10, niche="кейтеринг", geography="Томск", segments=[], prompt="",
+    )
+    assert searx_calls, "фолбэк на SearXNG не сработал после ошибки Yandex API"
+    assert any(r.get("source") == "searxng" for r in result)
