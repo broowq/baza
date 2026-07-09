@@ -618,6 +618,31 @@ def list_jobs(
     )
 
 
+# ── Хелперы экспорта: выгрузка — витрина качества для ЛПР клиента ──────────
+# Аудит 09.07: в колонку «Сайт» уходил служебный плейсхолдер maps://2gis/…
+# (65% лидов), в заметки — префикс «relevance=57; demo=true», а CSV без BOM
+# открывался в Excel кракозябрами.
+
+_NOTES_MACHINE_PREFIX_RE = re.compile(r"^(?:relevance=\d+;\s*)?(?:demo=true;\s*)?")
+
+
+def _export_website(lead: Lead) -> str:
+    """Человеческий сайт для выгрузки: maps://2gis/{id} → ссылка на карточку
+    2ГИС, прочие maps:// (нет публичного URL) → пусто."""
+    w = (lead.website or "").strip()
+    if w.startswith("maps://2gis/"):
+        firm_id = w[len("maps://2gis/"):]
+        return f"https://2gis.ru/firm/{firm_id}" if firm_id.isdigit() else ""
+    if w.startswith("maps://"):
+        return ""
+    return w
+
+
+def _export_notes(lead: Lead) -> str:
+    """Заметка без машинных префиксов сборщика."""
+    return _NOTES_MACHINE_PREFIX_RE.sub("", lead.notes or "").strip()
+
+
 @router.get("/project/{project_id}/export")
 def export_project_csv(
     project_id: str,
@@ -634,6 +659,9 @@ def export_project_csv(
 
     def _generate_csv():
         output = io.StringIO()
+        # UTF-8 BOM: без него Excel (главный инструмент РОПа) открывает
+        # кириллицу кракозябрами. Излишен для парсеров — они BOM игнорируют.
+        output.write("\ufeff")
         writer = csv.writer(output)
         writer.writerow(
             [
@@ -642,8 +670,10 @@ def export_project_csv(
                 "website",
                 "domain",
                 "email",
+                "email_status",
                 "phone",
                 "address",
+                "description",
                 "score",
                 "status",
                 "source_url",
@@ -665,11 +695,13 @@ def export_project_csv(
                 [
                     lead.company,
                     lead.city,
-                    lead.website,
+                    _export_website(lead),
                     lead.domain or extract_domain(lead.website),
                     lead.email,
+                    lead.email_status,
                     lead.phone,
                     lead.address,
+                    (lead.description or "")[:600],
                     lead.score,
                     lead.status.value,
                     lead.source_url,
@@ -715,7 +747,8 @@ def export_project_xlsx(
 
     headers = [
         ("Компания", 40), ("Город", 18), ("Сайт", 30), ("Email", 28),
-        ("Телефон", 18), ("Адрес", 40), ("Score", 8), ("Статус", 14),
+        ("Email статус", 13), ("Телефон", 18), ("Адрес", 40),
+        ("О компании", 45), ("Score", 8), ("Статус", 14),
         ("Теги", 20), ("Последний контакт", 16), ("Напомнить", 16),
         ("Заметка", 40),
     ]
@@ -730,34 +763,42 @@ def export_project_xlsx(
 
     status_labels = {
         "new": "Новый", "contacted": "Связались",
-        "qualified": "Квалифицирован", "rejected": "Отклонён",
+        "qualified": "Квалифицирован", "proposal": "КП отправлено",
+        "won": "Сделка", "rejected": "Отклонён",
+    }
+    email_status_labels = {
+        "valid": "валиден", "no_mx": "домен мёртв",
+        "syntax": "опечатка", "skipped": "не проверен", "": "",
     }
 
     row_num = 2
     for lead in db.execute(select(Lead).where(Lead.project_id == project.id)).yield_per(500).scalars():
         ws.cell(row=row_num, column=1, value=lead.company or "")
         ws.cell(row=row_num, column=2, value=lead.city or "")
-        website_cell = ws.cell(row=row_num, column=3, value=lead.website or "")
-        if lead.website and lead.website.startswith("http"):
-            website_cell.hyperlink = lead.website
+        export_site = _export_website(lead)
+        website_cell = ws.cell(row=row_num, column=3, value=export_site)
+        if export_site.startswith("http"):
+            website_cell.hyperlink = export_site
             website_cell.font = Font(color="0000FF", underline="single")
         email_cell = ws.cell(row=row_num, column=4, value=lead.email or "")
         if lead.email:
             email_cell.hyperlink = f"mailto:{lead.email}"
             email_cell.font = Font(color="0000FF", underline="single")
-        phone_cell = ws.cell(row=row_num, column=5, value=lead.phone or "")
+        ws.cell(row=row_num, column=5, value=email_status_labels.get(lead.email_status, lead.email_status))
+        phone_cell = ws.cell(row=row_num, column=6, value=lead.phone or "")
         if lead.phone:
             phone_cell.hyperlink = f"tel:{lead.phone}"
             phone_cell.font = Font(color="0000FF", underline="single")
-        ws.cell(row=row_num, column=6, value=lead.address or "")
-        ws.cell(row=row_num, column=7, value=lead.score)
-        ws.cell(row=row_num, column=8, value=status_labels.get(lead.status.value, lead.status.value))
-        ws.cell(row=row_num, column=9, value=", ".join(lead.tags or []))
+        ws.cell(row=row_num, column=7, value=lead.address or "")
+        ws.cell(row=row_num, column=8, value=(lead.description or "")[:600])
+        ws.cell(row=row_num, column=9, value=lead.score)
+        ws.cell(row=row_num, column=10, value=status_labels.get(lead.status.value, lead.status.value))
+        ws.cell(row=row_num, column=11, value=", ".join(lead.tags or []))
         if lead.last_contacted_at:
-            ws.cell(row=row_num, column=10, value=lead.last_contacted_at.strftime("%d.%m.%Y"))
+            ws.cell(row=row_num, column=12, value=lead.last_contacted_at.strftime("%d.%m.%Y"))
         if lead.reminder_at:
-            ws.cell(row=row_num, column=11, value=lead.reminder_at.strftime("%d.%m.%Y"))
-        ws.cell(row=row_num, column=12, value=lead.notes or "")
+            ws.cell(row=row_num, column=13, value=lead.reminder_at.strftime("%d.%m.%Y"))
+        ws.cell(row=row_num, column=14, value=_export_notes(lead))
         row_num += 1
 
     # Write to in-memory buffer
@@ -1069,8 +1110,7 @@ def _compose_lead_description(lead: Lead, company) -> str:
     # 2) сниппет, сохранённый в notes при сборе (за машинными префиксами).
     # The collector stores machine prefixes in notes ("relevance=NN; demo=true; ")
     # followed by the real snippet. Strip the prefixes to recover the snippet.
-    note = (lead.notes or "")
-    note = re.sub(r"^(?:relevance=\d+;\s*)?(?:demo=true;\s*)?", "", note).strip()
+    note = _NOTES_MACHINE_PREFIX_RE.sub("", lead.notes or "").strip()
     if note:
         return note[:600]
 

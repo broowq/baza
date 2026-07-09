@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import Text as TEXT_TYPE
-from sqlalchemy import not_, or_, select
+from sqlalchemy import case, func, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Company
@@ -463,7 +463,15 @@ def search_warehouse(
                 sql_filtered = False
 
         eff_limit = max(1, limit) if sql_filtered else max(limit, 2000)
-        stmt = stmt.order_by(Company.best_score.desc(), Company.times_seen.desc()).limit(eff_limit)
+        # Contact-first: строки с телефоном/email — вперёд. Аудит 09.07: склад
+        # забивал дозы пустышками (48% лидов без контактов, live-Яндекс не
+        # запускался месяц), потому что best_score ничего не знает о контактах.
+        # best_score остаётся вторым ключом — среди контактных порядок прежний.
+        has_contact = case(
+            (or_(func.coalesce(Company.phone, "") != "", func.coalesce(Company.email, "") != ""), 1),
+            else_=0,
+        )
+        stmt = stmt.order_by(has_contact.desc(), Company.best_score.desc(), Company.times_seen.desc()).limit(eff_limit)
         rows = db.execute(stmt).scalars().all()
         return [_company_to_candidate(row) for row in rows]
     except Exception:

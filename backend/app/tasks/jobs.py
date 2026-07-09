@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
 from app.services import company_warehouse
 from app.services import quota
-from app.services.lead_collection import _NATIONWIDE_GEOS, enrich_2gis_lead, enrich_website_contacts, search_leads
+from app.services.lead_collection import _NATIONWIDE_GEOS, _get_redis, enrich_2gis_lead, enrich_website_contacts, search_leads
 from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
@@ -23,6 +23,17 @@ from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_d
 # Maximum concurrent queued/running jobs per organisation (mirrors the API guard).
 # Used by the auto-enrich step so it doesn't bypass the same cap the API enforces.
 _MAX_CONCURRENT_JOBS_PER_ORG = 3
+
+# Минимальная доля лидов с контактами в дозе. Аудит 09.07: warehouse-first
+# забивал дозу бесконтактными строками, live-поиск (единственный источник
+# телефонов) не запускался месяц, 57% июльских лидов ушли клиентам пустыми.
+# Если доля ниже — live-добор стартует ДАЖЕ при заполненной дозе, и пустышки
+# заменяются контактными live-находками.
+_DOSE_MIN_CONTACT_SHARE = 0.7
+
+
+def _candidate_has_contact(c: dict) -> bool:
+    return bool((c.get("phone") or "").strip() or (c.get("email") or "").strip())
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +344,28 @@ def collect_leads_task(job_id: str) -> None:
         #    through, then we re-select the dose from the now-seeded warehouse.
         live_count = 0
         did_live = False
-        if len(candidates) < batch_size:
+        contactful = sum(1 for c in candidates if _candidate_has_contact(c))
+        contact_deficit = bool(candidates) and contactful < int(len(candidates) * _DOSE_MIN_CONTACT_SHARE)
+        if contact_deficit:
+            logger.info(
+                "dose contact deficit: %d/%d candidates have contacts (<%d%%) — live seed will run",
+                contactful, len(candidates), int(_DOSE_MIN_CONTACT_SHARE * 100),
+            )
+        # Contact-deficit-only (доза ПОЛНА, но бедна контактами): без кулдауна
+        # это жгло бы Яндекс/LLM на КАЖДОМ сборе контакто-бедной ниши (ревью
+        # 09.07). Redis-кулдаун (тот же что у exhaustion) — не чаще раза в
+        # cooldown_h часов на проект, если прошлый live-добор не принёс контактов.
+        contact_deficit_only = contact_deficit and len(candidates) >= batch_size
+        _contact_cd_key = f"contact_live_cd:{project.id}"
+        if contact_deficit_only:
+            _r = _get_redis()
+            try:
+                if _r is not None and _r.get(_contact_cd_key):
+                    contact_deficit = False  # ещё в кулдауне — отдаём складскую дозу как есть
+                    logger.info("contact-deficit live in cooldown — delivering warehouse dose as-is")
+            except Exception:
+                pass
+        if len(candidates) < batch_size or contact_deficit:
             exhausted_at = _as_utc(project.leads_exhausted_at)
             in_cooldown = (
                 exhausted_at is not None
@@ -397,6 +429,41 @@ def collect_leads_task(job_id: str) -> None:
                 # delivered by the re-select is taken twice.
                 if len(candidates) < batch_size:
                     _take(live)
+
+                # Доза полна, но бедна контактами → заменяем пустышки на
+                # контактные live-находки (сами пустышки остаются в `chosen`,
+                # чтобы этот запуск их больше не подобрал; в склад они уже
+                # записаны и дождутся обогащения).
+                if contact_deficit:
+                    pool = [
+                        r for r in live
+                        if _candidate_has_contact(r) and _candidate_saveable(r)
+                        and (company_warehouse.candidate_key(r) or "") not in chosen
+                    ]
+                    replaced = 0
+                    for i, c in enumerate(candidates):
+                        if not pool:
+                            break
+                        if _candidate_has_contact(c):
+                            continue
+                        repl = pool.pop(0)
+                        rk = company_warehouse.candidate_key(repl)
+                        if rk:
+                            chosen.add(rk)
+                        candidates[i] = repl
+                        replaced += 1
+                    if replaced:
+                        logger.info("dose contact upgrade: replaced %d contactless candidate(s)", replaced)
+                    # Если live НЕ добавил контактов (нет контактных строк в
+                    # нише) — ставим кулдаун, чтобы следующие сборы не жгли
+                    # Яндекс/LLM впустую до истечения окна.
+                    if contact_deficit_only and replaced == 0:
+                        try:
+                            _r2 = _get_redis()
+                            if _r2 is not None:
+                                _r2.setex(_contact_cd_key, cooldown_h * 3600, "1")
+                        except Exception:
+                            pass
 
         # ─── Buyer-vs-competitor LLM filter on the assembled dose ────────
         # The only other filter_candidates_llm call lives inside search_leads
@@ -462,8 +529,10 @@ def collect_leads_task(job_id: str) -> None:
                 candidates.extend(staged[: max(0, batch_size - len(candidates))])
 
         logger.info(
-            "dosed collect: dose=%d delivered=%d (warehouse=%d, live_seed=%d, did_live=%s)",
+            "dosed collect: dose=%d delivered=%d (warehouse=%d, live_seed=%d, did_live=%s, "
+            "with_contacts=%d/%d)",
             batch_size, len(candidates), wh_used, live_count, did_live,
+            sum(1 for c in candidates if _candidate_has_contact(c)), len(candidates),
         )
         job.found_count = len(candidates)
         # Heartbeat after the (potentially slow) search + filter phase so the
@@ -927,19 +996,11 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             lead.contacts_json = contacts
             # «О компании»: meta-description главной — лучший короткий ответ,
             # чем занимается компания. Перезаписываем только пустое/куцое
-            # описание (sniппеты со сбора бывают обрубками), и дозаполняем
-            # склад — описание пригодится всем будущим выдачам этой компании.
+            # описание (сниппеты со сбора бывают обрубками). Write-back в склад
+            # — ниже, единым блоком вместе с контактами.
             site_desc = (contacts.get("site_description") or "").strip() if isinstance(contacts, dict) else ""
             if site_desc and len(site_desc) > len(lead.description or ""):
                 lead.description = _clip(site_desc, 2000)
-                try:
-                    wh_company = company_warehouse.find_company_for_lead(
-                        db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
-                    )
-                    if wh_company is not None and not (wh_company.description or "").strip():
-                        wh_company.description = _clip(site_desc, 2000)
-                except Exception:
-                    logger.debug("warehouse description fill failed", exc_info=True)
             raw_email = (contacts.get("emails") or [""])[0] if isinstance(contacts, dict) else ""
             raw_phone = (contacts.get("phones") or [""])[0] if isinstance(contacts, dict) else ""
             raw_address = (contacts.get("addresses") or [""])[0] if isinstance(contacts, dict) else ""
@@ -956,6 +1017,30 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             lead.address = _clip(raw_address, 300)
             if lead.email or lead.phone:
                 contacts_found += 1
+
+            # ── Write-back в склад: добытые обогащением контакты и описание ──
+            # накапливаются в общем активе companies (семантика fill-empty).
+            # Аудит 09.07: companies.email был 0 у всех 1661 строк при 456
+            # добытых email в лидах — актив не копился, каждый новый проект
+            # заново скрейпил те же сайты, а warehouse-first раздавал пустышки.
+            try:
+                wh_company = company_warehouse.find_company_for_lead(
+                    db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
+                )
+                if wh_company is not None:
+                    if lead.email and not (wh_company.email or "").strip():
+                        wh_company.email = lead.email
+                    if lead.phone and not (wh_company.phone or "").strip():
+                        wh_company.phone = lead.phone
+                    if lead.address and not (wh_company.address or "").strip():
+                        wh_company.address = lead.address
+                    if (lead.website and not lead.website.startswith("maps://")
+                            and not (wh_company.website or "").strip()):
+                        wh_company.website = _clip(lead.website, 300)
+                    if lead.description and not (wh_company.description or "").strip():
+                        wh_company.description = _clip(lead.description, 2000)
+            except Exception:
+                logger.debug("warehouse write-back failed", exc_info=True)
 
             # Email deliverability check — syntax + MX record lookup.
             # Cheap (1 DNS query, cached) and catches ~80% of bounces.
