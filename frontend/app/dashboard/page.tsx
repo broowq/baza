@@ -210,6 +210,10 @@ export default function DashboardPage() {
           niche: projectForm.niche,
           geography: projectForm.geography,
           segments: projectForm.segments.split(",").map((s) => s.trim()).filter(Boolean),
+          // Жёсткие исключения из enhance-ответа («только b2b» → не розница).
+          // Без этого поля бэкенд-автоэнханс не срабатывает (niche уже
+          // заменена) и ограничения пользователя терялись насовсем.
+          excluded_segments: enhanced?.excluded_segments ?? [],
         }),
       });
       setProjectForm(initialProject);
@@ -542,6 +546,17 @@ export default function DashboardPage() {
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {enhanced.target_customer_types.map((type) => (
                       <Badge key={type} variant="secondary" className="text-xs">
+                        {type}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {enhanced?.excluded_segments && enhanced.excluded_segments.length > 0 && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs t-56">Исключаем:</span>
+                    {enhanced.excluded_segments.map((type) => (
+                      <Badge key={type} variant="outline" className="text-xs line-through opacity-70">
                         {type}
                       </Badge>
                     ))}

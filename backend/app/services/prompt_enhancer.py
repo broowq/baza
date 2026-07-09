@@ -74,6 +74,63 @@ def _normalize_segments(segments: list[str]) -> list[str]:
     return out
 
 
+# Генерик-слова, не несущие смысла типа бизнеса: пересечение ТОЛЬКО по ним не
+# делает сегмент противоречащим исключению («оптовая КОМПАНИЯ» не должна гибнуть
+# от исключения «торговая КОМПАНИЯ»).
+_GENERIC_SEGMENT_LEMMAS = frozenset({
+    "компания", "предприятие", "организация", "фирма", "центр", "агентство",
+    "услуга", "сервис", "бизнес", "хозяйство", "точка", "сеть", "группа",
+    "для", "или", "и",
+})
+
+
+def _significant_lemmas(phrase: str) -> set[str]:
+    """Значимые леммы фразы: слова ≥3 символов минус генерики."""
+    out: set[str] = set()
+    for w in re.split(r"[\s\-,./]+", (phrase or "").lower().replace("ё", "е")):
+        w = w.strip("()[]:;\"'«»")
+        if len(w) < 3:
+            continue
+        lemma = _normal(w) if re.match(r"^[а-я]+$", w) else w
+        if lemma not in _GENERIC_SEGMENT_LEMMAS:
+            out.add(lemma)
+    return out
+
+
+def _filter_excluded_segments(segments: list[str], excluded: list[str]) -> list[str]:
+    """Убрать из segments то, что ПОКРЫВАЕТСЯ исключениями (subset-семантика).
+
+    LLM иногда кладёт один тип и в segments, и в excluded_segments («КФХ» туда
+    и сюда) — исключения главнее. Сегмент гибнет, если для какого-то исключения:
+      • все значимые леммы исключения входят в леммы сегмента («розничный
+        магазин» ⊆ «розничный магазин продуктов»), ИЛИ
+      • все значимые леммы сегмента входят в леммы исключения (сегмент
+        «магазин» покрыт исключением «розничный магазин»).
+    Пересечение по ОДНОЙ общей лемме сегмент НЕ убивает: «оптовый магазин» и
+    «интернет-магазин» выживают при исключении «розничный магазин» (major
+    адверсариал-ревью — валидные B2B-цели гибли от любой общей леммы). Спорные
+    кандидаты дальше добьёт LLM-фильтр, у которого исключения в промпте.
+    Генерик-слова («компания», «услуги») значимыми не считаются — иначе
+    «оптовая компания» гибла бы от «торговая компания».
+    """
+    if not excluded:
+        return segments
+    excl_sets = [ls for ls in (_significant_lemmas(e) for e in excluded) if ls]
+    if not excl_sets:
+        return segments
+
+    def _covered(seg: str) -> bool:
+        seg_lemmas = _significant_lemmas(seg)
+        if not seg_lemmas:
+            return False
+        return any(
+            es <= seg_lemmas or seg_lemmas <= es
+            for es in excl_sets
+        )
+
+    return [s for s in segments if not _covered(s)]
+
+
 # ── Smart rule-based customer mapping ──
 # Maps what someone SELLS to who would BUY it.
 # IMPORTANT: More specific multi-word phrases are prioritized (higher score per match).
@@ -537,6 +594,13 @@ def enhance_prompt(raw_prompt: str, *, organization_id: str | None = None) -> di
                 result.get("geography", ""),
                 raw_prompt,
             )
+            # 2GIS-добор мог втащить категории-сиблинги, противоречащие жёстким
+            # исключениям пользователя (соседи «оптовой базы» — розничные
+            # магазины) — фильтруем добор той же процедурой.
+            if result.get("excluded_segments"):
+                result["segments"] = _filter_excluded_segments(
+                    result["segments"], result["excluded_segments"]
+                )
             # If LLM missed OKVED (older prompt variant, or model skipped the
             # field), derive from segments using the rule-based map.
             if not result.get("okved_codes"):
@@ -558,6 +622,9 @@ def enhance_prompt(raw_prompt: str, *, organization_id: str | None = None) -> di
             result["segments"], result.get("geography", ""), raw_prompt,
         )
     result["okved_codes"] = _okved_from_segments(result.get("segments") or [])
+    # Rule-based ветка не умеет извлекать ограничения — поле присутствует пустым,
+    # чтобы вызывающий код не различал источники стратегии.
+    result.setdefault("excluded_segments", [])
     return result
 
 
@@ -1242,6 +1309,18 @@ def _try_llm_enhance(raw_prompt: str, *, organization_id: str | None = None) -> 
 
 ✅ ОБЯЗАТЕЛЬНО думать о конечной цепочке: «кому нужен мой продукт КАК ВХОД?»
 
+⚠️ ЖЁСТКИЕ ОГРАНИЧЕНИЯ ПОЛЬЗОВАТЕЛЯ (КРИТИЧНО):
+Если пользователь ЯВНО ограничивает аудиторию («только…», «нужны именно…»,
+«кроме…», «не…», «без…») — КАЖДЫЙ сегмент обязан удовлетворять ограничению.
+Извлеки такие ограничения и верни в excluded_segments типы компаний, которые
+им ПРОТИВОРЕЧАТ. Частый случай: пользователь продаёт B2B-продукт/сервис ДЛЯ
+БИЗНЕСА (софт, лидогенерация, реклама, услуги отделам продаж) и пишет «нужны
+b2b компании» — это значит: компании, которые САМИ продают другим компаниям
+и у которых есть отдел продаж. Тогда сегменты — агентства, оптовики,
+производители, дистрибьюторы, B2B-услуги; а в excluded_segments — розничный
+магазин, салон красоты, услуги для физлиц, КФХ, фермерское хозяйство, НКО,
+госучреждение, школа, больница, отель: им B2B-инструмент не продать.
+
 Пример A — продавец товара:
 - Пользователь: "Продаю кормовые добавки для животных в Томске"
 - НЕПРАВИЛЬНО: компании, которые продают кормовые добавки (конкуренты!)
@@ -1280,6 +1359,7 @@ def _try_llm_enhance(raw_prompt: str, *, organization_id: str | None = None) -> 
   "niche": "Целевая ниша КЛИЕНТОВ (не продавца!), например: животноводство, птицеводство",
   "geography": "Извлечённый регион/город или 'Россия' если не указан",
   "segments": ["конкретный тип 1", "конкретный тип 2", "...", "конкретный тип 25"],
+  "excluded_segments": ["тип компании, противоречащий ограничениям пользователя", "..."],
   "target_customer_types": ["тип клиента 1", "тип клиента 2", "..."],
   "search_queries_niche": "Ключевые слова для поиска КЛИЕНТОВ на картах (Яндекс/2ГИС)",
   "okved_codes": [
@@ -1290,11 +1370,20 @@ def _try_llm_enhance(raw_prompt: str, *, organization_id: str | None = None) -> 
 }
 
 ОБЯЗАТЕЛЬНО для segments:
-- ВЕРНИ ОТ 20 ДО 40 ОТДЕЛЬНЫХ ЗАПИСЕЙ. Меньше 20 — недостаточно.
+- ВЕРНИ ОТ 20 ДО 40 ОТДЕЛЬНЫХ ЗАПИСЕЙ. Исключение: если жёсткие ограничения
+  пользователя сужают аудиторию — верни столько, сколько РЕАЛЬНО подходит
+  (минимум 8), и НЕ добивай список неподходящими типами ради количества.
 - Каждая запись — КОНКРЕТНЫЙ тип бизнеса (например "птицефабрика", а не общее "сельское хозяйство").
 - Включай синонимы и формальные/неформальные варианты (ферма / хозяйство / комплекс / комбинат / агрохолдинг).
 - Включай узкие подвиды (молочная ферма, козья ферма, овцеферма — как РАЗНЫЕ записи).
-- Включай юридические формы клиентов (КФХ, ИП-фермер, ООО-агрохолдинг, ФГУП, ОАО).
+- Юридические формы (КФХ, ИП-фермер, ООО-агрохолдинг, ФГУП, ОАО) включай ТОЛЬКО
+  если такие организации реально покупают продукт пользователя — не как
+  заполнитель списка.
+
+ОБЯЗАТЕЛЬНО для excluded_segments:
+- Верни 0-12 типов компаний, которые ПРОТИВОРЕЧАТ явным ограничениям пользователя
+  (см. блок «ЖЁСТКИЕ ОГРАНИЧЕНИЯ» выше). Нет ограничений — верни [].
+- Никогда не помещай один и тот же тип и в segments, и в excluded_segments.
 - Если бизнес поставляет в HoReCa — добавь конкретику: ресторан, кафе, столовая, бистро,
   кофейня, бар, паб, фастфуд, доставка еды, банкетный зал, столовая при заводе…
 - Если бизнес для застройщиков — застройщик, генподрядчик, субподрядчик, СРО, проектное
@@ -1373,6 +1462,17 @@ search_queries_niche — это то, что будет искаться на к
                     product_words,
                     _extract_prompt_buyer_words(raw_prompt),
                 )
+
+        # Жёсткие исключения пользователя («только b2b», «не розница», «кроме…»):
+        # нормализуем и вычищаем из segments всё, что им противоречит — LLM
+        # иногда кладёт один тип в оба списка, исключения главнее.
+        excluded = result.get("excluded_segments")
+        if isinstance(excluded, str):
+            excluded = [e.strip() for e in excluded.split(",")]
+        excluded = _normalize_segments(excluded if isinstance(excluded, list) else [])[:12]
+        result["excluded_segments"] = excluded
+        if excluded and isinstance(result.get("segments"), list):
+            result["segments"] = _filter_excluded_segments(result["segments"], excluded)
 
         # Normalize ОКВЭД codes: validate shape, clamp confidence to [0,1].
         if isinstance(result.get("okved_codes"), list):

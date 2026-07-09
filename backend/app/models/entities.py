@@ -153,6 +153,12 @@ class Project(Base):
     niche: Mapped[str] = mapped_column(String(120), nullable=False)
     geography: Mapped[str] = mapped_column(String(120), nullable=False)
     segments: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    # Жёсткие исключения из промпта пользователя («только b2b», «не розница»,
+    # «кроме…») — типы компаний, которые НЕЛЬЗЯ приносить, даже если они
+    # формально матчатся на segments. Извлекаются энхансером при создании
+    # проекта; применяются складским отбором (NOT-клаузы), LLM-фильтром дозы
+    # и live-фильтром. Пустой список = ограничений нет.
+    excluded_segments: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     # OKVED codes of TARGET CUSTOMERS (not the seller). Extracted by LLM at
     # project creation / prompt-enhance time. List of {code, label, confidence}.
     # Phase 1: used only for UI display + future ФНС ЕГРЮЛ lookups.

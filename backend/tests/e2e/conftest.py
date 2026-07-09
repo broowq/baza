@@ -231,7 +231,10 @@ def stub_sources(monkeypatch):
 
     def fake_search_leads(query="", limit=30, *, niche="", geography="",
                           segments=None, prompt="", use_yandex=True,
-                          organization_id=None):
+                          organization_id=None, **_kw):
+        # **_kw глотает будущие kwargs search_leads (напр. excluded_segments) —
+        # стаб не должен ломаться на каждом расширении сигнатуры (уже наступали:
+        # рейт-лимит middleware, теперь excluded_segments).
         out = []
         for i in range(min(limit, state["n"])):
             dom = f"{E2E_COMPANY_PREFIX}{state['suffix']}x{i}.ru"

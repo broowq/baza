@@ -219,6 +219,12 @@ def collect_leads_task(job_id: str) -> None:
         effective_niche = project.niche
         effective_geo = project.geography
         effective_segments = list(project.segments) if project.segments else []
+        # Жёсткие исключения из промпта («только b2b» → не розница/НКО/фермы):
+        # уважаются складским отбором, LLM-фильтром дозы и live-поиском.
+        excluded_segments = [
+            e.strip() for e in (getattr(project, "excluded_segments", None) or [])
+            if e and e.strip()
+        ]
         user_prompt = project.prompt or ""
 
         if user_prompt and not (project.search_query or "").strip():
@@ -314,7 +320,8 @@ def collect_leads_task(job_id: str) -> None:
             try:
                 wh_used = _take(company_warehouse.search_warehouse(
                     db, niche=effective_niche, geography=effective_geo,
-                    segments=effective_segments, limit=batch_size,
+                    segments=effective_segments,
+                    excluded_segments=excluded_segments, limit=batch_size,
                     exclude_keys=already_keys,
                 ))
             except Exception:
@@ -347,6 +354,7 @@ def collect_leads_task(job_id: str) -> None:
                     geography=effective_geo,
                     segments=effective_segments,
                     prompt=user_prompt,
+                    excluded_segments=excluded_segments,
                     use_yandex=use_yandex,
                     organization_id=str(job.organization_id),
                 )
@@ -374,7 +382,8 @@ def collect_leads_task(job_id: str) -> None:
                     try:
                         _take(company_warehouse.search_warehouse(
                             db, niche=effective_niche, geography=effective_geo,
-                            segments=effective_segments, limit=batch_size,
+                            segments=effective_segments,
+                            excluded_segments=excluded_segments, limit=batch_size,
                             exclude_keys=chosen,
                         ))
                     except Exception:
@@ -400,7 +409,8 @@ def collect_leads_task(job_id: str) -> None:
             try:
                 kept = filter_candidates_llm(
                     candidates, effective_niche, effective_geo, effective_segments,
-                    prompt=user_prompt, organization_id=str(job.organization_id),
+                    prompt=user_prompt, excluded_segments=excluded_segments,
+                    organization_id=str(job.organization_id),
                 )
             except Exception:
                 logger.warning("dose LLM filter failed — delivering unfiltered dose", exc_info=True)
@@ -418,7 +428,8 @@ def collect_leads_task(job_id: str) -> None:
                 try:
                     rows = company_warehouse.search_warehouse(
                         db, niche=effective_niche, geography=effective_geo,
-                        segments=effective_segments, limit=batch_size,
+                        segments=effective_segments,
+                        excluded_segments=excluded_segments, limit=batch_size,
                         exclude_keys=chosen,
                     )
                 except Exception:
@@ -443,7 +454,8 @@ def collect_leads_task(job_id: str) -> None:
                 try:
                     staged = filter_candidates_llm(
                         staged, effective_niche, effective_geo, effective_segments,
-                        prompt=user_prompt, organization_id=str(job.organization_id),
+                        prompt=user_prompt, excluded_segments=excluded_segments,
+                        organization_id=str(job.organization_id),
                     )
                 except Exception:
                     logger.warning("top-up LLM filter failed — keeping unfiltered top-up", exc_info=True)

@@ -52,6 +52,7 @@ def enhance_prompt(
         niche=result.get("niche", payload.prompt[:120]),
         geography=result.get("geography", "Россия"),
         segments=result.get("segments", []),
+        excluded_segments=result.get("excluded_segments", []),
         okved_codes=result.get("okved_codes", []),
         target_customer_types=result.get("target_customer_types", []),
         search_queries_niche=result.get("search_queries_niche", ""),
@@ -98,6 +99,7 @@ def create_project(
     final_niche = payload.niche
     final_geo = payload.geography
     final_segments = payload.segments
+    final_excluded = payload.excluded_segments
     final_okved: list[dict] = []
     if payload.prompt and payload.prompt.strip() == payload.niche.strip():
         try:
@@ -110,6 +112,8 @@ def create_project(
                 final_geo = enhanced["geography"]
             if enhanced.get("segments"):
                 final_segments = enhanced["segments"]
+            if enhanced.get("excluded_segments"):
+                final_excluded = enhanced["excluded_segments"]
             if enhanced.get("project_name"):
                 final_name = enhanced["project_name"]
             if enhanced.get("okved_codes"):
@@ -131,6 +135,7 @@ def create_project(
         niche=final_niche,
         geography=final_geo,
         segments=final_segments,
+        excluded_segments=final_excluded,
         okved_codes=final_okved,
         cron_schedule=payload.cron_schedule,
         auto_collection_enabled=payload.auto_collection_enabled,

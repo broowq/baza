@@ -10,6 +10,9 @@ class ProjectCreateRequest(BaseModel):
     niche: str = Field(min_length=2, max_length=120)
     geography: str = Field(min_length=2, max_length=120)
     segments: list[str] = Field(default_factory=list)
+    # Жёсткие исключения («только b2b» → розница/НКО/госсектор и т.п.) —
+    # обычно заполняются энхансером, но можно задать и вручную.
+    excluded_segments: list[str] = Field(default_factory=list)
     cron_schedule: str = Field(default="0 9 * * 1", max_length=120)
     auto_collection_enabled: bool = False
 
@@ -18,6 +21,11 @@ class ProjectCreateRequest(BaseModel):
     def validate_segments(cls, v):
         return [s[:100] for s in (v or [])[:20]]
 
+    @field_validator('excluded_segments')
+    @classmethod
+    def validate_excluded_segments(cls, v):
+        return [s[:100] for s in (v or [])[:12]]
+
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=140)
@@ -25,6 +33,7 @@ class ProjectUpdateRequest(BaseModel):
     niche: str | None = Field(default=None, min_length=2, max_length=120)
     geography: str | None = Field(default=None, min_length=2, max_length=120)
     segments: list[str] | None = None
+    excluded_segments: list[str] | None = None
     cron_schedule: str | None = Field(default=None, max_length=120)
     auto_collection_enabled: bool | None = None
 
@@ -34,6 +43,13 @@ class ProjectUpdateRequest(BaseModel):
         if v is None:
             return v
         return [s[:100] for s in (v or [])[:20]]
+
+    @field_validator('excluded_segments')
+    @classmethod
+    def validate_excluded_segments(cls, v):
+        if v is None:
+            return v
+        return [s[:100] for s in (v or [])[:12]]
 
 
 class OkvedCode(BaseModel):
@@ -50,6 +66,7 @@ class ProjectOut(BaseModel):
     niche: str
     geography: str
     segments: list[str]
+    excluded_segments: list[str] = Field(default_factory=list)
     okved_codes: list[OkvedCode] = Field(default_factory=list)
     cron_schedule: str
     auto_collection_enabled: bool
@@ -70,6 +87,7 @@ class PromptEnhanceResponse(BaseModel):
     niche: str
     geography: str
     segments: list[str]
+    excluded_segments: list[str] = Field(default_factory=list)
     okved_codes: list[OkvedCode] = Field(default_factory=list)
     target_customer_types: list[str] = Field(default_factory=list)
     search_queries_niche: str = ""

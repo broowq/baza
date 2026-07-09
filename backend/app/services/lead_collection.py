@@ -2214,6 +2214,7 @@ def search_leads(
     geography: str = "",
     segments: list[str] | None = None,
     prompt: str = "",
+    excluded_segments: list[str] | None = None,
     use_yandex: bool = True,
     organization_id: str | None = None,
 ) -> list[dict]:
@@ -2231,7 +2232,7 @@ def search_leads(
     initial = _search_leads_one_tier(
         query, limit,
         niche=niche, geography=geography, segments=segments,
-        prompt=prompt, use_yandex=use_yandex,
+        prompt=prompt, excluded_segments=excluded_segments, use_yandex=use_yandex,
         organization_id=organization_id,
     )
     # If we already have a healthy chunk OR geography is 'Россия' (no broader
@@ -2258,7 +2259,7 @@ def search_leads(
         extra = _search_leads_one_tier(
             query, remaining,
             niche=niche, geography=tier_geo, segments=segments,
-            prompt=prompt, use_yandex=use_yandex,
+            prompt=prompt, excluded_segments=excluded_segments, use_yandex=use_yandex,
             organization_id=organization_id,
         )
         if not extra:
@@ -2287,7 +2288,7 @@ def search_leads(
     return merged[:limit]
 
 
-def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
+def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", excluded_segments: list[str] | None = None, use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -2587,7 +2588,8 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         from app.services.llm_filter import filter_candidates_llm
         ranked = filter_candidates_llm(
             ranked, effective_niche, effective_geo, effective_segments,
-            prompt=prompt, organization_id=organization_id,
+            prompt=prompt, excluded_segments=excluded_segments,
+            organization_id=organization_id,
         )
         return ranked[:limit]
     # Never generate fake/synthetic leads — return empty list so callers see

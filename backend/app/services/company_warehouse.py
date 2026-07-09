@@ -23,7 +23,7 @@ import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import Text as TEXT_TYPE
-from sqlalchemy import or_, select
+from sqlalchemy import not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Company
@@ -331,12 +331,32 @@ def _niches_contains_ci(term: str):
     return or_(*[Company.niches.contains([v]) for v in _case_variants(term)])
 
 
+_WORD_BOUNDARY_CLASS = "[^А-Яа-яЁёA-Za-z0-9]"
+
+
+def _ci_word(column, term: str):
+    """OR of word-boundary regex matches across case variants of *term*.
+
+    Для КОРОТКИХ термов (аббревиатуры «КФХ», «НКО») substring-ILIKE опасен:
+    '%нко%' матчит «стаНКОстроительный». PG-regex `~` с явными классами границ
+    (не \m/\M — те зависят от локали, а у нас C-locale) матчит только целое
+    слово; case-folding кириллицы делаем в Python через _case_variants.
+    """
+    import re as _re
+    clauses = []
+    for v in _case_variants(term):
+        pat = f"(^|{_WORD_BOUNDARY_CLASS}){_re.escape(v)}({_WORD_BOUNDARY_CLASS}|$)"
+        clauses.append(column.op("~")(pat))
+    return or_(*clauses)
+
+
 def search_warehouse(
     db: Session,
     *,
     niche: str,
     geography: str,
     segments: list[str] | None = None,
+    excluded_segments: list[str] | None = None,
     limit: int = 100,
     exclude_keys: set[str] | frozenset[str] | None = None,
 ) -> list[dict]:
@@ -384,6 +404,34 @@ def search_warehouse(
             niche_clauses.append(_ci_like(Company.categories.cast(TEXT_TYPE), seg))
         if niche_clauses:
             stmt = stmt.where(or_(*niche_clauses))
+
+        # ── excluded-segments predicate (жёсткие исключения из промпта) ──
+        # Строка, матчащаяся на исключение, не выдаётся — «КФХ, магазин» не
+        # должен приходить в проект «только b2b», даже если формально матчится
+        # на какой-то из segments. Клаузы ЯРУСНЫЕ (адверсариал-ревью):
+        #   • фраза («розничный магазин») — специфична → все колонки;
+        #   • одно слово ≥5 симв. — без description: описания упоминают
+        #     КЛИЕНТОВ компании («поставляем в розничные магазины» у валидного
+        #     оптовика), substring там убивал бы легитимные B2B-строки;
+        #   • короткое слово ≤4 («КФХ», «НКО») — только имя/категории и только
+        #     по границе слова: '%нко%' матчит «стаНКОстроительный».
+        excl_list = [e.strip() for e in (excluded_segments or []) if e and e.strip()]
+        excl_clauses = []
+        for excl in excl_list[:12]:
+            if " " in excl:
+                excl_clauses.append(_niches_contains_ci(excl))
+                excl_clauses.append(_ci_like(Company.normalized_name, excl))
+                excl_clauses.append(_ci_like(Company.description, excl))
+                excl_clauses.append(_ci_like(Company.categories.cast(TEXT_TYPE), excl))
+            elif len(excl) >= 5:
+                excl_clauses.append(_niches_contains_ci(excl))
+                excl_clauses.append(_ci_like(Company.normalized_name, excl))
+                excl_clauses.append(_ci_like(Company.categories.cast(TEXT_TYPE), excl))
+            else:
+                excl_clauses.append(_ci_word(Company.normalized_name, excl))
+                excl_clauses.append(_ci_word(Company.categories.cast(TEXT_TYPE), excl))
+        if excl_clauses:
+            stmt = stmt.where(not_(or_(*excl_clauses)))
 
         # ── geography predicate ──────────────────────────────────────────
         if geo_clean and geo_clean.lower() not in _NATIONWIDE_GEOS:

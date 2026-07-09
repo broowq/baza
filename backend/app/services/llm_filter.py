@@ -39,13 +39,25 @@ def _get_filter_redis() -> "_redis.Redis | None":
     return _redis_singleton
 
 
-def _filter_config_hash(niche: str, geography: str, segments: list[str], prompt: str) -> str:
-    canon = "|".join([
+def _filter_config_hash(
+    niche: str, geography: str, segments: list[str], prompt: str,
+    excluded_segments: list[str] | None = None,
+) -> str:
+    parts = [
         (niche or "").strip().lower(),
         (geography or "").strip().lower(),
         ",".join(sorted((s or "").strip().lower() for s in (segments or []))),
         (prompt or "").strip().lower(),
-    ])
+    ]
+    # Исключения меняют вердикты → обязаны менять ключ кэша (иначе старые
+    # «keep» без исключений протекут в проект с ограничениями). Но 5-й элемент
+    # добавляем ТОЛЬКО при непустых исключениях: для остальных проектов и
+    # промпт фильтра, и вердикты не меняются — их 7-дневный кэш валиден, и
+    # деплой не должен устраивать разовую полную инвалидацию (LLM-респенд).
+    excl = ",".join(sorted((e or "").strip().lower() for e in (excluded_segments or []) if e))
+    if excl:
+        parts.append(excl)
+    canon = "|".join(parts)
     return hashlib.sha1(canon.encode("utf-8")).hexdigest()[:16]
 
 
@@ -65,6 +77,7 @@ def filter_candidates_llm(
     segments: list[str],
     *,
     prompt: str = "",
+    excluded_segments: list[str] | None = None,
     organization_id: str | None = None,
 ) -> list[dict]:
     """Filter candidates for relevance. Uses AI if available, rule-based otherwise.
@@ -80,6 +93,7 @@ def filter_candidates_llm(
     if llm_client.is_configured():
         try:
             result = _ai_filter(candidates, niche, geography, segments, prompt,
+                                excluded_segments=excluded_segments,
                                 organization_id=organization_id)
             if result is not None:
                 return result
@@ -117,6 +131,7 @@ def filter_candidates_llm(
         result = _rule_based_competitor_filter(
             candidates, effective_prompt, niche, segments,
             synthesized_prompt=synthesized,
+            excluded_segments=excluded_segments,
         )
         logger.info(
             f"Rule-based filter: {len(candidates)} candidates -> {len(result)} kept "
@@ -143,6 +158,7 @@ def _ai_filter(
     segments: list[str],
     prompt: str,
     *,
+    excluded_segments: list[str] | None = None,
     organization_id: str | None = None,
 ) -> list[dict] | None:
     """AI-based filtering. Returns None on complete failure (all batches failed
@@ -156,7 +172,7 @@ def _ai_filter(
     results have been accumulated yet, preserving the cost-cap short-circuit
     behaviour — the caller's rule-based path then handles all candidates.
     """
-    cfg = _filter_config_hash(niche, geography, segments, prompt)
+    cfg = _filter_config_hash(niche, geography, segments, prompt, excluded_segments)
     r = _get_filter_redis()
 
     # 1. Look up cached verdicts (config + candidate identity).
@@ -197,6 +213,7 @@ def _ai_filter(
     for batch_start in range(0, len(to_classify), BATCH_SIZE):
         batch = to_classify[batch_start:batch_start + BATCH_SIZE]
         verdict = _ai_filter_batch(batch, niche, geography, segments, prompt,
+                                   excluded_segments=excluded_segments,
                                    organization_id=organization_id)
         if verdict is None:
             if batch_start == 0 and not llm_ok and not kept_ids:
@@ -207,7 +224,9 @@ def _ai_filter(
                 "AI filter batch at %d failed; rule-based fallback for this batch "
                 "(%d candidates)", batch_start, len(batch),
             )
-            for c in _rule_based_competitor_filter(batch, prompt, niche, segments):
+            for c in _rule_based_competitor_filter(
+                batch, prompt, niche, segments, excluded_segments=excluded_segments,
+            ):
                 kept_ids.add(id(c))
             continue  # never cache rule-based verdicts
         kept, verdict_complete = verdict
@@ -252,7 +271,9 @@ def _ai_filter(
 
 
 def _ai_filter_batch(
-    batch, niche, geography, segments, prompt, *, organization_id: str | None = None
+    batch, niche, geography, segments, prompt, *,
+    excluded_segments: list[str] | None = None,
+    organization_id: str | None = None,
 ) -> "tuple[list[dict], bool] | None":
     """Filter a single batch using AI.
 
@@ -283,8 +304,41 @@ def _ai_filter_batch(
 
     candidates_text = "\n".join(lines)
     segments_str = ", ".join(segments) if segments else "не указаны"
+    excluded_str = ", ".join(e for e in (excluded_segments or []) if e)
 
-    if prompt:
+    if prompt and excluded_str:
+        # Жёсткие исключения пользователя главнее списка сегментов: сегменты —
+        # лишь подсказка-расширение, а «кому НЕЛЬЗЯ продать» — прямое
+        # ограничение из промпта («только b2b» и т.п.). Без этого блока фильтр
+        # легализовал розницу инструкцией «KEEP: компании из целевых сегментов».
+        # ВАЖНО: этот усиленный текст применяется ТОЛЬКО к проектам с
+        # исключениями — глобальное ужесточение сдвинуло бы вердикты (и кэш)
+        # у всех существующих клиентов (major адверсариал-ревью).
+        filter_prompt = f"""Ты — строгий фильтр B2B лидов. Пользователь описал свой бизнес: "{prompt}"
+Мы ищем ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ — компании, которым можно ПРОДАТЬ товар/услугу.
+
+ЦЕЛЕВАЯ НИША КЛИЕНТОВ: {niche}
+ГЕОГРАФИЯ: {geography}
+ЦЕЛЕВЫЕ СЕГМЕНТЫ (подсказка, НЕ гарантия): {segments_str}
+
+ЖЁСТКИЕ ИСКЛЮЧЕНИЯ ПОЛЬЗОВАТЕЛЯ: {excluded_str}.
+ОТКЛОНЯЙ кандидата, который подпадает под исключение, ДАЖЕ если его тип есть в целевых сегментах.
+
+ГЛАВНЫЙ КРИТЕРИЙ: описание бизнеса пользователя. Если кандидату НЕЛЬЗЯ продать
+описанный продукт/услугу — REJECT, даже если тип кандидата есть в целевых сегментах.
+ОТКЛОНЯЙ (REJECT) также: конкуренты (продают то же), агрегаторы, каталоги, закрытые компании, блоги.
+СОХРАНЯЙ (KEEP): реальные потенциальные покупатели продукта пользователя.
+
+ФОРМАТ ОТВЕТА: строго JSON-объект с номерами подходящих кандидатов, без другого текста.
+Пример: {{"keep": [1, 3]}}. Если ни один не подходит: {{"keep": []}}.
+
+КАНДИДАТЫ:
+{candidates_text}
+
+JSON-ОТВЕТ:"""
+    elif prompt:
+        # Без исключений — прежний текст байт-в-байт (стабильность вердиктов
+        # и кэша для всех существующих проектов).
         filter_prompt = f"""Ты — строгий фильтр B2B лидов. Пользователь описал свой бизнес: "{prompt}"
 Мы ищем ПОТЕНЦИАЛЬНЫХ КЛИЕНТОВ — компании, которым можно ПРОДАТЬ товар/услугу.
 
@@ -303,7 +357,11 @@ def _ai_filter_batch(
 
 JSON-ОТВЕТ:"""
     else:
-        filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.
+        excluded_line = (
+            f"\nЖЁСТКИЕ ИСКЛЮЧЕНИЯ: {excluded_str} — отклоняй подпадающих под них."
+            if excluded_str else ""
+        )
+        filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.{excluded_line}
 Отклоняй: не из ниши, агрегаторы, закрытые, госучреждения. Сохраняй: реальный бизнес из ниши.
 Ответ — строго JSON-объект {{"keep": [номера подходящих]}}, например {{"keep": [1, 3]}};
 если ни один не подходит — {{"keep": []}}. Без другого текста.
@@ -627,10 +685,14 @@ def _rule_based_competitor_filter(
     segments: list[str],
     *,
     synthesized_prompt: bool = False,
+    excluded_segments: list[str] | None = None,
 ) -> list[dict]:
     """Rule-based filter — STRICT mode when LLM unavailable.
 
     Strategy (in order):
+    0. Candidate matches a user hard-exclusion term → REJECT (исключения
+       главнее сегментов: «КФХ, магазин» не пройдёт в проект «только b2b»,
+       даже если «КФХ» есть в segments)
     1. Company name contains 2+ product core terms → COMPETITOR → REJECT
     2. Explicit seller signals + product match → COMPETITOR → REJECT
     3. Multi-word segment phrase match → KEEP (strongest segment signal)
@@ -662,9 +724,35 @@ def _rule_based_competitor_filter(
         if len(w) >= 4 and w not in _STOPWORDS:
             segment_terms.add(w)
 
+    # Step 0 prep: жёсткие исключения. Многословные («услуги для физлиц»,
+    # «розничный магазин») матчим ТОЛЬКО целой фразой — разложение на слова
+    # давало термы «для»/«услуги» и убивало почти всех легитимных кандидатов
+    # (blocker адверсариал-ревью). Однословные (≥4 символов не из стоп-слов,
+    # либо 3-буквенные аббревиатуры «КФХ»/«НКО») матчим ТОЛЬКО по границе
+    # слова — голый substring ловил «нко» в «стаНКОстроительный».
+    excluded_phrases: list[str] = []
+    excluded_word_res: list["re.Pattern[str]"] = []
+    _excluded_words: set[str] = set()
+    for excl in excluded_segments or []:
+        e = (excl or "").lower().replace("ё", "е").strip().strip(",.()[]:;")
+        if not e:
+            continue
+        if " " in e:
+            excluded_phrases.append(e)
+            continue
+        if (len(e) >= 4 and e not in _STOPWORDS) or (len(e) == 3 and e.isalpha()):
+            _excluded_words.add(e)
+            excluded_word_res.append(
+                re.compile(rf"(?<![а-яеa-z0-9]){re.escape(e)}(?![а-яеa-z0-9])")
+            )
+    # Слова исключений убираем из positive segment_terms — иначе Step 4
+    # сохранил бы то, что Step 0 должен отбросить.
+    segment_terms -= _excluded_words
+
     kept = []
     rejected_competitors = 0
     rejected_irrelevant = 0
+    rejected_excluded = 0
 
     for c in candidates:
         company = (c.get("company") or "").lower().replace("ё", "е")
@@ -672,6 +760,14 @@ def _rule_based_competitor_filter(
         domain = (c.get("domain") or "").lower()
         categories = " ".join(c.get("categories") or []).lower()
         combined = f"{company} {snippet} {domain} {categories}"
+
+        # Step 0: жёсткие исключения пользователя — главнее всего остального.
+        if excluded_phrases or excluded_word_res:
+            if any(ph in combined for ph in excluded_phrases) or any(
+                rx.search(combined) for rx in excluded_word_res
+            ):
+                rejected_excluded += 1
+                continue
 
         # Step 1: Direct competitor — company NAME contains product core terms.
         #
@@ -735,6 +831,7 @@ def _rule_based_competitor_filter(
 
     logger.info(
         f"Rule-based filter (strict v3): {len(candidates)} -> {len(kept)} kept | "
-        f"competitors={rejected_competitors}, irrelevant={rejected_irrelevant}"
+        f"competitors={rejected_competitors}, irrelevant={rejected_irrelevant}, "
+        f"excluded={rejected_excluded}"
     )
     return kept
