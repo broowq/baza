@@ -78,6 +78,10 @@ _RATE_LIMIT_TIERS: list[tuple] = [
     # threw «Слишком много запросов» at paying users just browsing their leads.
     # Give reads the same generous budget as the rest of the API.
     ("/api/leads/project", 1000 if _is_dev else 120, 60, ("GET",)),
+    # Репортер клиентских JS-ошибок: неаутентифицированный и пишет в логи —
+    # душим жёстко, чтобы не стать вектором лог-спама (5/мин с IP хватает:
+    # error-boundary шлёт один репорт на краш).
+    ("/api/client-errors", 100 if _is_dev else 5, 60),
     ("/api/", 1000 if _is_dev else 120, 60),
 ]
 

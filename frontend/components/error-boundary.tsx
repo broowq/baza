@@ -5,18 +5,54 @@ import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { isChunkLoadError, reloadOnceForChunkError } from "@/lib/chunk-error";
 
 type Props = { children: ReactNode };
-type State = { hasError: boolean; error: Error | null; reloading: boolean };
+type State = { hasError: boolean; error: Error | null; reloading: boolean; errorId: string };
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+
+/** Короткий код ошибки для пользователя/саппорта — по нему находим стек в логах. */
+function shortErrorId(error: Error): string {
+  const src = `${error.name}:${error.message}`;
+  let h = 0;
+  for (let i = 0; i < src.length; i++) h = ((h << 5) - h + src.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(16).slice(0, 6).padStart(6, "0");
+}
+
+/** Fire-and-forget репорт краша на бэкенд (наблюдаемость «Что-то пошло не так»).
+ *  Ошибки самого репортера глотаем: диагностика не должна ронять UI. */
+function reportClientError(error: Error, info: ErrorInfo, errorId: string): void {
+  try {
+    void fetch(`${API_URL}/client-errors`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true, // доживает даже если пользователь сразу уходит со страницы
+      body: JSON.stringify({
+        message: `${error.name}: ${error.message}`.slice(0, 1000),
+        stack: (error.stack || "").slice(0, 6000),
+        component_stack: (info.componentStack || "").slice(0, 4000),
+        url: window.location.href.slice(0, 500),
+        error_id: errorId,
+      }),
+    }).catch(() => {});
+  } catch {
+    /* noop */
+  }
+}
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null, reloading: false };
+    this.state = { hasError: false, error: null, reloading: false, errorId: "" };
   }
 
   static getDerivedStateFromError(error: Error): State {
     // Устаревший бандл после деплоя (ChunkLoadError) — не пугаем пользователя
     // «Что-то пошло не так», а сразу показываем «Обновляем…» и перезагружаемся.
-    return { hasError: true, error, reloading: isChunkLoadError(error) };
+    return {
+      hasError: true,
+      error,
+      reloading: isChunkLoadError(error),
+      errorId: shortErrorId(error),
+    };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -27,11 +63,15 @@ export class ErrorBoundary extends Component<Props, State> {
       // ошибки, чтобы не крутить reload бесконечно.
       const reloading = reloadOnceForChunkError();
       if (!reloading) this.setState({ reloading: false });
+      return; // chunk-ошибки самовосстанавливаются — в логи их не шлём
     }
+    // Реальный render-краш: шлём стек на бэкенд — иначе такие инциденты
+    // (кейс «настройки падают только у одного клиента») диагностируются вслепую.
+    reportClientError(error, info, shortErrorId(error));
   }
 
   private handleRetry = () => {
-    this.setState({ hasError: false, error: null, reloading: false });
+    this.setState({ hasError: false, error: null, reloading: false, errorId: "" });
   };
 
   render() {
@@ -67,6 +107,15 @@ export class ErrorBoundary extends Component<Props, State> {
               <pre className="mt-4 max-h-24 overflow-auto rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 text-left text-xs text-rose-400/80">
                 {this.state.error.message}
               </pre>
+            )}
+
+            {/* Код ошибки: репорт со стеком уже улетел на сервер — по этому
+                коду саппорт находит его в логах, а пользователю есть что
+                назвать вместо пересказа «ну там ошибка». */}
+            {this.state.errorId && (
+              <p className="mt-3 text-[11px] text-slate-500 select-all">
+                Код ошибки: {this.state.errorId}
+              </p>
             )}
 
             <div className="mt-6 flex items-center justify-center gap-3">
