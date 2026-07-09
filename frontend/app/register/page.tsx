@@ -26,6 +26,8 @@ function RegisterContent() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite_token") ?? "";
   const invitedEmail = searchParams.get("email") ?? "";
+  // Пришёл с /plans с выбранным тарифом → после регистрации вернём на оплату.
+  const pendingPlan = searchParams.get("plan") ?? "";
   const loginHref = useMemo(() => {
     const raw = searchParams.toString();
     return (raw ? `/login?${raw}` : "/login") as "/login";
@@ -85,7 +87,7 @@ function RegisterContent() {
         toast.success(data.message ?? "Аккаунт создан");
       }
 
-      router.push("/dashboard");
+      router.push(pendingPlan ? "/plans" : "/dashboard");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Не удалось зарегистрироваться";
       setFormError(msg);

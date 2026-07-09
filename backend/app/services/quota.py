@@ -97,8 +97,13 @@ def yandex_requests_remaining(organization: Organization) -> int:
 
 
 def ensure_lead_quota(organization: Organization, requested: int) -> None:
+    # Free-тариф (лимит 0): сбор не «исчерпан», а недоступен без тарифа —
+    # честный текст ведёт пользователя к оплате, а не в тупик «квота исчерпана»
+    # (аудит 09.07: первый же сбор нового юзера умирал лживым тостом).
+    if (organization.leads_limit_per_month or 0) <= 0:
+        raise HTTPException(status_code=402, detail="Сбор лидов доступен на платном тарифе. Выберите тариф, чтобы начать.")
     if organization.leads_used_current_month >= organization.leads_limit_per_month:
-        raise HTTPException(status_code=402, detail="Месячная квота лидов исчерпана")
+        raise HTTPException(status_code=402, detail="Месячная квота лидов исчерпана — обновите тариф или дождитесь 1-го числа.")
     if organization.leads_used_current_month + requested > organization.leads_limit_per_month:
         raise HTTPException(status_code=429, detail="Запрошенное количество лидов превышает месячную квоту")
 

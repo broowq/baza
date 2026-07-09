@@ -84,15 +84,29 @@ export default function PlansPage() {
       const loggedIn = !!getToken();
       setIsLoggedIn(loggedIn);
       if (loggedIn) fetchCurrentPlan();
+      // Выбранный до регистрации тариф — доводим до оплаты без второго клика.
+      if (loggedIn) {
+        let pending = "";
+        try {
+          pending = sessionStorage.getItem("baza:pending-plan") || "";
+          if (pending) sessionStorage.removeItem("baza:pending-plan");
+        } catch { /* noop */ }
+        if (pending) {
+          toast.info("Продолжаем оформление тарифа…");
+          // Уже залогинены (проверили getToken выше) → напрямую в чекаут,
+          // минуя isLoggedIn-гвард startCheckout, который тут ещё stale-false.
+          void doCheckout(pending);
+        }
+      }
     }
     fetchPlans();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startCheckout = async (plan: string) => {
-    if (!isLoggedIn) {
-      toast.info("Войдите в аккаунт, чтобы оплатить тариф");
-      return;
-    }
+  // Собственно POST чекаута — БЕЗ проверки isLoggedIn. Отдельный helper нужен,
+  // чтобы авточекаут из mount-эффекта не читал stale isLoggedIn (=false из
+  // первого рендера) и не гонял только что вошедшего юзера в петлю на /register.
+  const doCheckout = async (plan: string) => {
     try {
       setRunningPlan(plan);
       const response = await api<{ checkout_url: string; message: string }>("/billing/checkout", {
@@ -106,6 +120,18 @@ export default function PlansPage() {
       toast.error(error instanceof Error ? error.message : "Не удалось создать checkout");
       setRunningPlan(null);
     }
+  };
+
+  const startCheckout = async (plan: string) => {
+    if (!isLoggedIn) {
+      // Тупиковый тост «Войдите» обрывал самых тёплых посетителей (28 IP дошли
+      // до /plans за июль). Ведём в регистрацию с сохранением выбранного тарифа —
+      // после входа/регистрации автозапускаем чекаут (см. эффект ниже).
+      try { sessionStorage.setItem("baza:pending-plan", plan); } catch { /* noop */ }
+      window.location.assign(`/register?plan=${encodeURIComponent(plan)}`);
+      return;
+    }
+    await doCheckout(plan);
   };
 
   return (

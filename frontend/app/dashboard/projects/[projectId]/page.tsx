@@ -17,6 +17,10 @@ import { FunnelBar } from "@/components/dashboard/funnel-bar";
 import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
 import { ProjectEmptyState } from "@/components/dashboard/project-empty-state";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -122,6 +126,12 @@ export default function ProjectDetailsPage() {
   // Lifted table selection for the bulk action bar.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
+  // Подтверждение массового удаления: misclick по «Удалить» рядом со «Снять
+  // выбор» безвозвратно уносил до 25+ оплаченных лидов с заметками (аудит 09.07).
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  // Пейволл: при 402 (Free/исчерпанная квота) показываем модалку с путём к
+  // оплате вместо тоста в тупик (аудит 09.07 — главный триггер оплаты).
+  const [paywall, setPaywall] = useState<string>("");
   const [bulkTag, setBulkTag] = useState("");
   // Active email sequences for the bulk «В рассылку» picker (fetched once).
   const [sequences, setSequences] = useState<EmailSequence[]>([]);
@@ -356,6 +366,8 @@ export default function ProjectDetailsPage() {
         toast.info("Сбор уже идёт — дождитесь завершения текущего.");
       } else if (/одновременных задач|Превышен лимит/i.test(msg)) {
         toast.info("Слишком много задач сразу — дождитесь завершения текущих.");
+      } else if (/платном тарифе|квота лидов исчерпана|обновите тариф/i.test(msg)) {
+        setPaywall(msg);
       } else {
         toast.error(msg || "Не удалось запустить задачу");
       }
@@ -955,9 +967,28 @@ export default function ProjectDetailsPage() {
                 </div>
 
                 {/* Delete */}
-                <Button size="sm" variant="ghost" className="text-status-offline" disabled={bulkBusy} onClick={() => void runBulkAction({ action: "delete" })}>
+                <Button size="sm" variant="ghost" className="text-status-offline" disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
                   <Trash2 size={13} className="mr-1" /> Удалить
                 </Button>
+                <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Удалить {selectedIds.length} лид(ов)?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Лиды будут удалены безвозвратно вместе с заметками, задачами и историей.
+                        Квота за них не возвращается.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Отмена</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => { setBulkDeleteOpen(false); void runBulkAction({ action: "delete" }); }}
+                      >
+                        Удалить
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
 
                 <Button size="sm" variant="ghost" className="ml-auto" disabled={bulkBusy} onClick={() => setSelectedIds([])}>
                   Снять выбор
@@ -1039,6 +1070,24 @@ export default function ProjectDetailsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Пейволл — на верхнем уровне: первый сбор нового Free-юзера идёт без
+          выделения лидов, поэтому модалка НЕ должна жить внутри bulk-бара
+          (иначе тихий отказ — регресс ревью 09.07). */}
+      <AlertDialog open={!!paywall} onOpenChange={(o) => !o && setPaywall("")}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Нужен тариф, чтобы собирать лидов</AlertDialogTitle>
+            <AlertDialogDescription>{paywall}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Позже</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { window.location.assign("/plans"); }}>
+              Выбрать тариф
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Page-level lead drawer — opened from the Kanban board */}
       <LeadDetailDrawer

@@ -295,7 +295,8 @@ def test_free_org_collect_is_quota_blocked(make_account, stub_sources, new_proje
 
     r = _collect(acct, pid, limit=10)
     assert r.status_code == 402, f"free org should be 402-blocked, got {r.status_code}: {r.text}"
-    assert "квот" in r.json()["detail"].lower()
+    # Free (лимит 0): честный текст ведёт к оплате, не «квота исчерпана» (аудит 09.07).
+    assert "платном тарифе" in r.json()["detail"].lower()
     assert _leads_in_project(db, pid) == []
     assert _done_collect_jobs(acct, pid) == []
 
