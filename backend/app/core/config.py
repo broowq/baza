@@ -46,6 +46,17 @@ class Settings(BaseSettings):
     refresh_cookie_name: str = "baza_refresh_token"
     email_verification_required: bool = False
     email_verification_expire_minutes: int = 1440
+    # ── Анти-мультиакк регистрации (см. services/registration_guard.py) ──
+    # Потолок УСПЕШНЫХ регистраций с одного IP в сутки (в dev игнорируется).
+    # 10 — офисный NAT/CGNAT с онбордингом команды не страдает; ферме и
+    # 10/IP бессмысленны (её ловят identity- и доменный потолки).
+    registration_attempts_per_ip_per_day: int = 10
+    # Потолок триалов на НЕ-freemail домен почты: catch-all на своём домене
+    # даёт безлимит «разных» ящиков, ловится только здесь. Регистрацию не
+    # блокирует — новые орги сверх потолка стартуют с потраченным триалом.
+    trials_per_email_domain: int = 3
+    # Дополнение к встроенному блок-листу одноразовых почт, через запятую.
+    disposable_email_domains_extra: str = ""
     password_reset_expire_minutes: int = 30
     frontend_app_url: str = "http://localhost:3000"
     log_level: str = "INFO"

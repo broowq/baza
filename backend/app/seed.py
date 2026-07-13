@@ -32,8 +32,11 @@ def run() -> None:
             db.flush()
 
         if not user:
+            from app.services.registration_guard import normalize_email_identity
+
             user = User(
                 email=demo_email,
+                email_normalized=normalize_email_identity(demo_email),
                 full_name="Demo Owner",
                 hashed_password=hash_password("password123"),
                 email_verified=True,

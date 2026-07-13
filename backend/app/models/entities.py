@@ -121,6 +121,13 @@ class User(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    # Каноническая identity ящика (plus-теги/точки Gmail/алиасы Яндекса
+    # схлопнуты) — анти-мультиакк триала, см. registration_guard. Индекс
+    # НЕуникальный: у исторических юзеров возможны коллизии после
+    # нормализации, дубль ловится app-проверкой при регистрации.
+    email_normalized: Mapped[str] = mapped_column(String(255), default="", nullable=False, index=True)
+    # IP регистрации (X-Real-IP от nginx) — форензика фермерства триалов.
+    registration_ip: Mapped[str] = mapped_column(String(45), default="", nullable=False)
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -556,6 +563,30 @@ class ActionLog(Base):
     organization_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True)
     action: Mapped[str] = mapped_column(String(120), nullable=False)
     meta: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class TrialGrant(Base):
+    """Книга выданных триалов: солёный SHA-256 от канонической identity почты.
+
+    Закрывает петлю «регистрация → 10 бесплатных лидов → удаление аккаунта
+    (ФЗ-152) → регистрация на тот же ящик → снова 10 лидов»: запись создаётся
+    при регистрации и ЖИВЁТ ДОЛЬШЕ аккаунта. Повторная регистрация той же
+    identity получает орг с уже израсходованным триалом.
+
+    ФЗ-152: хранится необратимый хэш с перцем (secret_key), НЕ email —
+    после удаления ПД субъект по этой записи не идентифицируем, что
+    допустимо для противодействия злоупотреблениям (аналог suppression-list).
+    """
+
+    __tablename__ = "trial_grants"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email_identity_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    # Хэш домена почты: доменный потолок триалов против catch-all ферм
+    # (свой домен за $2 = безлимит «разных» ящиков в один inbox). Для
+    # freemail-доменов потолок не действует (см. FREEMAIL_DOMAINS).
+    domain_hash: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
 

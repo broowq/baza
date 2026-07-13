@@ -158,6 +158,14 @@ def _cleanup(org_ids: list[str], emails: list[str]) -> None:
             _safe(db, delete(Organization).where(Organization.id == org_id))
         for email in emails:
             _safe(db, delete(User).where(User.email == email))
+            # книга триалов: у каждого register() остаётся строка с хэшом —
+            # без чистки dev-БД копит сироты с каждым прогоном сьюта
+            from app.models import TrialGrant
+            from app.services import registration_guard as _rg
+            _safe(db, delete(TrialGrant).where(
+                TrialGrant.email_identity_hash
+                == _rg.trial_identity_hash(_rg.normalize_email_identity(email))
+            ))
         _safe(db, delete(Company).where(Company.domain.like(f"{E2E_COMPANY_PREFIX}%")))
     finally:
         db.close()

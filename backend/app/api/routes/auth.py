@@ -6,14 +6,14 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 import redis
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.security import create_access_token, create_refresh_token, decode_token, hash_password, verify_password
 from app.db.session import get_db
-from app.models import Membership, Organization, PlanType, User
+from app.models import Membership, Organization, PlanType, TrialGrant, User
 from app.schemas.auth import (
     AccountDeleteRequest,
     AuthMessageResponse,
@@ -30,6 +30,14 @@ from app.schemas.auth import (
 from app.services.audit import log_action
 from app.services.notifications import email_delivery_configured
 from app.services.quota import apply_plan_limits
+from app.services.registration_guard import (
+    ensure_registration_allowed,
+    is_freemail_domain,
+    normalize_email_identity,
+    note_successful_registration,
+    trial_domain_hash,
+    trial_identity_hash,
+)
 from app.tasks.email_tasks import send_email_task
 
 _auth_logger = logging.getLogger("app.auth")
@@ -64,11 +72,26 @@ def _is_refresh_token_revoked_for_user(user_id: str, token_iat: int | None) -> b
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     if settings.email_verification_required and not email_delivery_configured():
         raise HTTPException(status_code=503, detail="Подтверждение email временно недоступно. Настройте SMTP.")
     normalized_email = payload.email.lower().strip()
-    existing = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
+    # Анти-мультиакк (400 одноразовая почта / 429 суточный потолок с IP) —
+    # триал из 10 разовых лидов иначе фермится скриптом. X-Real-IP ставит
+    # nginx; без прокси (dev) остаётся адрес сокета.
+    client_ip = request.headers.get("x-real-ip") or (request.client.host if request.client else "unknown")
+    ensure_registration_allowed(normalized_email, client_ip)
+    # Дубль ловим и по канонической identity: vasya+2@gmail.com и
+    # v.a.s.y.a@gmail.com — тот же inbox, что уже зарегистрированный vasya@.
+    email_identity = normalize_email_identity(normalized_email)
+    # .first(), НЕ scalar_one_or_none: исторические юзеры (до нормализации)
+    # могли схлопнуться в одну identity — два ряда роняли бы 500 вместо 409
+    # (воспроизведено ревью 14.07).
+    existing = db.execute(
+        select(User).where(
+            (User.email == normalized_email) | (User.email_normalized == email_identity)
+        )
+    ).scalars().first()
     if existing:
         raise HTTPException(status_code=409, detail="Email уже зарегистрирован")
     existing_org = (
@@ -79,14 +102,42 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 
     org = Organization(name=payload.organization_name, plan=PlanType.free)
     apply_plan_limits(org)
+    # Книга выданных триалов (переживает удаление аккаунта по ФЗ-152):
+    # identity уже получала 10 пробных лидов → новая орга стартует с
+    # израсходованным триалом, честный пейволл вместо второго круга.
+    identity_hash = trial_identity_hash(email_identity)
+    trial_already_granted = db.execute(
+        select(TrialGrant).where(TrialGrant.email_identity_hash == identity_hash)
+    ).scalar_one_or_none() is not None
+    # Доменный потолок: catch-all на своём домене даёт безлимит «разных»
+    # ящиков в один inbox — N-й триал с некорпоративно-массового домена
+    # не выдаём (регистрация проходит, инвайты в чужие орги работают).
+    domain_hash = trial_domain_hash(normalized_email)
+    if not trial_already_granted and not is_freemail_domain(normalized_email):
+        domain_trials = db.execute(
+            select(func.count()).select_from(TrialGrant).where(TrialGrant.domain_hash == domain_hash)
+        ).scalar_one()
+        if domain_trials >= settings.trials_per_email_domain:
+            trial_already_granted = True
+            _auth_logger.warning(
+                "trial domain cap hit: %s trials already granted for domain of %s",
+                domain_trials, normalized_email,
+            )
+    if trial_already_granted:
+        org.leads_used_current_month = org.leads_limit_per_month
+        org.ai_cost_used_kopecks_current_month = org.ai_cost_limit_kopecks_per_month
     user = User(
         email=normalized_email,
+        email_normalized=email_identity,
+        registration_ip=client_ip[:45],
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         email_verified=not settings.email_verification_required,
     )
     try:
         db.add_all([org, user])
+        if not trial_already_granted:
+            db.add(TrialGrant(email_identity_hash=identity_hash, domain_hash=domain_hash))
         db.flush()
         membership = Membership(organization_id=org.id, user_id=user.id, role="owner")
         db.add(membership)
@@ -94,6 +145,8 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     except IntegrityError as exc:
         db.rollback()
         raise HTTPException(status_code=409, detail="Email или организация уже существуют") from exc
+    # Суточный IP-потолок считает только УСПЕШНЫЕ регистрации (не 409-попытки).
+    note_successful_registration(client_ip)
 
     token = create_access_token(str(user.id), expires_delta=timedelta(minutes=settings.access_token_expire_minutes))
     refresh_token = create_refresh_token(
@@ -422,6 +475,8 @@ def export_my_data(
             "email": user.email,
             "full_name": user.full_name,
             "email_verified": user.email_verified,
+            # ФЗ-152: IP регистрации — хранимые ПД, обязан попасть в экспорт
+            "registration_ip": user.registration_ip or "",
             "created_at": user.created_at.isoformat() if user.created_at else None,
         },
         "memberships": [
@@ -565,6 +620,28 @@ def delete_my_account(
         db.execute(_sa_delete(_ActionLog).where(_ActionLog.organization_id == org.id))
         db.execute(_sa_delete(_Subscription).where(_Subscription.organization_id == org.id))
     db.execute(_sa_delete(_ActionLog).where(_ActionLog.user_id == user.id))
+
+    # Возврат гранта триала (ревью 14.07): книга trial_grants «сжигает» триал
+    # уже при регистрации, поэтому честный пользователь «зарегистрировался →
+    # передумал → удалил аккаунт → вернулся через месяц» без возврата попадал
+    # бы на потраченный триал, ничего не получив. Возвращаем грант, ТОЛЬКО
+    # если ни одна удаляемая free-орга не израсходовала ни одного пробного
+    # лида — фермер (10/10) грант не возвращает.
+    trial_untouched = all(
+        not (org.plan == PlanType.free and (org.leads_used_current_month or 0) > 0)
+        for org in orgs_to_delete
+    )
+    if orgs_to_delete and trial_untouched:
+        from app.models import TrialGrant as _TrialGrant
+        from app.services.registration_guard import (
+            normalize_email_identity as _norm,
+            trial_identity_hash as _ihash,
+        )
+        db.execute(
+            _sa_delete(_TrialGrant).where(
+                _TrialGrant.email_identity_hash == _ihash(_norm(user.email))
+            )
+        )
 
     for org in orgs_to_delete:
         db.delete(org)  # cascade: memberships, projects, leads, jobs, invites

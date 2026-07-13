@@ -20,6 +20,7 @@ from app.models.entities import (
     SequenceEnrollment,
     SequenceStep,
     Subscription,
+    TrialGrant,
     User,
 )
 
@@ -40,6 +41,7 @@ __all__ = [
     "LeadStatus",
     "ActionLog",
     "Subscription",
+    "TrialGrant",
     "OrgEmailSettings",
     "EmailSequence",
     "SequenceStep",

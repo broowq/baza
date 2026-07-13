@@ -648,3 +648,193 @@ def _purge(db, email: str, org_name: str) -> None:
         db.commit()
     except Exception:
         db.rollback()
+
+
+# ── анти-мультиакк регистрации (14.07.2026) ──────────────────────────────────
+# Триал = 10 разовых лидов; эти тесты закрывают пути его фермерства через
+# реальный HTTP-стек: алиасы одного ящика, одноразовые почты и петлю
+# «удалить аккаунт → зарегистрироваться заново».
+
+def _purge_trial_grant(db, email: str) -> None:
+    from sqlalchemy import delete as _delete
+
+    from app.models import TrialGrant
+    from app.services import registration_guard as _rg
+
+    h = _rg.trial_identity_hash(_rg.normalize_email_identity(email))
+    try:
+        db.execute(_delete(TrialGrant).where(TrialGrant.email_identity_hash == h))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def test_register_gmail_alias_variants_rejected(client, db):
+    uid = uuid.uuid4().hex[:10]
+    email = f"e2eauth{uid}@gmail.com"
+    first = _register_payload(email=email)
+    try:
+        r1 = client.post("/api/auth/register", json=first)
+        assert r1.status_code == 200, r1.text
+        # plus-тег, точки Gmail и алиас домена — тот же inbox, все 409
+        for alias in (
+            f"e2eauth{uid}+farm2@gmail.com",
+            f"e2e.auth.{uid}@gmail.com",
+            f"e2eauth{uid}@googlemail.com",
+        ):
+            r = client.post("/api/auth/register", json=_register_payload(email=alias))
+            assert r.status_code == 409, f"{alias}: {r.status_code} {r.text}"
+            assert "уже зарегистрирован" in r.json()["detail"]
+    finally:
+        _purge(db, email, first["organization_name"])
+        _purge_trial_grant(db, email)
+
+
+def test_register_disposable_email_rejected(client):
+    r = client.post(
+        "/api/auth/register",
+        json=_register_payload(email=f"bot-{uuid.uuid4().hex[:8]}@yopmail.com"),
+    )
+    assert r.status_code == 400, r.text
+    assert "Временные email" in r.json()["detail"]
+
+
+def test_trial_not_regranted_after_account_deletion(client, db):
+    """Петля «зарегистрировался → сжёг 10 пробных лидов → удалил аккаунт →
+    зарегистрировался на тот же ящик» не даёт второй триал: книга trial_grants
+    хранит солёный хэш identity и переживает удаление ПД."""
+    uid = uuid.uuid4().hex[:10]
+    email = f"e2e-auth-{uid}@example.com"
+    org_a = f"E2E Trial Loop A {uid}"
+    org_b = f"E2E Trial Loop B {uid}"
+    try:
+        r1 = client.post("/api/auth/register", json=_register_payload(email=email, org=org_a))
+        assert r1.status_code == 200, r1.text
+        o1 = db.execute(select(Organization).where(Organization.name == org_a)).scalar_one()
+        assert o1.leads_used_current_month == 0  # первый раз — полный триал
+        # фермер СЖЁГ пробные лиды (неиспользованный триал при удалении
+        # возвращается — см. test_trial_refunded_when_deleted_unused)
+        o1.leads_used_current_month = o1.leads_limit_per_month
+        db.commit()
+
+        rd = client.request(
+            "DELETE",
+            "/api/auth/me",
+            json={"password": "password123"},
+            headers={"Authorization": f"Bearer {r1.json()['access_token']}"},
+        )
+        assert rd.status_code == 200, rd.text
+
+        r2 = client.post("/api/auth/register", json=_register_payload(email=email, org=org_b))
+        assert r2.status_code == 200, r2.text  # регистрация проходит...
+        db.expire_all()
+        o2 = db.execute(select(Organization).where(Organization.name == org_b)).scalar_one()
+        # ...но триал уже израсходован: сразу честный пейволл
+        assert o2.leads_used_current_month == o2.leads_limit_per_month > 0
+        assert o2.ai_cost_used_kopecks_current_month == o2.ai_cost_limit_kopecks_per_month
+    finally:
+        _purge(db, email, org_a)
+        _purge(db, email, org_b)
+        _purge_trial_grant(db, email)
+
+
+def test_register_collision_of_historical_identities_409_not_500(client, db):
+    """Два до-нормализационных юзера могли схлопнуться в одну identity
+    (бэкфилл миграции это допускает) — регистрация третьего алиаса должна
+    давать 409, а не 500 MultipleResultsFound (блокер ревью 14.07)."""
+    from app.core.security import hash_password
+    from app.services import registration_guard as _rg
+
+    uid = uuid.uuid4().hex[:10]
+    identity = _rg.normalize_email_identity(f"e2ecoll{uid}@gmail.com")
+    u1 = User(
+        email=f"e2ecoll{uid}+a@gmail.com", email_normalized=identity,
+        full_name="Hist A", hashed_password=hash_password("password123"),
+        email_verified=True,
+    )
+    u2 = User(
+        email=f"e2ecoll{uid}+b@gmail.com", email_normalized=identity,
+        full_name="Hist B", hashed_password=hash_password("password123"),
+        email_verified=True,
+    )
+    db.add_all([u1, u2])
+    db.commit()
+    try:
+        r = client.post(
+            "/api/auth/register",
+            json=_register_payload(email=f"e2e.coll.{uid}@gmail.com"),
+        )
+        assert r.status_code == 409, r.text
+        assert "уже зарегистрирован" in r.json()["detail"]
+    finally:
+        from sqlalchemy import delete as _delete
+        db.execute(_delete(User).where(User.email_normalized == identity))
+        db.commit()
+
+
+def test_trial_domain_cap_stops_catchall_farm(client, db, monkeypatch):
+    """Catch-all на своём домене ($2/год) даёт безлимит «разных» ящиков —
+    доменный потолок выдаёт триал первым N, дальше орги стартуют с
+    потраченным триалом (регистрация НЕ блокируется)."""
+    from app.core.config import get_settings as _gs
+    monkeypatch.setattr(_gs(), "trials_per_email_domain", 2)
+
+    uid = uuid.uuid4().hex[:8]
+    domain = f"e2e-catchall-{uid}.ru"
+    emails, orgs = [], []
+    try:
+        for i in range(3):
+            email = f"farm{i}@{domain}"
+            org = f"E2E Catchall {uid} {i}"
+            emails.append(email)
+            orgs.append(org)
+            r = client.post("/api/auth/register", json=_register_payload(email=email, org=org))
+            assert r.status_code == 200, r.text
+        db.expire_all()
+        used = [
+            db.execute(select(Organization).where(Organization.name == o)).scalar_one().leads_used_current_month
+            for o in orgs
+        ]
+        assert used[0] == 0 and used[1] == 0  # первые два — полный триал
+        assert used[2] > 0                    # третий — триал уже потрачен
+        # freemail-домен потолком не задет: gmail-регистрация даёт полный триал
+        g_email = f"e2efree{uid}@gmail.com"
+        g_org = f"E2E Freemail OK {uid}"
+        emails.append(g_email)
+        orgs.append(g_org)
+        rg2 = client.post("/api/auth/register", json=_register_payload(email=g_email, org=g_org))
+        assert rg2.status_code == 200, rg2.text
+        db.expire_all()
+        g = db.execute(select(Organization).where(Organization.name == g_org)).scalar_one()
+        assert g.leads_used_current_month == 0
+    finally:
+        for e, o in zip(emails, orgs):
+            _purge(db, e, o)
+            _purge_trial_grant(db, e)
+
+
+def test_trial_refunded_when_deleted_unused(client, db):
+    """Честная петля: зарегистрировался → НЕ тратил лиды → удалил аккаунт →
+    вернулся. Грант возвращён, триал снова полный (в отличие от фермера,
+    потратившего лиды, — см. test_trial_not_regranted_after_account_deletion)."""
+    uid = uuid.uuid4().hex[:10]
+    email = f"e2e-auth-{uid}@example.com"
+    org_a, org_b = f"E2E Refund A {uid}", f"E2E Refund B {uid}"
+    try:
+        r1 = client.post("/api/auth/register", json=_register_payload(email=email, org=org_a))
+        assert r1.status_code == 200, r1.text
+        rd = client.request(
+            "DELETE", "/api/auth/me",
+            json={"password": "password123"},
+            headers={"Authorization": f"Bearer {r1.json()['access_token']}"},
+        )
+        assert rd.status_code == 200, rd.text
+        r2 = client.post("/api/auth/register", json=_register_payload(email=email, org=org_b))
+        assert r2.status_code == 200, r2.text
+        db.expire_all()
+        o2 = db.execute(select(Organization).where(Organization.name == org_b)).scalar_one()
+        assert o2.leads_used_current_month == 0  # триал вернулся целиком
+    finally:
+        _purge(db, email, org_a)
+        _purge(db, email, org_b)
+        _purge_trial_grant(db, email)
