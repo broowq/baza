@@ -184,7 +184,9 @@ def test_expired_subscription_downgrades_org_to_free(db):
         org = db.get(Organization, oid)
         sub = db.get(Subscription, sid)
         assert org.plan == PlanType.free, "lapsed subscription must downgrade org to free"
-        assert org.leads_limit_per_month == 0, "free limits must be restored"
+        from app.services.quota import PLAN_LIMITS
+        assert org.leads_limit_per_month == PLAN_LIMITS[PlanType.free]["leads_per_month"], \
+            "free (trial) limits must be restored"
         assert org.projects_limit == 1, "free limits must be restored"
         assert sub.status == "expired", "lapsed subscription must be marked expired"
     finally:
@@ -340,7 +342,8 @@ def test_reconcile_downgrades_to_free_when_no_coverage(db):
         result = reconcile_org_plan(db, db.get(Organization, oid))
         db.commit()
         assert result == PlanType.free
-        assert db.get(Organization, oid).leads_limit_per_month == 0
+        from app.services.quota import PLAN_LIMITS
+        assert db.get(Organization, oid).leads_limit_per_month == PLAN_LIMITS[PlanType.free]["leads_per_month"]
     finally:
         db.rollback()
         db.execute(delete(Organization).where(Organization.id == oid))

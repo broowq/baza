@@ -241,7 +241,7 @@ def test_admin_update_org_limits_persists(make_account, db):
     _promote(db, acct)
 
     org = db.get(Organization, acct.org_id)
-    assert org.leads_limit_per_month == 0  # free default
+    assert org.leads_limit_per_month == 10  # free default = триал 13.07 (10 разовых лидов)
 
     r = acct.patch(
         f"/api/admin/organizations/{acct.org_id}/limits",
@@ -282,7 +282,7 @@ def test_admin_update_org_plan_applies_plan_limits(make_account, db):
 
     org = db.get(Organization, acct.org_id)
     assert org.plan == PlanType.free
-    assert org.leads_limit_per_month == 0
+    assert org.leads_limit_per_month == 10  # триал 13.07
 
     r = acct.patch(
         f"/api/admin/organizations/{acct.org_id}/plan",

@@ -288,20 +288,31 @@ def test_partial_remaining_quota_serves_only_the_remainder(paid_account, stub_so
     assert _collect(acct, pid, limit=1).status_code == 402
 
 
-def test_free_org_collect_is_quota_blocked(make_account, stub_sources, new_project, db):
-    """A free org (0-lead quota) is refused at collect (402) and no job runs."""
-    acct = make_account()  # free plan, leads_limit_per_month = 0
+def test_free_org_trial_collects_up_to_10_then_paywalled(make_account, stub_sources, new_project, db):
+    """Триал 13.07: free-орг СОБИРАЕТ до 10 разовых лидов (запрос 50 молча
+    клампится, не 429), а после исчерпания — 402 «Пробные лиды использованы»
+    (не «квота»: счётчик free не сбрасывается 1-го числа)."""
+    acct = make_account()  # free plan, триал: leads_limit_per_month = 10
     pid = new_project(acct)["id"]
 
-    r = _collect(acct, pid, limit=10)
-    assert r.status_code == 402, f"free org should be 402-blocked, got {r.status_code}: {r.text}"
-    # Free (лимит 0): честный текст ведёт к оплате, не «квота исчерпана» (аудит 09.07).
-    assert "платном тарифе" in r.json()["detail"].lower()
-    assert _leads_in_project(db, pid) == []
-    assert _done_collect_jobs(acct, pid) == []
+    # Просим 50 — триал молча клампит до 10, а не 429-ит.
+    r = _collect(acct, pid, limit=50)
+    assert r.status_code in (200, 201), f"trial collect must run: {r.status_code}: {r.text}"
+    leads = _leads_in_project(db, pid)
+    assert 0 < len(leads) <= 10, f"триал должен дать 1..10 лидов, дал {len(leads)}"
 
+    # Детерминированно исчерпываем триал и проверяем честный пейволл-текст.
+    org_id = db.execute(
+        select(CollectionJob.organization_id).where(CollectionJob.project_id == pid)
+    ).scalars().first()
+    org = db.get(Organization, org_id)
+    org.leads_used_current_month = org.leads_limit_per_month
+    db.commit()
 
-# ── auto-enrich fires after collect ─────────────────────────────────────────
+    r2 = _collect(acct, pid, limit=10)
+    assert r2.status_code == 402, f"исчерпанный триал должен 402-ить: {r2.status_code}: {r2.text}"
+    assert "пробные лиды использованы" in r2.json()["detail"].lower(), r2.text
+
 
 def test_autoenrich_fires_after_collect_and_fills_emails(paid_account, stub_sources, new_project, db):
     """No explicit enrich call: collect → auto-enrich (eager) → emails filled.

@@ -93,10 +93,17 @@ def test_collect_delivers_full_dose_and_autoenrich_fills_email(paid_account, stu
     assert enrich.status_code in (200, 201, 400), enrich.text
 
 
-def test_collection_blocked_on_free_quota(make_account, stub_sources, new_project):
+def test_collection_blocked_on_free_quota(make_account, stub_sources, new_project, db):
     """A free org (0-lead quota) must be refused at collect, not silently no-op."""
-    acct = make_account()  # free plan, leads_limit_per_month = 0
+    acct = make_account()  # free plan: триал 13.07 — 10 разовых лидов
     project = new_project(acct)
     pid = project["id"]
+    # Триал: первый сбор РАЗРЕШЁН. Исчерпываем его и проверяем блок.
     r = acct.post(f"/api/leads/project/{pid}/collect", json={"lead_limit": 10})
-    assert r.status_code in (402, 429), f"free org should be quota-blocked, got {r.status_code}"
+    assert r.status_code in (200, 201), f"trial collect must run, got {r.status_code}: {r.text}"
+    from app.models import Organization as _Org
+    _org = db.get(_Org, acct.org_id)
+    _org.leads_used_current_month = _org.leads_limit_per_month
+    db.commit()
+    r = acct.post(f"/api/leads/project/{pid}/collect", json={"lead_limit": 10})
+    assert r.status_code in (402, 429), f"exhausted trial should be quota-blocked, got {r.status_code}"

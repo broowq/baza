@@ -40,9 +40,16 @@ from app.models import Organization, PlanType
 # никогда не переносит кап чужого тира (действует только там, где шаблонный
 # кап > 0).
 PLAN_LIMITS = {
+    # Free = ПРОБНЫЙ доступ (решение 13.07.2026): 10 лидов РАЗОВО — счётчик
+    # used у free-оргов не сбрасывается месячным reset (см. periodic.
+    # reset_monthly_quotas), поэтому «10/мес» здесь на деле «10 навсегда».
+    # AI 10 ₽ — чтобы энхансер и LLM-фильтр работали на первом сборе (wow-
+    # эффект триала); тоже разовые из-за нескидываемого reset. Яндекса нет —
+    # источники Starter-уровня (2ГИС/веб/склад). Это НЕ отклонённый «Free-50»:
+    # лиды не возобновляются.
     PlanType.free: {
-        "projects": 1, "users": 1, "leads_per_month": 0,
-        "can_invite": False, "ai_cost_kopecks": 0, "yandex_requests": 0,
+        "projects": 1, "users": 1, "leads_per_month": 10,
+        "can_invite": False, "ai_cost_kopecks": 1000, "yandex_requests": 0,
     },
     PlanType.starter: {
         "projects": 5, "users": 3, "leads_per_month": 5000,
@@ -97,14 +104,25 @@ def yandex_requests_remaining(organization: Organization) -> int:
 
 
 def ensure_lead_quota(organization: Organization, requested: int) -> None:
-    # Free-тариф (лимит 0): сбор не «исчерпан», а недоступен без тарифа —
-    # честный текст ведёт пользователя к оплате, а не в тупик «квота исчерпана»
-    # (аудит 09.07: первый же сбор нового юзера умирал лживым тостом).
+    # Нулевой лимит (не должен встречаться после триала 13.07, но лимиты
+    # правятся и админом): сбор недоступен без тарифа.
     if (organization.leads_limit_per_month or 0) <= 0:
         raise HTTPException(status_code=402, detail="Сбор лидов доступен на платном тарифе. Выберите тариф, чтобы начать.")
     if organization.leads_used_current_month >= organization.leads_limit_per_month:
+        if organization.plan == PlanType.free:
+            # Триал (10 разовых лидов) исчерпан — у free счётчик не
+            # сбрасывается, поэтому «дождитесь 1-го числа» было бы ложью.
+            raise HTTPException(
+                status_code=402,
+                detail="Пробные лиды использованы. Выберите тариф, чтобы продолжить сбор.",
+            )
         raise HTTPException(status_code=402, detail="Месячная квота лидов исчерпана — обновите тариф или дождитесь 1-го числа.")
     if organization.leads_used_current_month + requested > organization.leads_limit_per_month:
+        # Для триала не 429-им «слишком много запрошено» — молча соберём
+        # остаток (кламп по квоте в jobs), иначе просьба «50 лидов» на триале
+        # с 10 умирала бы ошибкой вместо частичной выдачи.
+        if organization.plan == PlanType.free:
+            return
         raise HTTPException(status_code=429, detail="Запрошенное количество лидов превышает месячную квоту")
 
 

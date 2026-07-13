@@ -1023,22 +1023,29 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             # Аудит 09.07: companies.email был 0 у всех 1661 строк при 456
             # добытых email в лидах — актив не копился, каждый новый проект
             # заново скрейпил те же сайты, а warehouse-first раздавал пустышки.
+            # SAVEPOINT: строку склада могли удалить конкурентно (TTL-очистка
+            # Яндекс-данных, чистки), и тогда UPDATE словил бы StaleDataError
+            # на ОБЩЕМ flush — падал весь enrich-проход (флаки в CI, найдено
+            # ревью 13.07). Вложенная транзакция изолирует write-back: его
+            # провал не трогает изменения лида.
             try:
-                wh_company = company_warehouse.find_company_for_lead(
-                    db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
-                )
-                if wh_company is not None:
-                    if lead.email and not (wh_company.email or "").strip():
-                        wh_company.email = lead.email
-                    if lead.phone and not (wh_company.phone or "").strip():
-                        wh_company.phone = lead.phone
-                    if lead.address and not (wh_company.address or "").strip():
-                        wh_company.address = lead.address
-                    if (lead.website and not lead.website.startswith("maps://")
-                            and not (wh_company.website or "").strip()):
-                        wh_company.website = _clip(lead.website, 300)
-                    if lead.description and not (wh_company.description or "").strip():
-                        wh_company.description = _clip(lead.description, 2000)
+                with db.begin_nested():
+                    wh_company = company_warehouse.find_company_for_lead(
+                        db, domain=lead.domain or "", company=lead.company or "", city=lead.city or ""
+                    )
+                    if wh_company is not None:
+                        if lead.email and not (wh_company.email or "").strip():
+                            wh_company.email = lead.email
+                        if lead.phone and not (wh_company.phone or "").strip():
+                            wh_company.phone = lead.phone
+                        if lead.address and not (wh_company.address or "").strip():
+                            wh_company.address = lead.address
+                        if (lead.website and not lead.website.startswith("maps://")
+                                and not (wh_company.website or "").strip()):
+                            wh_company.website = _clip(lead.website, 300)
+                        if lead.description and not (wh_company.description or "").strip():
+                            wh_company.description = _clip(lead.description, 2000)
+                        db.flush()  # StaleDataError ловится ЗДЕСЬ, внутри savepoint
             except Exception:
                 logger.debug("warehouse write-back failed", exc_info=True)
 

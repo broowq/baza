@@ -5,7 +5,7 @@ from sqlalchemy import delete, func, select, update
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import CollectionJob, Invite, JobStatus, Organization
+from app.models import CollectionJob, Invite, JobStatus, Organization, PlanType
 from app.services.notifications import send_alert
 from app.tasks.celery_app import celery
 
@@ -23,8 +23,13 @@ def reset_monthly_quotas() -> None:
     """
     db = SessionLocal()
     try:
+        # Free-орги НЕ сбрасываем: их 10 лидов и 10 ₽ AI — РАЗОВЫЙ пробный
+        # доступ (решение 13.07.2026), а не месячная квота. Сброс превратил бы
+        # триал в вечные бесплатные лиды (отклонённый «Free-50»).
         result = db.execute(
-            update(Organization).values(
+            update(Organization)
+            .where(Organization.plan != PlanType.free)
+            .values(
                 leads_used_current_month=0,
                 ai_cost_used_kopecks_current_month=0,
                 yandex_requests_used_current_month=0,

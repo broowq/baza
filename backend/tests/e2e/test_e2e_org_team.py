@@ -38,7 +38,7 @@ def test_me_and_my_list_return_the_creators_org(make_account):
     # free plan: invites disabled, single-user quota.
     assert body["can_invite_members"] is False
     assert body["users_limit"] == 1
-    assert body["leads_limit_per_month"] == 0
+    assert body["leads_limit_per_month"] == 10  # триал 13.07: 10 разовых лидов
 
     my_list = acct.get("/api/organizations/my-list")
     assert my_list.status_code == 200, my_list.text

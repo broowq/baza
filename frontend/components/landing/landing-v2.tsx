@@ -678,7 +678,7 @@ function HeroSection() {
                 </a>
               </Magnetic>
               <span className="ml-2 text-[12px] t-48">
-                тарифы от <span className="text-[var(--t-100)] mono">4 900 ₽/мес</span>
+                первые <span className="text-[var(--t-100)] mono">10 лидов — бесплатно</span> · тарифы от <span className="text-[var(--t-100)] mono">4 900 ₽/мес</span>
               </span>
             </div>
 
@@ -1955,7 +1955,7 @@ function CtaSection() {
             посмотрите, что мы найдём.
           </h2>
           <p className="mt-6 max-w-[520px] mx-auto t-72 text-[15px] light">
-            Помесячная подписка — тарифы от 4 900 ₽/мес.
+            Первые 10 лидов — бесплатно, без карты. Дальше — помесячная подписка от 4 900 ₽/мес.
           </p>
           <div className="mt-9 flex items-center justify-center gap-3 flex-wrap">
             <Link href="/register" className="brand rounded-full px-6 py-3 text-[14px] flex items-center gap-2">
@@ -2040,6 +2040,7 @@ function MarqueeBand() {
     "интеграция Bitrix24 · amoCRM",
     "хранение данных в РФ",
     "помесячная подписка",
+    "первые 10 лидов бесплатно",
     "тарифы от 4 900 ₽/мес",
   ];
   // Duplicate the tokens so the -50% translate at the end of the loop

@@ -83,8 +83,22 @@ def search_and_save(
         ).scalars().all()
     )
 
+    # Кламп по остатку квоты ПОД ЛОКОМ и ДО сохранения. Ревью 13.07 (блокер):
+    # ensure_lead_quota для free-триала молча пропускает oversized-запрос в
+    # расчёте на кламп ниже по течению — в jobs он есть, а здесь сохранялось
+    # ВСЁ (~109 лидов за вызов вместо 10). Лок тот же, что и у инкремента —
+    # параллельный сбор не проскочит между чтением остатка и записью.
+    org_locked = db.execute(
+        select(Organization)
+        .where(Organization.id == organization.id)
+        .with_for_update()
+    ).scalar_one()
+    remaining = max(0, org_locked.leads_limit_per_month - org_locked.leads_used_current_month)
+
     saved: list[dict] = []
     for row in raw:
+        if len(saved) >= remaining:
+            break
         website = row.get("website", "")
         if not website or website in existing_websites:
             continue
@@ -109,15 +123,8 @@ def search_and_save(
 
     if saved:
         # Учёт квоты: каждый сохранённый лид тратит месячный лимит — ровно как
-        # в основном сборе (jobs.collect_leads). Без этого владелец/админ мог
-        # прямым API-вызовом собирать лидов МИМО счётчика (утечка выручки).
-        # Строку организации блокируем, чтобы параллельный сбор не потерял
-        # инкремент на гонке read-modify-write.
-        org_locked = db.execute(
-            select(Organization)
-            .where(Organization.id == organization.id)
-            .with_for_update()
-        ).scalar_one()
+        # в основном сборе (jobs.collect_leads). Лок уже взят выше (кламп) —
+        # инкремент под тем же локом, гонка read-modify-write исключена.
         org_locked.leads_used_current_month += len(saved)
         log_action(
             db,

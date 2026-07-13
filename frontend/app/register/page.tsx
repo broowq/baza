@@ -112,7 +112,7 @@ function RegisterContent() {
           <div className="eyebrow mb-3">создание аккаунта</div>
           <h2 className="h2">Начнём с первых лидов.</h2>
           <p className="caption mt-2">
-            Регистрация займёт минуту. Карта не нужна — тариф выберете потом.
+            Регистрация займёт минуту, карта не нужна. Первые 10 лидов — бесплатно.
           </p>
 
           {inviteToken && (

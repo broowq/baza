@@ -387,9 +387,10 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Right: quota with v-hairline */}
+          {/* Right: quota with v-hairline. Free = разовый пробный доступ:
+              счётчик НЕ сбрасывается 1-го числа — не обещаем этого в подписи. */}
           <div className="lg:col-span-5 lg:v-hairline lg:pl-10">
-            <div className="eyebrow mb-3">квота · лиды</div>
+            <div className="eyebrow mb-3">{org?.plan === "free" ? "пробный доступ · лиды" : "квота · лиды"}</div>
             <div className="h2 tnum mono">
               {(org?.leads_used_current_month ?? 0).toLocaleString("ru-RU")}{" "}
               <span className="t-40" style={{ fontWeight: 200 }}>/ {(org?.leads_limit_per_month ?? 0).toLocaleString("ru-RU")}</span>
@@ -399,8 +400,14 @@ export default function DashboardPage() {
               <span className="head" style={{ left: `${Math.min(usagePercent, 100)}%` }} />
             </div>
             <div className="mono-cap mt-3 flex justify-between">
-              <span>текущий период · {usagePercent}%</span>
-              <span className="t-72">обновится 1-го числа</span>
+              <span>{org?.plan === "free" ? `пробные лиды · ${usagePercent}%` : `текущий период · ${usagePercent}%`}</span>
+              {org?.plan === "free" ? (
+                <Link href="/plans" className="t-72 underline underline-offset-4 hover:text-[var(--t-100)]">
+                  выбрать тариф →
+                </Link>
+              ) : (
+                <span className="t-72">обновится 1-го числа</span>
+              )}
             </div>
           </div>
         </div>

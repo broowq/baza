@@ -90,7 +90,7 @@ def test_remaining_kopecks_clamped_when_overspent():
 # ── apply_plan_limits ──────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("plan,expected", [
-    (PlanType.free, 0),
+    (PlanType.free, 1_000),  # триал 13.07: 10 ₽ AI на качество первого сбора
     (PlanType.starter, 10_000),
     (PlanType.growth, 15_000),
     (PlanType.pro, 20_000),
