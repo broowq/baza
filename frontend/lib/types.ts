@@ -33,6 +33,8 @@ export type Project = {
   // Жёсткие исключения из промпта («только b2b» → не розница/НКО) — их
   // уважают склад, live-поиск и LLM-фильтр сбора.
   excluded_segments?: string[];
+  // Требование к сайту клиента из промпта: any | no_website | with_website
+  website_preference?: string;
   okved_codes?: OkvedCode[];
   cron_schedule: string;
   auto_collection_enabled: boolean;
@@ -45,6 +47,7 @@ export type PromptEnhanceResponse = {
   geography: string;
   segments: string[];
   excluded_segments?: string[];
+  website_preference?: string;
   okved_codes?: OkvedCode[];
   target_customer_types: string[];
   search_queries_niche: string;

@@ -357,6 +357,7 @@ def search_warehouse(
     geography: str,
     segments: list[str] | None = None,
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
     limit: int = 100,
     exclude_keys: set[str] | frozenset[str] | None = None,
 ) -> list[dict]:
@@ -432,6 +433,22 @@ def search_warehouse(
                 excl_clauses.append(_ci_word(Company.categories.cast(TEXT_TYPE), excl))
         if excl_clauses:
             stmt = stmt.where(not_(or_(*excl_clauses)))
+
+        # ── требование к сайту (инцидент 14.07: «клиенты без сайтов») ────
+        # Фильтруем по КОЛОНКАМ (не по кандидату: _company_to_candidate
+        # синтезирует website из domain). no_website — карточка без домена и
+        # без website; наличие сайта у таких компаний дополнительно
+        # верифицируется веб-поиском в дозе (см. jobs). NB: "." not in domain
+        # ниже трактует мусорные домены как «нет домена» — фильтр обязан
+        # совпадать с этой семантикой, иначе maps-строки с битым доменом
+        # потерялись бы для no_website-проектов.
+        if website_preference == "no_website":
+            stmt = stmt.where(
+                or_(Company.domain == "", Company.domain.is_(None), ~Company.domain.like("%.%")),
+                or_(Company.website == "", Company.website.is_(None), Company.website.like("maps://%")),
+            )
+        elif website_preference == "with_website":
+            stmt = stmt.where(Company.domain.like("%.%"))
 
         # ── geography predicate ──────────────────────────────────────────
         if geo_clean and geo_clean.lower() not in _NATIONWIDE_GEOS:

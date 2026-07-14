@@ -659,7 +659,7 @@ def test_enrich_reprocesses_contactless_lead_and_flags_dead_source(db, monkeypat
         db.expire_all()
         job = db.get(CollectionJob, jid)
         assert job.enriched_count == 1, "contactless already-enriched lead must be reprocessed, not skipped"
-        assert job.error and "источники недоступны" in job.error, \
+        assert job.error and "временно недоступны" in job.error, \
             "dead contact source must be surfaced honestly in job.error"
     finally:
         db.rollback()

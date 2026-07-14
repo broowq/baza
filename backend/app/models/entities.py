@@ -166,6 +166,12 @@ class Project(Base):
     # проекта; применяются складским отбором (NOT-клаузы), LLM-фильтром дозы
     # и live-фильтром. Пустой список = ограничений нет.
     excluded_segments: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    # Требование к САЙТУ клиента из промпта (инцидент 14.07: веб-студия просила
+    # «клиентов, у которых НЕТ сайтов» — констрейнт молча терялся, склад выдал
+    # топ по скору, где сайт даёт +8). Значения: 'any' | 'no_website' |
+    # 'with_website'. Извлекается энхансером, применяется складским SQL,
+    # live-скорингом, LLM-фильтром и верификацией дозы через веб-поиск.
+    website_preference: Mapped[str] = mapped_column(String(16), default="any", nullable=False)
     # OKVED codes of TARGET CUSTOMERS (not the seller). Extracted by LLM at
     # project creation / prompt-enhance time. List of {code, label, confidence}.
     # Phase 1: used only for UI display + future ФНС ЕГРЮЛ lookups.

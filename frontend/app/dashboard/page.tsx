@@ -214,6 +214,7 @@ export default function DashboardPage() {
           // Без этого поля бэкенд-автоэнханс не срабатывает (niche уже
           // заменена) и ограничения пользователя терялись насовсем.
           excluded_segments: enhanced?.excluded_segments ?? [],
+          website_preference: enhanced?.website_preference ?? "any",
         }),
       });
       setProjectForm(initialProject);
@@ -559,6 +560,17 @@ export default function DashboardPage() {
                   </div>
                 )}
 
+                {enhanced?.website_preference && enhanced.website_preference !== "any" && (
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs t-56">Требование:</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {enhanced.website_preference === "no_website"
+                        ? "только компании без сайта"
+                        : "только компании с сайтом"}
+                    </Badge>
+                  </div>
+                )}
+
                 {enhanced?.excluded_segments && enhanced.excluded_segments.length > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className="text-xs t-56">Исключаем:</span>
@@ -851,7 +863,7 @@ export default function DashboardPage() {
             status ? (JOB_STATUS_MAP[status] ?? status) :
             "новый";
 
-          const sourceList = ["2ГИС", "Яндекс", "SearXNG"];
+          const sourceList = ["2ГИС", "Яндекс.Карты", "Яндекс.Поиск", "наша база"];
 
           // Score-bar value: enriched / added ratio, capped 0–1
           const addedCount = latestJob?.added_count ?? 0;

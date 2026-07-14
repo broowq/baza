@@ -784,6 +784,10 @@ def _clean_yandex_xml_text(node) -> str:
     return _HLWORD_RE.sub("", raw).strip()
 
 
+class _SkipWebPass(Exception):
+    """Сигнал «веб-проход не нужен» (website_preference=no_website)."""
+
+
 class _YandexSearchError(Exception):
     """Ошибка внутри XML-ответа Яндекса (HTTP 200 + <error code=…>). Отдельный
     тип, чтобы диспетчер откатился на SearXNG, а не тихо получил 0 сайтов."""
@@ -874,6 +878,128 @@ def _yandex_search_fetch_page(
         return []
     xml_text = base64.b64decode(raw).decode("utf-8", errors="replace")
     return _parse_yandex_search_xml(xml_text)
+
+
+# Generic-токены названий: пересечение ТОЛЬКО по ним — не матч («Строительная
+# компания Альфа» ≠ «Строительная компания Домострой»; ревью 14.07 поймало
+# чужой сайт именно на этом).
+_LOOKUP_STOPWORDS = frozenset({
+    "компания", "фирма", "группа", "центр", "студия", "салон", "магазин",
+    "сервис", "служба", "агентство", "бюро", "мастерская", "клиника",
+    "организация", "предприятие", "завод", "фабрика", "холдинг",
+    "ооо", "зао", "оао", "пао", "ао", "ип", "тд", "тк", "гк", "нпо", "пкф",
+    "строительная", "торговая", "производственная", "транспортная",
+    "юридическая", "медицинская", "туристическая", "рекламная", "оптовая",
+})
+
+_LOOKUP_TOKEN_RE = re.compile(r"[a-zа-яё0-9]+")
+_LOOKUP_CACHE_TTL = 14 * 86400  # платный запрос: вердикт «есть ли сайт» живёт 2 недели
+
+
+def _lookup_tokens(text: str) -> set[str]:
+    return {t for t in _LOOKUP_TOKEN_RE.findall((text or "").lower()) if len(t) >= 3}
+
+
+def yandex_search_company_lookup(company: str, city: str = "") -> dict:
+    """Один платный запрос Yandex Search v2 по названию компании: официальный
+    сайт + телефон/email из сниппета СОВПАВШЕГО результата.
+
+    Появился 14.07: живой инцидент — все карточные источники контактов легли
+    разом (2GIS-тариф без contact_groups, Geosearch 403, скрейп под капчей),
+    и у клиента 20/20 лидов без телефона. Это последний фолбэк обогащения и
+    верификатор «сайта нет» для website_preference=no_website.
+
+    Гарантии точности (ревью 14.07): матч названия — по значимым токенам
+    (пунктуация срезана, generic-слова «компания/строительная/ООО…» не
+    считаются), контакты берутся ТОЛЬКО из совпавшего item'а — телефон чужой
+    компании из соседнего сниппета хуже пустого. Результат кэшируется в
+    Redis на 14 дней (запрос платный; повторные сборы/обогащения того же
+    склада не должны жечь деньги заново).
+
+    Возвращает {"website": str, "phone": str, "email": str} (пустые строки,
+    если не найдено); {} — если Yandex Search не настроен или упал.
+    """
+    settings = get_settings()
+    if not _yandex_search_configured(settings) or not (company or "").strip():
+        return {}
+
+    # Суточный глобальный потолок платных lookup'ов — предохранитель от
+    # неожиданного жжения (кроновые сборы × много проектов). Кэш-хиты ниже
+    # бесплатны и в кап не попадают.
+    r_cap = _get_redis()
+    cache_key = "weblookup:" + hashlib.sha1(
+        f"{_normalize_match_text(company)}|{_normalize_match_text(city)}".encode()
+    ).hexdigest()
+    r = _get_redis()
+    if r is not None:
+        try:
+            cached = r.get(cache_key)
+            if cached:
+                return _json.loads(cached)
+        except Exception:
+            pass
+
+    if r_cap is not None:
+        try:
+            day_key = f"weblookup_day:{int(time.time()) // 86400}"
+            spent_today = r_cap.incr(day_key)
+            r_cap.expire(day_key, 86400)
+            if spent_today > int(getattr(settings, "web_lookup_daily_cap", 200)):
+                logger.warning("web lookup daily cap hit (%s) — skipping", spent_today)
+                return {}
+        except Exception:
+            pass
+    query = f"{company.strip()} {city.strip()} контакты телефон".strip()
+    try:
+        with httpx.Client(timeout=settings.yandex_search_timeout_seconds, follow_redirects=True) as client:
+            items = _yandex_search_fetch_page(client, query, page=1, settings=settings)
+    except (_YandexSearchError, httpx.HTTPError) as exc:
+        # Ошибку НЕ кэшируем (может быть временная) и не молчим: протухший
+        # ключ Yandex Search молча отключил бы верификацию «сайта нет» —
+        # повтор паттерна инцидента с Geosearch 403.
+        logger.warning("yandex company lookup failed for %r: %s", company[:50], exc)
+        try:
+            from app.services.notifications import send_alert
+            send_alert("error", "Yandex Search lookup падает",
+                       f"company={company[:40]!r}: {exc}", key="weblookup-down",
+                       throttle_seconds=3600)
+        except Exception:
+            pass
+        return {}
+
+    result = {"website": "", "phone": "", "email": ""}
+    company_words = _lookup_tokens(company) - _LOOKUP_STOPWORDS
+    matched_item = None
+    for it in items[:5]:
+        title_words = _lookup_tokens(it.get("company") or "")
+        domain = (it.get("domain") or "").lower()
+        translit_hit = any(
+            w[:5] in domain for w in company_words if w.isalpha() and w.isascii() and len(w) >= 5
+        )
+        if (company_words and company_words & title_words) or translit_hit:
+            matched_item = it
+            result["website"] = normalize_url(
+                it.get("website") or it.get("source_url") or f"https://{domain}"
+            )
+            break
+
+    if matched_item is not None:
+        # Контакты — только из СОВПАВШЕГО результата (contact_parser, а не
+        # локальный _PHONE_RE: тот не ловит 4-значные коды городов вроде 3822).
+        from app.utils.contact_parser import extract_contacts
+
+        parsed = extract_contacts(
+            f"{matched_item.get('company') or ''} {matched_item.get('snippet') or ''}"
+        )
+        result["phone"] = (parsed.get("phones") or [""])[0]
+        result["email"] = (parsed.get("emails") or [""])[0]
+
+    if r is not None:
+        try:
+            r.setex(cache_key, _LOOKUP_CACHE_TTL, _json.dumps(result, ensure_ascii=False))
+        except Exception:
+            pass
+    return result
 
 
 def _search_bing(query: str, limit: int) -> list[dict]:
@@ -2338,6 +2464,7 @@ def search_leads(
     segments: list[str] | None = None,
     prompt: str = "",
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
     use_yandex: bool = True,
     organization_id: str | None = None,
 ) -> list[dict]:
@@ -2355,7 +2482,8 @@ def search_leads(
     initial = _search_leads_one_tier(
         query, limit,
         niche=niche, geography=geography, segments=segments,
-        prompt=prompt, excluded_segments=excluded_segments, use_yandex=use_yandex,
+        prompt=prompt, excluded_segments=excluded_segments,
+        website_preference=website_preference, use_yandex=use_yandex,
         organization_id=organization_id,
     )
     # If we already have a healthy chunk OR geography is 'Россия' (no broader
@@ -2382,7 +2510,8 @@ def search_leads(
         extra = _search_leads_one_tier(
             query, remaining,
             niche=niche, geography=tier_geo, segments=segments,
-            prompt=prompt, excluded_segments=excluded_segments, use_yandex=use_yandex,
+            prompt=prompt, excluded_segments=excluded_segments,
+            website_preference=website_preference, use_yandex=use_yandex,
             organization_id=organization_id,
         )
         if not extra:
@@ -2411,7 +2540,7 @@ def search_leads(
     return merged[:limit]
 
 
-def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", excluded_segments: list[str] | None = None, use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
+def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", excluded_segments: list[str] | None = None, website_preference: str = "any", use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -2434,6 +2563,11 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
     # бюджет — он добирает min(limit, 30) уникальных веб-кандидатов, даже
     # если кап уже заполнен картами.
     web_reserve = min(limit, 30)
+    if website_preference == "no_website":
+        # Веб-поиск по определению возвращает компании С сайтами — для
+        # «клиентов без сайта» проход пропускается целиком (см. ниже), и
+        # резерв ему не положен: карты/реестры получают весь кап.
+        web_reserve = 0
     web_unique = 0
 
     # Build list of specific search terms for maps (2GIS, Yandex)
@@ -2479,6 +2613,15 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         for item in source_items:
             scored = _score_candidate(item, effective_niche, effective_geo, effective_segments)
             if scored.get("relevance_score", -999) < _MIN_RELEVANCE_SCORE:
+                skipped_irrelevant += 1
+                continue
+            # Требование к сайту («без сайтов», инцидент 14.07) — жёсткий
+            # фильтр, а не скоринговый нюанс: перекос "+8 за сайт" ниже по
+            # конвейеру иначе систематически хоронит бездоменных.
+            if website_preference == "no_website" and (scored.get("domain") or "").strip():
+                skipped_irrelevant += 1
+                continue
+            if website_preference == "with_website" and not (scored.get("domain") or "").strip():
                 skipped_irrelevant += 1
                 continue
             key = _candidate_key(scored)
@@ -2633,6 +2776,8 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
                 logger.warning("Yandex Maps API error for '%s'", map_geo, exc_info=True)
 
     try:
+        if website_preference == "no_website":
+            raise _SkipWebPass()  # веб-поиск находит только компании С сайтами
         queries = _build_discover_queries(effective_niche, effective_geo, effective_segments, has_prompt=bool(prompt))
         settings = get_settings()
         local_seen_domains: set[str] = set()
@@ -2711,12 +2856,15 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
                 yx_requests,
             )
         searxng_accessible = True
+    except _SkipWebPass:
+        logger.info("web pass skipped: website_preference=no_website")
     except Exception:
         logger.exception("web search pass failed")
 
     try:
         # Fix [web-reserve]: тот же резерв действует и для Bing-гейта.
-        if not _cap_full() or web_unique < web_reserve:
+        # (no_website: Bing, как и весь веб-проход, находит только сайты.)
+        if website_preference != "no_website" and (not _cap_full() or web_unique < web_reserve):
             # Bing backup — segment-aware when we have prompt-driven targets.
             # Previously we searched `{niche} компания {geo}` unconditionally,
             # which brings sellers of the niche for prompt-driven projects.
@@ -2754,6 +2902,7 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         ranked = filter_candidates_llm(
             ranked, effective_niche, effective_geo, effective_segments,
             prompt=prompt, excluded_segments=excluded_segments,
+            website_preference=website_preference,
             organization_id=organization_id,
         )
         return ranked[:limit]

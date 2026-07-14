@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
 from app.services import company_warehouse
 from app.services import quota
-from app.services.lead_collection import _NATIONWIDE_GEOS, _get_redis, enrich_2gis_lead, enrich_website_contacts, search_leads
+from app.services.lead_collection import _NATIONWIDE_GEOS, _get_redis, enrich_2gis_lead, enrich_website_contacts, search_leads, yandex_search_company_lookup
 from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
@@ -30,6 +30,21 @@ _MAX_CONCURRENT_JOBS_PER_ORG = 3
 # Если доля ниже — live-добор стартует ДАЖЕ при заполненной дозе, и пустышки
 # заменяются контактными live-находками.
 _DOSE_MIN_CONTACT_SHARE = 0.7
+
+
+def _matches_website_preference(c: dict, preference: str) -> bool:
+    """Соответствие кандидата требованию к сайту клиента (инцидент 14.07).
+
+    «Реальный сайт» = извлекаемый домен с точкой (maps:// и пустые не в счёт).
+    Для no_website такой кандидат не годится ДАЖЕ с контактами — юзер
+    (веб-студия) продаёт создание сайта тем, у кого его нет.
+    """
+    if preference not in ("no_website", "with_website"):
+        return True
+    website = normalize_url(c.get("website") or "")
+    domain = (extract_domain(website) if website else "") or (c.get("domain") or "").strip().lower()
+    has_site = bool(domain) and "." in domain
+    return not has_site if preference == "no_website" else has_site
 
 
 def _candidate_has_contact(c: dict) -> bool:
@@ -237,6 +252,9 @@ def collect_leads_task(job_id: str) -> None:
             if e and e.strip()
         ]
         user_prompt = project.prompt or ""
+        # Требование к сайту клиента («без сайтов» — инцидент 14.07):
+        # уважается складским SQL, live-скорингом, LLM-фильтром и save-loop'ом.
+        website_preference = getattr(project, "website_preference", "any") or "any"
 
         if user_prompt and not (project.search_query or "").strip():
             try:
@@ -319,6 +337,9 @@ def collect_leads_task(job_id: str) -> None:
                 if not _candidate_saveable(r):
                     chosen.add(k)
                     continue
+                if not _matches_website_preference(r, website_preference):
+                    chosen.add(k)
+                    continue
                 chosen.add(k)
                 candidates.append(r)
                 n += 1
@@ -332,7 +353,8 @@ def collect_leads_task(job_id: str) -> None:
                 wh_used = _take(company_warehouse.search_warehouse(
                     db, niche=effective_niche, geography=effective_geo,
                     segments=effective_segments,
-                    excluded_segments=excluded_segments, limit=batch_size,
+                    excluded_segments=excluded_segments,
+                    website_preference=website_preference, limit=batch_size,
                     exclude_keys=already_keys,
                 ))
             except Exception:
@@ -387,6 +409,7 @@ def collect_leads_task(job_id: str) -> None:
                     segments=effective_segments,
                     prompt=user_prompt,
                     excluded_segments=excluded_segments,
+                    website_preference=website_preference,
                     use_yandex=use_yandex,
                     organization_id=str(job.organization_id),
                 )
@@ -415,7 +438,8 @@ def collect_leads_task(job_id: str) -> None:
                         _take(company_warehouse.search_warehouse(
                             db, niche=effective_niche, geography=effective_geo,
                             segments=effective_segments,
-                            excluded_segments=excluded_segments, limit=batch_size,
+                            excluded_segments=excluded_segments,
+                            website_preference=website_preference, limit=batch_size,
                             exclude_keys=chosen,
                         ))
                     except Exception:
@@ -438,6 +462,7 @@ def collect_leads_task(job_id: str) -> None:
                     pool = [
                         r for r in live
                         if _candidate_has_contact(r) and _candidate_saveable(r)
+                        and _matches_website_preference(r, website_preference)
                         and (company_warehouse.candidate_key(r) or "") not in chosen
                     ]
                     replaced = 0
@@ -477,6 +502,7 @@ def collect_leads_task(job_id: str) -> None:
                 kept = filter_candidates_llm(
                     candidates, effective_niche, effective_geo, effective_segments,
                     prompt=user_prompt, excluded_segments=excluded_segments,
+                    website_preference=website_preference,
                     organization_id=str(job.organization_id),
                 )
             except Exception:
@@ -496,7 +522,8 @@ def collect_leads_task(job_id: str) -> None:
                     rows = company_warehouse.search_warehouse(
                         db, niche=effective_niche, geography=effective_geo,
                         segments=effective_segments,
-                        excluded_segments=excluded_segments, limit=batch_size,
+                        excluded_segments=excluded_segments,
+                        website_preference=website_preference, limit=batch_size,
                         exclude_keys=chosen,
                     )
                 except Exception:
@@ -522,6 +549,7 @@ def collect_leads_task(job_id: str) -> None:
                     staged = filter_candidates_llm(
                         staged, effective_niche, effective_geo, effective_segments,
                         prompt=user_prompt, excluded_segments=excluded_segments,
+                        website_preference=website_preference,
                         organization_id=str(job.organization_id),
                     )
                 except Exception:
@@ -534,6 +562,83 @@ def collect_leads_task(job_id: str) -> None:
             batch_size, len(candidates), wh_used, live_count, did_live,
             sum(1 for c in candidates if _candidate_has_contact(c)), len(candidates),
         )
+        # Верификация «сайта нет» (website_preference=no_website): карточка
+        # 2ГИС/склада без сайта ≠ компания без сайта — часто его просто не
+        # заполнили (инцидент 14.07: клиент проверил выдачу руками и нашёл
+        # сайты у «бездоменных»). Один платный Yandex Search-запрос на
+        # кандидата: нашёлся официальный сайт → кандидат отсеивается; заодно
+        # телефон/email из сниппетов достаются бесплатным бонусом.
+        nosite_verify_note = ""
+        if website_preference == "no_website" and candidates:
+            from app.services.lead_collection import _yandex_search_configured
+
+            if not _yandex_search_configured(get_settings()):
+                # Верификация недоступна — честно, а не молча (повтор паттерна
+                # инцидента: Geosearch протух беззвучно). Кандидаты идут как
+                # есть — «карточка без сайта», без гарантии.
+                logger.warning("no_website verify skipped: Yandex Search не настроен")
+                nosite_verify_note = (
+                    "Проверка «нет сайта» временно недоступна — компании "
+                    "отобраны по карточкам без сайта."
+                )
+            else:
+                verify_budget = max(0, int(getattr(get_settings(), "nosite_verify_max_per_job", 30)))
+                verified: list[dict] = []
+                dropped_has_site = 0
+                for c in candidates:
+                    if verify_budget <= 0:
+                        verified.append(c)  # бюджет кончился — пропускаем без проверки
+                        continue
+                    verify_budget -= 1  # кэш-хиты lookup бесплатны, но бюджет консервативно тратим
+                    try:
+                        found = yandex_search_company_lookup(c.get("company", ""), c.get("city", ""))
+                    except Exception:
+                        found = {}
+                    found_site = (found.get("website") or "").strip()
+                    if found_site:
+                        dropped_has_site += 1
+                        k = company_warehouse.candidate_key(c)
+                        if k:
+                            chosen.add(k)
+                        # ПЕРСИСТЕНЦИЯ вердикта (блокер ревью 14.07): пишем
+                        # найденный сайт в строку склада — SQL-фильтр
+                        # no_website исключит её из ВСЕХ будущих доз, иначе
+                        # топ-ранжированные отбраковки возвращались бы в дозу
+                        # каждый сбор и вечно жгли платные lookup'ы.
+                        try:
+                            with db.begin_nested():
+                                wh_row = company_warehouse.find_company_for_lead(
+                                    db, domain="", company=c.get("company") or "",
+                                    city=c.get("city") or "",
+                                )
+                                if wh_row is not None and not (wh_row.domain or "").strip():
+                                    nd = extract_domain(found_site)
+                                    if nd and "." in nd:
+                                        wh_row.domain = nd
+                                        if not (wh_row.website or "").strip() or (wh_row.website or "").startswith("maps://"):
+                                            wh_row.website = _clip(found_site, 300)
+                                        db.flush()
+                        except Exception:
+                            logger.debug("no_website verify write-back failed", exc_info=True)
+                        continue
+                    if found.get("phone") and not (c.get("phone") or "").strip():
+                        c["phone"] = found["phone"]
+                    if found.get("email") and not (c.get("email") or "").strip():
+                        c["email"] = found["email"]
+                    verified.append(c)
+                if dropped_has_site:
+                    logger.info(
+                        "no_website verify: dropped %d/%d candidate(s) that DO have a site",
+                        dropped_has_site, len(candidates),
+                    )
+                    # Прозрачность: доза уменьшилась не «просто так» — юзер
+                    # видит, что проверка сайтов реально работает.
+                    nosite_verify_note = (
+                        f"Проверка сайтов: {dropped_has_site} комп. отсеяно — "
+                        "у них уже есть сайт."
+                    )
+                candidates = verified
+
         job.found_count = len(candidates)
         # Heartbeat after the (potentially slow) search + filter phase so the
         # 30-min reaper sees progress before the first save-loop commit.
@@ -753,6 +858,8 @@ def collect_leads_task(job_id: str) -> None:
                     "Новых компаний не найдено: всё доступное по этому запросу уже собрано. "
                     "Измените нишу/гео/сегменты или включите автосбор для новых со временем."
                 )
+            if nosite_verify_note and not job.error:
+                job.error = nosite_verify_note
             job.updated_at = datetime.now(timezone.utc)
         db.commit()
         send_telegram(f"Lead collection finished. Job={job.id} Added={job.added_count}")
@@ -944,6 +1051,11 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         project_segments = list(project.segments) if (project and project.segments) else []
         enriched = 0
         contacts_found = 0  # leads that ended this run with an email or phone
+        # Бюджет веб-фолбэка (Yandex Search, платный ₽/запрос): последний
+        # шанс добыть контакты, когда карточные источники легли разом
+        # (инцидент 14.07: 2GIS-тариф без contact_groups + Geosearch 403 +
+        # скрейп под капчей → у клиента 20/20 лидов без телефона).
+        web_lookup_budget = max(0, int(getattr(get_settings(), "enrich_web_lookup_max_per_job", 20)))
         for lead in leads:
             website = lead.website or ""
             if website.startswith("maps://"):
@@ -992,6 +1104,78 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                             )
                     except Exception:
                         logger.debug("2GIS fallback failed for %s", lead.company, exc_info=True)
+            # Последний фолбэк: Yandex Search по названию — телефон/email из
+            # сниппетов + официальный сайт. Только когда всё остальное дало
+            # ноль контактов, в пределах бюджета джобы.
+            if (web_lookup_budget > 0
+                    and not (contacts.get("phones") or contacts.get("emails"))
+                    and not (lead.phone or lead.email)
+                    and lead.company and len(lead.company) >= 3):
+                web_lookup_budget -= 1
+                try:
+                    found = yandex_search_company_lookup(lead.company, lead.city or "")
+                except Exception:
+                    found = {}
+                    logger.debug("web lookup failed for %s", lead.company, exc_info=True)
+                if found.get("phone"):
+                    contacts.setdefault("phones", []).append(found["phone"])
+                if found.get("email"):
+                    contacts.setdefault("emails", []).append(found["email"])
+                found_site = (found.get("website") or "").strip()
+                if found_site and website.startswith("maps://"):
+                    # Нашли официальный сайт maps-лида: дожимаем контакты со
+                    # страниц сайта и записываем его В ЛИД — но только если
+                    # домен не занят другим лидом проекта (uq_project_website)
+                    # и проекту не нужны «клиенты без сайта».
+                    try:
+                        site_contacts = enrich_website_contacts(found_site)
+                        for ph in site_contacts.get("phones", []):
+                            if ph not in (contacts.get("phones") or []):
+                                contacts.setdefault("phones", []).append(ph)
+                        for em in site_contacts.get("emails", []):
+                            if em not in (contacts.get("emails") or []):
+                                contacts.setdefault("emails", []).append(em)
+                        if site_contacts.get("site_description") and not contacts.get("site_description"):
+                            contacts["site_description"] = site_contacts["site_description"]
+                    except Exception:
+                        logger.debug("site contacts after web lookup failed", exc_info=True)
+                    wp = getattr(project, "website_preference", "any") if project else "any"
+                    new_domain = extract_domain(found_site)
+                    if wp == "no_website":
+                        # Проект «клиенты без сайта», а сайт у лида нашёлся:
+                        # website НЕ пишем, но честно помечаем тегом — юзер
+                        # сам решит, звонить ли (ревью 14.07).
+                        tags = list(lead.tags or [])
+                        if "есть сайт" not in tags:
+                            lead.tags = tags + ["есть сайт"]
+                    elif new_domain:
+                        # SAVEPOINT: конкурентный enrich мог занять домен между
+                        # check и set — конфликт uq_project_website не должен
+                        # ронять весь джоб (ревью 14.07). base-домен в проверке
+                        # зеркалит дедуп save-loop'а.
+                        try:
+                            with db.begin_nested():
+                                taken = db.execute(
+                                    select(Lead.id).where(
+                                        Lead.project_id == lead.project_id,
+                                        (Lead.website == found_site)
+                                        | (Lead.domain == new_domain)
+                                        | (Lead.domain == get_base_domain(new_domain)),
+                                        Lead.id != lead.id,
+                                    )
+                                ).first()
+                                if taken is None:
+                                    lead.website = _clip(found_site, 300)
+                                    lead.domain = new_domain
+                                    db.flush()
+                        except Exception:
+                            logger.debug("website write after lookup failed", exc_info=True)
+                if found:
+                    logger.info(
+                        "enrichment: web lookup for %r → phone=%s email=%s site=%s (budget left %d)",
+                        lead.company[:40], bool(found.get("phone")),
+                        bool(found.get("email")), bool(found_site), web_lookup_budget,
+                    )
             lead.contacts = contacts
             lead.contacts_json = contacts
             # «О компании»: meta-description главной — лучший короткий ответ,
@@ -1145,11 +1329,25 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             if getattr(_lc, "_TWOGIS_SCRAPE_BLOCKED", False) or getattr(_lc, "_TWOGIS_SCRAPE_BLOCKED_ENRICH", False):
                 issues.append("2GIS веб-поиск (защита от ботов)")
             if issues:
+                # Юзеру — человеческий текст (клиент не «проверяет API-ключи
+                # на сервере»); технические детали — админу алертом (инцидент
+                # 14.07: клиент увидел операторское сообщение и растерялся).
                 messages.append(
-                    "Контакты не найдены: источники недоступны — "
-                    + ", ".join(issues)
-                    + ". Проверьте API-ключи 2GIS/Yandex на сервере."
+                    "Контакты у этой партии пока не найдены: внешние источники "
+                    "временно недоступны. Мы уже знаем о проблеме; попробуйте "
+                    "обогащение позже — лиды останутся в проекте."
                 )
+                try:
+                    from app.services.notifications import send_alert
+                    send_alert(
+                        "error",
+                        "Все источники контактов легли: обогащение дало 0",
+                        f"job={job.id} leads={len(leads)} причины: {', '.join(issues)}",
+                        key="enrich-sources-down",
+                        throttle_seconds=3600,
+                    )
+                except Exception:
+                    logger.debug("sources-down alert failed", exc_info=True)
         # Bug #5: record skipped (already-enriched-with-contact) leads so the
         # user sees why enriched_count may be lower than the number requested.
         if skipped_already_enriched:

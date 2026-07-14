@@ -42,6 +42,7 @@ def _get_filter_redis() -> "_redis.Redis | None":
 def _filter_config_hash(
     niche: str, geography: str, segments: list[str], prompt: str,
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
 ) -> str:
     parts = [
         (niche or "").strip().lower(),
@@ -57,6 +58,9 @@ def _filter_config_hash(
     excl = ",".join(sorted((e or "").strip().lower() for e in (excluded_segments or []) if e))
     if excl:
         parts.append(excl)
+    # Требование к сайту — тот же принцип: в ключе только когда меняет промпт.
+    if website_preference in ("no_website", "with_website"):
+        parts.append(f"wp:{website_preference}")
     canon = "|".join(parts)
     return hashlib.sha1(canon.encode("utf-8")).hexdigest()[:16]
 
@@ -78,6 +82,7 @@ def filter_candidates_llm(
     *,
     prompt: str = "",
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
     organization_id: str | None = None,
 ) -> list[dict]:
     """Filter candidates for relevance. Uses AI if available, rule-based otherwise.
@@ -93,6 +98,7 @@ def filter_candidates_llm(
     if llm_client.is_configured():
         try:
             result = _ai_filter(candidates, niche, geography, segments, prompt,
+                                website_preference=website_preference,
                                 excluded_segments=excluded_segments,
                                 organization_id=organization_id)
             if result is not None:
@@ -159,6 +165,7 @@ def _ai_filter(
     prompt: str,
     *,
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
     organization_id: str | None = None,
 ) -> list[dict] | None:
     """AI-based filtering. Returns None on complete failure (all batches failed
@@ -172,7 +179,7 @@ def _ai_filter(
     results have been accumulated yet, preserving the cost-cap short-circuit
     behaviour — the caller's rule-based path then handles all candidates.
     """
-    cfg = _filter_config_hash(niche, geography, segments, prompt, excluded_segments)
+    cfg = _filter_config_hash(niche, geography, segments, prompt, excluded_segments, website_preference)
     r = _get_filter_redis()
 
     # 1. Look up cached verdicts (config + candidate identity).
@@ -213,6 +220,7 @@ def _ai_filter(
     for batch_start in range(0, len(to_classify), BATCH_SIZE):
         batch = to_classify[batch_start:batch_start + BATCH_SIZE]
         verdict = _ai_filter_batch(batch, niche, geography, segments, prompt,
+                                   website_preference=website_preference,
                                    excluded_segments=excluded_segments,
                                    organization_id=organization_id)
         if verdict is None:
@@ -273,6 +281,7 @@ def _ai_filter(
 def _ai_filter_batch(
     batch, niche, geography, segments, prompt, *,
     excluded_segments: list[str] | None = None,
+    website_preference: str = "any",
     organization_id: str | None = None,
 ) -> "tuple[list[dict], bool] | None":
     """Filter a single batch using AI.
@@ -305,8 +314,20 @@ def _ai_filter_batch(
     candidates_text = "\n".join(lines)
     segments_str = ", ".join(segments) if segments else "не указаны"
     excluded_str = ", ".join(e for e in (excluded_segments or []) if e)
+    # Требование к сайту (инцидент 14.07 «клиенты без сайтов»). Только для
+    # не-any: глобальная вставка сдвинула бы вердикты и кэш у всех проектов.
+    website_rule = ""
+    if website_preference == "no_website":
+        website_rule = "ТРЕБОВАНИЕ К САЙТУ: пользователю нужны компании БЕЗ сайта. ОТКЛОНЯЙ кандидатов, у которых указан сайт.\n"
+    elif website_preference == "with_website":
+        website_rule = "ТРЕБОВАНИЕ К САЙТУ: пользователю нужны компании С сайтом. ОТКЛОНЯЙ кандидатов без сайта.\n"
 
-    if prompt and excluded_str:
+    excluded_block = (
+        f"ЖЁСТКИЕ ИСКЛЮЧЕНИЯ ПОЛЬЗОВАТЕЛЯ: {excluded_str}.\n"
+        "ОТКЛОНЯЙ кандидата, который подпадает под исключение, ДАЖЕ если его тип есть в целевых сегментах.\n"
+        if excluded_str else ""
+    )
+    if prompt and (excluded_str or website_rule):
         # Жёсткие исключения пользователя главнее списка сегментов: сегменты —
         # лишь подсказка-расширение, а «кому НЕЛЬЗЯ продать» — прямое
         # ограничение из промпта («только b2b» и т.п.). Без этого блока фильтр
@@ -321,9 +342,7 @@ def _ai_filter_batch(
 ГЕОГРАФИЯ: {geography}
 ЦЕЛЕВЫЕ СЕГМЕНТЫ (подсказка, НЕ гарантия): {segments_str}
 
-ЖЁСТКИЕ ИСКЛЮЧЕНИЯ ПОЛЬЗОВАТЕЛЯ: {excluded_str}.
-ОТКЛОНЯЙ кандидата, который подпадает под исключение, ДАЖЕ если его тип есть в целевых сегментах.
-
+{excluded_block}{website_rule}
 ГЛАВНЫЙ КРИТЕРИЙ: описание бизнеса пользователя. Если кандидату НЕЛЬЗЯ продать
 описанный продукт/услугу — REJECT, даже если тип кандидата есть в целевых сегментах.
 ОТКЛОНЯЙ (REJECT) также: конкуренты (продают то же), агрегаторы, каталоги, закрытые компании, блоги.
@@ -361,7 +380,8 @@ JSON-ОТВЕТ:"""
             f"\nЖЁСТКИЕ ИСКЛЮЧЕНИЯ: {excluded_str} — отклоняй подпадающих под них."
             if excluded_str else ""
         )
-        filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.{excluded_line}
+        website_line = f"\n{website_rule.strip()}" if website_rule else ""
+        filter_prompt = f"""Фильтр B2B лидов. Ниша: {niche}. География: {geography}. Сегменты: {segments_str}.{excluded_line}{website_line}
 Отклоняй: не из ниши, агрегаторы, закрытые, госучреждения. Сохраняй: реальный бизнес из ниши.
 Ответ — строго JSON-объект {{"keep": [номера подходящих]}}, например {{"keep": [1, 3]}};
 если ни один не подходит — {{"keep": []}}. Без другого текста.

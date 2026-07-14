@@ -13,6 +13,8 @@ class ProjectCreateRequest(BaseModel):
     # Жёсткие исключения («только b2b» → розница/НКО/госсектор и т.п.) —
     # обычно заполняются энхансером, но можно задать и вручную.
     excluded_segments: list[str] = Field(default_factory=list)
+    # Требование к сайту клиента: any | no_website | with_website
+    website_preference: str = "any"
     cron_schedule: str = Field(default="0 9 * * 1", max_length=120)
     auto_collection_enabled: bool = False
 
@@ -26,6 +28,11 @@ class ProjectCreateRequest(BaseModel):
     def validate_excluded_segments(cls, v):
         return [s[:100] for s in (v or [])[:12]]
 
+    @field_validator('website_preference')
+    @classmethod
+    def validate_website_preference(cls, v):
+        return v if v in ("any", "no_website", "with_website") else "any"
+
 
 class ProjectUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=140)
@@ -34,6 +41,7 @@ class ProjectUpdateRequest(BaseModel):
     geography: str | None = Field(default=None, min_length=2, max_length=120)
     segments: list[str] | None = None
     excluded_segments: list[str] | None = None
+    website_preference: str | None = None
     cron_schedule: str | None = Field(default=None, max_length=120)
     auto_collection_enabled: bool | None = None
 
@@ -51,6 +59,13 @@ class ProjectUpdateRequest(BaseModel):
             return v
         return [s[:100] for s in (v or [])[:12]]
 
+    @field_validator('website_preference')
+    @classmethod
+    def validate_website_preference(cls, v):
+        if v is None:
+            return v
+        return v if v in ("any", "no_website", "with_website") else "any"
+
 
 class OkvedCode(BaseModel):
     code: str
@@ -67,6 +82,7 @@ class ProjectOut(BaseModel):
     geography: str
     segments: list[str]
     excluded_segments: list[str] = Field(default_factory=list)
+    website_preference: str = "any"
     okved_codes: list[OkvedCode] = Field(default_factory=list)
     cron_schedule: str
     auto_collection_enabled: bool
@@ -88,6 +104,7 @@ class PromptEnhanceResponse(BaseModel):
     geography: str
     segments: list[str]
     excluded_segments: list[str] = Field(default_factory=list)
+    website_preference: str = "any"
     okved_codes: list[OkvedCode] = Field(default_factory=list)
     target_customer_types: list[str] = Field(default_factory=list)
     search_queries_niche: str = ""

@@ -625,6 +625,9 @@ def enhance_prompt(raw_prompt: str, *, organization_id: str | None = None) -> di
     # Rule-based ветка не умеет извлекать ограничения — поле присутствует пустым,
     # чтобы вызывающий код не различал источники стратегии.
     result.setdefault("excluded_segments", [])
+    # …но требование к сайту обязана ловить и без LLM (инцидент 14.07:
+    # «нужны клиенты, у которых нет сайтов» терялся молча).
+    result.setdefault("website_preference", _website_preference_heuristic(raw_prompt))
     return result
 
 
@@ -1321,6 +1324,18 @@ b2b компании» — это значит: компании, которые
 магазин, салон красоты, услуги для физлиц, КФХ, фермерское хозяйство, НКО,
 госучреждение, школа, больница, отель: им B2B-инструмент не продать.
 
+website_preference — ТРЕБОВАНИЕ К САЙТУ клиента (отдельно от excluded_segments,
+это атрибут компании, а не её тип):
+- "no_website" если пользователю нужны клиенты БЕЗ сайта («у которых нет
+  сайтов», «без сайта», «отсутствует сайт») — типично для веб-студий,
+  разработчиков сайтов, SEO с нуля;
+- "with_website" если явно нужны клиенты С сайтом («у кого есть сайт»,
+  «с сайтом на Тильде», «дорабатываю существующие сайты»);
+- "any" во всех остальных случаях (дефолт).
+Пример: «Я делаю сайты, нужны клиенты, у которых нет сайтов» →
+website_preference="no_website" (и НЕ клади «компании с сайтом» в
+excluded_segments — атрибуты сайта живут только в website_preference).
+
 Пример A — продавец товара:
 - Пользователь: "Продаю кормовые добавки для животных в Томске"
 - НЕПРАВИЛЬНО: компании, которые продают кормовые добавки (конкуренты!)
@@ -1360,6 +1375,7 @@ b2b компании» — это значит: компании, которые
   "geography": "Извлечённый регион/город или 'Россия' если не указан",
   "segments": ["конкретный тип 1", "конкретный тип 2", "...", "конкретный тип 25"],
   "excluded_segments": ["тип компании, противоречащий ограничениям пользователя", "..."],
+  "website_preference": "any | no_website | with_website",
   "target_customer_types": ["тип клиента 1", "тип клиента 2", "..."],
   "search_queries_niche": "Ключевые слова для поиска КЛИЕНТОВ на картах (Яндекс/2ГИС)",
   "okved_codes": [
@@ -1474,6 +1490,10 @@ search_queries_niche — это то, что будет искаться на к
         if excluded and isinstance(result.get("segments"), list):
             result["segments"] = _filter_excluded_segments(result["segments"], excluded)
 
+        # Требование к сайту: enum с дефолтом (LLM изредка фантазирует значения)
+        wp = result.get("website_preference")
+        result["website_preference"] = wp if wp in ("any", "no_website", "with_website") else "any"
+
         # Normalize ОКВЭД codes: validate shape, clamp confidence to [0,1].
         if isinstance(result.get("okved_codes"), list):
             result["okved_codes"] = _normalize_okved(result["okved_codes"])
@@ -1525,6 +1545,25 @@ def _keyword_matches(
                     return True
         return False
     return _fallback_kw_pattern(kw).search(prompt_norm) is not None
+
+
+def _website_preference_heuristic(raw_prompt: str) -> str:
+    """Regex-ловля требования к сайту для rule-based фолбэка (без LLM).
+
+    Сознательно консервативна: только явные формулировки; сомнение = "any".
+    """
+    t = (raw_prompt or "").lower()
+    # «у нас/у меня нет сайта» — про САМОГО пользователя, не про клиентов
+    # (ревью 14.07: без выреза проект молча терял весь веб-проход). Границы
+    # слов обязательны: «интерНЕТ сайты» ловился как «нет сайты».
+    t = re.sub(r"у\s+(нас|меня)\s+(пока\s+)?нет\s+сайт\w*", " ", t)
+    if re.search(r"\b(нет|без|отсутству\w*)\s+сайт", t):
+        return "no_website"
+    if re.search(r"(есть|с|имеющ\w*|существующ\w*)\s+сайт\w*", t) and re.search(
+        r"(дораб|редизайн|улучш|поддержк|перенос|аудит)", t
+    ):
+        return "with_website"
+    return "any"
 
 
 def _smart_fallback(raw_prompt: str) -> dict:

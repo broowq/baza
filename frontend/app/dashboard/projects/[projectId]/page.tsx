@@ -318,7 +318,13 @@ export default function ProjectDetailsPage() {
       setFunnelKey((k) => k + 1);
       setKanbanLoaded(false);
     }
-    if (n > 0) toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
+    if (n > 0) {
+      toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
+      // Инцидент 14.07: честное предупреждение бэкенда («контакты не найдены —
+      // источники недоступны») пряталось за success-тостом, юзер видел пустые
+      // телефоны без объяснения. Показываем его И при успешном сборе.
+      if (last.error) toast(last.error, { duration: 8000 });
+    }
     // 0 added — show the backend's honest reason (quota hit vs. nothing left).
     else toast(last.error || "Новых компаний не найдено — всё доступное по запросу уже собрано. Измените нишу/гео или включите автосбор.");
   }, [jobs]);
@@ -579,8 +585,41 @@ export default function ProjectDetailsPage() {
         </div>
 
         {/* Chips row */}
-        {project && (project.segments.length > 0 || (project.okved_codes?.length ?? 0) > 0) && (
+        {project && (
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Требование к сайту клиента — редактируемое (инцидент 14.07:
+                констрейнт «без сайтов» без UI нельзя было ни задать на
+                существующем проекте, ни снять при ложном срабатывании) */}
+            <select
+              value={project.website_preference || "any"}
+              onChange={async (e) => {
+                const v = e.target.value;
+                const prev = project.website_preference || "any";
+                setProject({ ...project, website_preference: v });
+                try {
+                  await api(`/projects/${project.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ website_preference: v }),
+                  });
+                  toast.success(
+                    v === "no_website"
+                      ? "Теперь ищем только компании без сайта"
+                      : v === "with_website"
+                        ? "Теперь ищем только компании с сайтом"
+                        : "Требование к сайту снято",
+                  );
+                } catch {
+                  setProject({ ...project, website_preference: prev });
+                  toast.error("Не удалось сохранить");
+                }
+              }}
+              className="chip chip-sans cursor-pointer border-0 bg-transparent"
+              title="Требование к сайту клиента — учитывается при сборе"
+            >
+              <option value="any">сайт: любые</option>
+              <option value="no_website">🚫 только без сайта</option>
+              <option value="with_website">🌐 только с сайтом</option>
+            </select>
             {project.segments.slice(0, 8).map((seg) => (
               <span
                 key={seg}

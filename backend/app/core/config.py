@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     trials_per_email_domain: int = 3
     # Дополнение к встроенному блок-листу одноразовых почт, через запятую.
     disposable_email_domains_extra: str = ""
+    # Веб-фолбэк обогащения (Yandex Search, платный ₽/запрос): максимум
+    # запросов «{компания} {город} контакты» на одну enrich-джобу. Последний
+    # шанс добыть телефон, когда карточные источники недоступны (14.07).
+    enrich_web_lookup_max_per_job: int = 20
+    # Верификация «сайта нет» для website_preference=no_website: максимум
+    # Yandex Search-запросов на одну collect-джобу (по одному на кандидата;
+    # ≥ типичной дозы 25, иначе хвост дозы уходит непроверенным). Кэш
+    # lookup'ов 14 дней делает повторные сборы почти бесплатными.
+    nosite_verify_max_per_job: int = 30
+    # Суточный ГЛОБАЛЬНЫЙ потолок платных web-lookup'ов (все орги суммарно) —
+    # предохранитель от кронового жжения; кэш-хиты не считаются.
+    web_lookup_daily_cap: int = 200
     password_reset_expire_minutes: int = 30
     frontend_app_url: str = "http://localhost:3000"
     log_level: str = "INFO"
