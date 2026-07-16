@@ -94,7 +94,7 @@ export default function ForgotPasswordPage() {
           <div className="hairline my-7" />
 
           <div className="text-center caption">
-            <Link href="/login" className="text-white underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
+            <Link href="/login" className="text-[var(--t-100)] underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
               ← Вернуться к входу
             </Link>
           </div>

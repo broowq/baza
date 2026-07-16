@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 
 @celery.task(name="periodic.reset_monthly_quotas")
+def _plan_display(plan) -> str:
+    """Клиентское имя тарифа для писем (enum «growth»/«free» юзеру не говорит ничего)."""
+    from app.api.routes.plans import PLAN_NAMES
+
+    raw = getattr(plan, "value", str(plan))
+    return PLAN_NAMES.get(raw, {"free": "Пробный", "growth": "Team"}.get(raw, raw.capitalize()))
+
+
 def reset_monthly_quotas() -> None:
     """Reset leads_used_current_month AND ai_cost_used_kopecks_current_month
     to 0 for all organizations.
@@ -366,7 +374,9 @@ def downgrade_expired_subscriptions() -> None:
                                 "БАЗА: подписка закончилась — тариф изменён",
                                 (
                                     "Оплаченный период вашей подписки закончился, "
-                                    f"организация переведена на тариф «{downgraded_to.value}».\n\n"
+                                    # клиентское имя, не enum: «growth» юзеру ничего
+                                    # не говорит, а free зовётся «Пробный» (аудит 16.07)
+                                    f"организация переведена на тариф «{_plan_display(downgraded_to)}».\n\n"
                                     f"Вернуть тариф: {base_url}/plans"
                                 ),
                                 email,

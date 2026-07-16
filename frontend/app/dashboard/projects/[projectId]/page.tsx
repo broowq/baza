@@ -31,6 +31,7 @@ import { Loader } from "@/components/ui/loader";
 import { api, apiFetch } from "@/lib/api";
 import { getOrgId, getToken } from "@/lib/auth";
 import { useDebounce } from "@/lib/hooks";
+import { leadsN, plural } from "@/lib/plural";
 import type { CollectionJob, EmailSequence, Lead, OrgMember, Project } from "@/lib/types";
 
 const STAT_CARDS = [
@@ -50,22 +51,9 @@ const JOB_STATUS_RU: Record<string, string> = {
 
 // Select value→label maps. Base UI's <SelectValue> renders the raw value unless
 // given a function child, so map each value to its Russian label explicitly.
+// Все 6 стадий воронки — фильтр, канбан и bulk-действия говорят одинаково.
 const STATUS_LABELS: Record<string, string> = {
   all: "Все статусы",
-  new: "Новый",
-  contacted: "Связались",
-  qualified: "Квалифицирован",
-  rejected: "Отклонён",
-};
-const SORT_LABELS: Record<string, string> = { score: "По score", created_at: "По дате", company: "По компании" };
-const ORDER_LABELS: Record<string, string> = { desc: "Убывание", asc: "Возрастание" };
-const EMAIL_LABELS: Record<string, string> = { all: "Email: все", true: "С email", false: "Без email" };
-const PHONE_LABELS: Record<string, string> = { all: "Тел: все", true: "С телефоном", false: "Без телефона" };
-
-// CRM pipeline stages — used by the bulk «change stage» action. Mirrors the
-// 6-stage pipeline (proposal/won have no badge--* variant, hence not in
-// STATUS_LABELS above which only covers the legacy 4 statuses).
-const BULK_STAGE_LABELS: Record<string, string> = {
   new: "Новый",
   contacted: "Связались",
   qualified: "Квалифицирован",
@@ -73,14 +61,16 @@ const BULK_STAGE_LABELS: Record<string, string> = {
   won: "Сделка",
   rejected: "Отказ",
 };
+const SORT_LABELS: Record<string, string> = { score: "По score", created_at: "По дате", company: "По компании" };
+const ORDER_LABELS: Record<string, string> = { desc: "Убывание", asc: "Возрастание" };
+const EMAIL_LABELS: Record<string, string> = { all: "Email: все", true: "С email", false: "Без email" };
+const PHONE_LABELS: Record<string, string> = { all: "Тел: все", true: "С телефоном", false: "Без телефона" };
 
-function pluralCompanies(n: number): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return "новая компания";
-  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return "новые компании";
-  return "новых компаний";
-}
+// CRM pipeline stages for the bulk «change stage» action — STATUS_LABELS
+// minus the filter-only «all».
+const BULK_STAGE_LABELS = Object.fromEntries(
+  Object.entries(STATUS_LABELS).filter(([value]) => value !== "all"),
+);
 
 export default function ProjectDetailsPage() {
   const params = useParams<{ projectId: string }>();
@@ -319,7 +309,9 @@ export default function ProjectDetailsPage() {
       setKanbanLoaded(false);
     }
     if (n > 0) {
-      toast.success(`Добавлено ${n} ${pluralCompanies(n)}`);
+      toast.success(
+        `${plural(n, "Добавлена", "Добавлены", "Добавлено")} ${n} ${plural(n, "новая компания", "новые компании", "новых компаний")}`,
+      );
       // Инцидент 14.07: честное предупреждение бэкенда («контакты не найдены —
       // источники недоступны») пряталось за success-тостом, юзер видел пустые
       // телефоны без объяснения. Показываем его И при успешном сборе.
@@ -413,7 +405,7 @@ export default function ProjectDetailsPage() {
         method: "POST",
         body: JSON.stringify({ lead_ids: leadIds }),
       });
-      toast.success(`Обогащение запущено для ${leadIds.length} лидов`);
+      toast.success(`Обогащение запущено для ${leadsN(leadIds.length)}`);
       await fetchAll(true);
       return true;
     } catch (error) {
@@ -834,11 +826,9 @@ export default function ProjectDetailsPage() {
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">Все статусы</SelectItem>
-                        <SelectItem value="new">Новый</SelectItem>
-                        <SelectItem value="contacted">Связались</SelectItem>
-                        <SelectItem value="qualified">Квалифицирован</SelectItem>
-                        <SelectItem value="rejected">Отклонён</SelectItem>
+                        {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1012,7 +1002,7 @@ export default function ProjectDetailsPage() {
                 <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
                   <AlertDialogContent>
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Удалить {selectedIds.length} лид(ов)?</AlertDialogTitle>
+                      <AlertDialogTitle>Удалить {leadsN(selectedIds.length)}?</AlertDialogTitle>
                       <AlertDialogDescription>
                         Лиды будут удалены безвозвратно вместе с заметками, задачами и историей.
                         Квота за них не возвращается.
@@ -1053,6 +1043,8 @@ export default function ProjectDetailsPage() {
                 onBulkEnrich={handleBulkEnrich}
                 canBulkEnrich={canManage && !enrichBusy}
                 hideInternalFilters
+                filtersActive={activeFilterCount > 0 || !!search.trim()}
+                onResetFilters={() => { resetFilters(); setSearch(""); }}
                 selectedIds={selectedIds}
                 onSelectionChange={setSelectedIds}
                 onLeadUpdate={handleLeadUpdate}
@@ -1083,7 +1075,7 @@ export default function ProjectDetailsPage() {
             {/* Pagination — hidden in Kanban (the board shows the full set) */}
             {viewMode !== "kanban" && (
             <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground sm:flex-row sm:justify-between">
-              <span>Итого: {total} лидов</span>
+              <span>Итого: {leadsN(total)}</span>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => { setPage((p) => Math.max(1, p - 1)); leadsTableRef.current?.scrollIntoView({ behavior: "smooth" }); }}>
                   Назад

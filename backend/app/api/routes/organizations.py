@@ -179,11 +179,12 @@ def create_invite(
             settings = get_settings()
             base_url = (settings.frontend_app_url or "https://usebaza.ru").rstrip("/")
             qs = urlencode({"invite_token": invite.token, "email": invite.email})
+            role_ru = {"owner": "владелец", "admin": "администратор", "member": "участник"}.get(invite.role, invite.role)
             send_email_task.delay(
-                f"Вас пригласили в «{organization.name}» на БАЗЕ",
+                f"Вас пригласили в «{organization.name}» в БАЗЕ",
                 (
                     f"Вас пригласили присоединиться к организации «{organization.name}» "
-                    f"в БАЗА (роль: {invite.role}).\n\n"
+                    f"в БАЗЕ (роль: {role_ru}).\n\n"
                     f"Принять приглашение: {base_url}/login?{qs}\n\n"
                     "Ссылка действует 7 дней. Если у вас ещё нет аккаунта — "
                     "зарегистрируйтесь с этим же email."

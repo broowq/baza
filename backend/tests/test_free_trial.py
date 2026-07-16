@@ -79,14 +79,19 @@ def test_former_payer_downgraded_gets_no_second_trial():
     assert "Пробные лиды использованы" in exc.value.detail
 
 
-def test_paid_plan_429_semantics_unchanged():
-    """У платных тарифов прежняя семантика: превышение запроса — 429."""
+def test_paid_plan_oversized_request_clamps_not_429():
+    """Аудит 16.07: платный клиент с остатком 10, просящий 100, получает
+    частичную дозу (кламп ниже по конвейеру), а не сырой 429-тупик."""
     org = Organization(name=f"{_PFX}paid", plan=PlanType.starter)
     quota.apply_plan_limits(org)
     org.leads_used_current_month = 4990
+    quota.ensure_lead_quota(org, requested=100)  # не должно поднять
+
+    # полностью исчерпанная квота по-прежнему честный 402
+    org.leads_used_current_month = 5000
     with pytest.raises(HTTPException) as exc:
-        quota.ensure_lead_quota(org, requested=100)
-    assert exc.value.status_code == 429
+        quota.ensure_lead_quota(org, requested=1)
+    assert exc.value.status_code == 402
 
 
 # ── разовость: месячный сброс не трогает free ───────────────────────────────

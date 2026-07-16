@@ -27,6 +27,7 @@ import {
 import Link from "next/link";
 
 import { getToken } from "@/lib/auth";
+import { leadsN, plural, pluralN } from "@/lib/plural";
 import { Reveal } from "@/components/reveal";
 import { Magnetic } from "@/components/magnetic";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -68,8 +69,10 @@ const SOURCE_LABELS: Record<string, string> = {
   "2gis": "2ГИС",
   yandex_maps: "Яндекс",
   rusprofile: "ЕГРЮЛ",
-  searxng: "Web",
-  bing: "Bing",
+  // Legacy web-source codes in the warehouse all read as generic web search.
+  searxng: "Веб-поиск",
+  yandex_search: "Веб-поиск",
+  bing: "Веб-поиск",
 };
 const sourceLabel = (code: string) => SOURCE_LABELS[code] ?? code;
 
@@ -83,9 +86,9 @@ const sourceBadge = (code: string): { src: string; color: string } => {
     case "rusprofile":
       return { src: "ЕГ", color: "var(--amber)" };
     case "searxng":
-      return { src: "Web", color: "var(--mint)" };
+    case "yandex_search":
     case "bing":
-      return { src: "Bi", color: "var(--sky)" };
+      return { src: "Web", color: "var(--mint)" };
     default:
       return { src: code.slice(0, 2).toUpperCase(), color: "var(--mint)" };
   }
@@ -442,7 +445,9 @@ function HeroLiveCard() {
     pickRef.current = pick;
   }, [pick]);
 
-  const [count, setCount] = useState(0);
+  // Honest static fallback (same convention as the 21% / 72 tiles below):
+  // the number never flashes 0 while /public/landing is in flight or down.
+  const [count, setCount] = useState(2847);
   const [feed, setFeed] = useState<
     Array<{ id: string; co: string; meta: string; score: number; out?: boolean }>
   >([]);
@@ -515,10 +520,10 @@ function HeroLiveCard() {
         <div className="h1 tnum hero-bignum" style={{ fontSize: "clamp(48px, 16vw, 84px)" }}>
           {count.toLocaleString("ru-RU")}
         </div>
-        <div className="text-[12px] t-72 mt-1">лидов в демо-базе</div>
+        <div className="text-[12px] t-72 mt-1">{plural(count, "лид", "лида", "лидов")} в демо-базе</div>
         <div className="mt-4 flex items-baseline gap-3 text-[12px]">
           <span className="mono tnum" style={{ color: "var(--green)" }}>
-            {stats ? Math.round(stats.rates.enrichment * 100) : 0}%
+            {stats ? Math.round(stats.rates.enrichment * 100) : 68}%
           </span>
           <span className="t-48">обогащено</span>
         </div>
@@ -690,8 +695,7 @@ function HeroSection() {
                 "ЕГРЮЛ / Rusprofile",
                 "2ГИС",
                 "Яндекс Карты",
-                "SearXNG",
-                "Bing",
+                "Яндекс Поиск",
               ].map((t) => (
                 <span key={t} className="flex items-center gap-2 mono">
                   <span className="dot dot-mt" />
@@ -868,12 +872,12 @@ function PromptDemo() {
 
               <div className="mt-5 grid grid-cols-2 sm:grid-cols-5 gap-2 text-[11px]">
                 {[
-                  ["01 · парсинг", `${srcCount} источников`, 100, "var(--mint)"],
+                  ["01 · парсинг", pluralN(srcCount, "источник", "источника", "источников"), 100, "var(--mint)"],
                   // 02/03 raw funnel counts have no endpoint source → labelled демо.
                   ["02 · матчинг · демо", "12 410 → 384", 100, "var(--mint)"],
                   ["03 · дедуп · демо", "→ 217", 100, "var(--mint)"],
                   ["04 · обогащение", "SMTP+MX", smtpPct, "var(--mint)"],
-                  ["05 · готово", `${phase === "parsed" ? finalLeads : 0} лидов`, 100, "var(--green)"],
+                  ["05 · готово", leadsN(phase === "parsed" ? finalLeads : 0), 100, "var(--green)"],
                 ].map(([label, val, w], i) => (
                   <div key={i} className={`panel-flat elev-1 px-3 py-3${i === 4 && phase === "parsed" ? " ring-1 ring-[var(--mint)]/20" : ""}`}>
                     <div className="t-40 mono text-[10px]">{label as string}</div>
@@ -886,7 +890,7 @@ function PromptDemo() {
               </div>
 
               <div className="mt-5 flex items-center gap-3 t-48 text-[11px] hairline pt-4">
-                <span className="mono">{regionCount} регионов · ОКВЭД 01.4*</span>
+                <span className="mono">{pluralN(regionCount, "регион", "региона", "регионов")} · ОКВЭД 01.4*</span>
                 <Link href="/register" className="ml-auto text-[12px] flex items-center gap-2 hover:text-[var(--t-100)] transition-colors">
                   смотреть результат
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -1123,8 +1127,7 @@ const DEMO_SOURCE_ROWS: Array<{ name: string; pct: number; num: string }> = [
   { name: "2ГИС", pct: 34, num: "48 467" },
   { name: "Яндекс Карты", pct: 27, num: "38 487" },
   { name: "ЕГРЮЛ / Rusprofile", pct: 21, num: "29 935" },
-  { name: "SearXNG", pct: 12, num: "17 102" },
-  { name: "Bing", pct: 6, num: "8 551" },
+  { name: "Веб-поиск", pct: 18, num: "25 653" },
 ];
 
 // Original hardcoded leads-table rows — fallback when no real samples exist.
@@ -1208,7 +1211,7 @@ function ViewOverview({ active, tabId, panelId }: { active: boolean; tabId?: str
             <span ref={liveRef} className="count-num">0</span>
           </div>
           <div className="text-[13px] t-72 mt-1">
-            кандидатов прошло через очередь
+            {plural(stats?.funnel.found ?? 142580, "кандидат прошёл", "кандидата прошло", "кандидатов прошло")} через очередь
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 w-full sm:w-[340px] flex-none">
@@ -1606,9 +1609,9 @@ function BubbleChart() {
           {!real && <span className="panel-thin px-2 py-0.5 text-[9px] mono t-40 inline-block mt-1">демо-данные</span>}
         </div>
         <div className="t-40 mono text-[10px] text-right">
-          {regionCount} регионов
+          {pluralN(regionCount, "регион", "региона", "регионов")}
           <br />
-          {totalLeads} лида
+          {leadsN(totalLeads)}
         </div>
       </div>
 
@@ -1677,7 +1680,7 @@ function BubbleChart() {
                   {d.short}
                 </text>
                 <text className="bubble-num" x={cx + r + 8} y={cy + 11} fontFamily="Geist Mono" fontSize="9.5" fill="rgba(168,197,192,0.7)">
-                  {real ? `${d.y} лид · score ${Math.round(d.x)}` : `${d.y} лид · ${d.size} qual`}
+                  {real ? `${leadsN(d.y)} · score ${Math.round(d.x)}` : `${leadsN(d.y)} · ${d.size} qual`}
                 </text>
               </g>
             );
@@ -2034,7 +2037,7 @@ function FooterSection() {
 function MarqueeBand() {
   const tokens = [
     "лидогенерация без перекупщиков",
-    "ЕГРЮЛ · 2ГИС · Яндекс Карты · SearXNG · Bing",
+    "ЕГРЮЛ · 2ГИС · Яндекс Карты · Яндекс Поиск",
     "обогащение в фоне",
     "AI-фильтр покупателей",
     "интеграция Bitrix24 · amoCRM",

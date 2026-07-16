@@ -24,25 +24,28 @@ const instrument = Instrument_Serif({
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://usebaza.ru";
 
+const siteDescription =
+  "Поиск B2B-клиентов с контактами за минуты: 2ГИС, Яндекс.Карты, Яндекс.Поиск. Опишите клиента своими словами — получите список компаний с email и телефонами.";
+
 export const metadata: Metadata = {
   metadataBase: new URL(appUrl),
   title: "БАЗА - B2B SaaS для лидогенерации",
-  description: "Мультитенантная платформа для поиска и обогащения B2B-лидов",
+  description: siteDescription,
   icons: {
     icon: "/favicon.svg",
   },
   openGraph: {
     title: "БАЗА - B2B SaaS для лидогенерации",
-    description: "Мультитенантная платформа для поиска и обогащения B2B-лидов",
+    description: siteDescription,
     url: appUrl,
     siteName: "БАЗА",
     locale: "ru_RU",
     type: "website",
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "БАЗА - B2B SaaS для лидогенерации",
-    description: "Мультитенантная платформа для поиска и обогащения B2B-лидов",
+    description: siteDescription,
   },
 };
 

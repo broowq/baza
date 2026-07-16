@@ -7,6 +7,7 @@ import Link from "next/link";
 
 import { api } from "@/lib/api";
 import { getToken } from "@/lib/auth";
+import { formatPlan } from "@/lib/plans";
 
 type PlanRow = {
   id: string;
@@ -21,23 +22,23 @@ type PlanRow = {
 };
 
 const EXTRA_FEATURES: Record<string, string[]> = {
-  starter: ["2ГИС + SearXNG поиск", "Экспорт в CSV", "Скоринг лидов"],
+  starter: ["2ГИС + веб-поиск", "Экспорт в CSV", "Скоринг лидов"],
   // growth = тир «Team» (enum-значение team занято тиром Business)
   growth: [
-    "2ГИС + Яндекс Карты + SearXNG",
+    "2ГИС + Яндекс.Карты + веб-поиск",
     "Экспорт в CSV",
     "Скоринг лидов",
     "Обогащение контактов",
   ],
   pro: [
-    "2ГИС + Яндекс Карты + SearXNG",
+    "2ГИС + Яндекс.Карты + веб-поиск",
     "Экспорт в CSV",
     "Скоринг лидов",
     "Обогащение контактов",
     "Приоритетная поддержка",
   ],
   team: [
-    "2ГИС + Яндекс Карты + SearXNG",
+    "2ГИС + Яндекс.Карты + веб-поиск",
     "Экспорт в CSV",
     "Скоринг лидов",
     "Обогащение контактов",
@@ -45,6 +46,12 @@ const EXTRA_FEATURES: Record<string, string[]> = {
     "приоритетный SLA",
   ],
 };
+
+const PENDING_PLAN_KEY = "baza:pending-plan";
+const PENDING_PLAN_TTL_MS = 2 * 60 * 60 * 1000; // 2 часа: дольше — выбор уже неактуален
+
+// Порядок тиров для распознавания даунгрейда (growth = «Team», team = «Business»)
+const PLAN_ORDER: Record<string, number> = { free: 0, starter: 1, growth: 2, pro: 3, team: 4 };
 
 function getRublePrice(plan: PlanRow): { price: string; sub: string } {
   const rub = plan.price_monthly_rub ?? 0;
@@ -64,6 +71,10 @@ export default function PlansPage() {
   // Согласие на автопродление (сохранение карты в ЮKassa + ежемесячные
   // автосписания). По умолчанию включено; отключается тут же или в настройках.
   const [autoRenew, setAutoRenew] = useState(true);
+  // Тариф, выбранный до регистрации (из sessionStorage). Не оплачиваем его
+  // автоматически: подсвечиваем карточку и предлагаем продолжить вручную,
+  // чтобы согласие на автопродление было осознанным — чекбокс на виду.
+  const [pendingPlan, setPendingPlan] = useState<string | null>(null);
 
   const fetchPlans = () => {
     setLoading(true);
@@ -83,30 +94,64 @@ export default function PlansPage() {
     if (typeof window !== "undefined") {
       const loggedIn = !!getToken();
       setIsLoggedIn(loggedIn);
-      if (loggedIn) fetchCurrentPlan();
-      // Выбранный до регистрации тариф — доводим до оплаты без второго клика.
       if (loggedIn) {
-        let pending = "";
+        fetchCurrentPlan();
+        // Выбранный до регистрации тариф: показываем баннер «Продолжите
+        // оформление», а не гоним в оплату автоматически (см. pendingPlan).
         try {
-          pending = sessionStorage.getItem("baza:pending-plan") || "";
-          if (pending) sessionStorage.removeItem("baza:pending-plan");
-        } catch { /* noop */ }
-        if (pending) {
-          toast.info("Продолжаем оформление тарифа…");
-          // Уже залогинены (проверили getToken выше) → напрямую в чекаут,
-          // минуя isLoggedIn-гвард startCheckout, который тут ещё stale-false.
-          void doCheckout(pending);
-        }
+          const raw = sessionStorage.getItem(PENDING_PLAN_KEY);
+          if (raw) {
+            sessionStorage.removeItem(PENDING_PLAN_KEY);
+            const parsed = JSON.parse(raw) as { plan?: string; at?: number };
+            if (
+              parsed?.plan &&
+              typeof parsed.at === "number" &&
+              Date.now() - parsed.at < PENDING_PLAN_TTL_MS
+            ) {
+              setPendingPlan(parsed.plan);
+            }
+          }
+        } catch { /* битое или устаревшее значение — игнорируем */ }
+        // ?plan= из URL (письмо верификации открывается в НОВОЙ вкладке —
+        // sessionStorage per-tab теряется, а параметр доносит логин): URL
+        // главнее stored-значения как более свежее намерение.
+        try {
+          const urlPlan = new URLSearchParams(window.location.search).get("plan");
+          if (urlPlan) setPendingPlan(urlPlan.toLowerCase());
+        } catch { /* без window.location в SSR не окажемся: эффект клиентский */ }
       }
     }
     fetchPlans();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Собственно POST чекаута — БЕЗ проверки isLoggedIn. Отдельный helper нужен,
-  // чтобы авточекаут из mount-эффекта не читал stale isLoggedIn (=false из
-  // первого рендера) и не гонял только что вошедшего юзера в петлю на /register.
-  const doCheckout = async (plan: string) => {
+  // Подводим взгляд к выбранной до регистрации карточке, когда тарифы загрузились.
+  useEffect(() => {
+    if (!pendingPlan || loading || plans.length === 0) return;
+    document
+      .getElementById(`plan-card-${pendingPlan.toLowerCase()}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [pendingPlan, loading, plans]);
+
+  const startCheckout = async (plan: string) => {
+    if (!isLoggedIn) {
+      // Тупиковый тост «Войдите» обрывал самых тёплых посетителей (28 IP дошли
+      // до /plans за июль). Ведём в регистрацию с сохранением выбранного тарифа —
+      // после входа/регистрации покажем баннер «Продолжите оформление».
+      try {
+        sessionStorage.setItem(PENDING_PLAN_KEY, JSON.stringify({ plan, at: Date.now() }));
+      } catch { /* noop */ }
+      window.location.assign(`/register?plan=${encodeURIComponent(plan)}`);
+      return;
+    }
+    const fromOrder = currentPlan ? PLAN_ORDER[currentPlan.toLowerCase()] : undefined;
+    const toOrder = PLAN_ORDER[plan.toLowerCase()];
+    if (fromOrder !== undefined && toOrder !== undefined && toOrder < fromOrder) {
+      const confirmed = window.confirm(
+        "Тариф понизится сразу, остаток оплаченного периода не переносится. Продолжить?"
+      );
+      if (!confirmed) return;
+    }
     try {
       setRunningPlan(plan);
       const response = await api<{ checkout_url: string; message: string }>("/billing/checkout", {
@@ -120,18 +165,6 @@ export default function PlansPage() {
       toast.error(error instanceof Error ? error.message : "Не удалось создать checkout");
       setRunningPlan(null);
     }
-  };
-
-  const startCheckout = async (plan: string) => {
-    if (!isLoggedIn) {
-      // Тупиковый тост «Войдите» обрывал самых тёплых посетителей (28 IP дошли
-      // до /plans за июль). Ведём в регистрацию с сохранением выбранного тарифа —
-      // после входа/регистрации автозапускаем чекаут (см. эффект ниже).
-      try { sessionStorage.setItem("baza:pending-plan", plan); } catch { /* noop */ }
-      window.location.assign(`/register?plan=${encodeURIComponent(plan)}`);
-      return;
-    }
-    await doCheckout(plan);
   };
 
   return (
@@ -171,6 +204,32 @@ export default function PlansPage() {
           </div>
         )}
 
+        {/* Баннер продолжения оформления: тариф выбран до регистрации.
+            Ведёт в обычный флоу с видимым чекбоксом автопродления ниже. */}
+        {isLoggedIn && pendingPlan && !loading && plans.length > 0 && (
+          <div
+            className="panel mt-10 flex flex-col items-center gap-4 p-5 text-center sm:flex-row sm:justify-between sm:text-left"
+            style={{ boxShadow: "var(--glow-mint)" }}
+          >
+            <p className="text-[13px] t-84">
+              Вы выбрали тариф{" "}
+              <span className="c-mint">
+                {plans.find((p) => p.id.toLowerCase() === pendingPlan.toLowerCase())?.name ??
+                  formatPlan(pendingPlan)}
+              </span>{" "}
+              перед регистрацией. Продолжите оформление — условия автопродления ниже.
+            </p>
+            <button
+              onClick={() => startCheckout(pendingPlan)}
+              disabled={runningPlan !== null}
+              className="btn btn-brand shrink-0"
+              style={{ height: 38 }}
+            >
+              Оформить <ArrowRight size={13} />
+            </button>
+          </div>
+        )}
+
         {/* Auto-renew consent (только для залогиненных — анониму нечего оплачивать) */}
         {isLoggedIn && !loading && plans.length > 0 && (
           <label className="mt-10 flex cursor-pointer items-start justify-center gap-2.5 text-left sm:items-center">
@@ -194,13 +253,16 @@ export default function PlansPage() {
             const isPro = key === "pro";
             const isStarter = key === "starter";
             const isCurrent = currentPlan !== null && key === currentPlan.toLowerCase();
+            const isPending = pendingPlan !== null && key === pendingPlan.toLowerCase();
             const rublePrice = getRublePrice(plan);
             const extras = EXTRA_FEATURES[key] ?? [];
 
             return (
               <div
                 key={plan.id}
+                id={`plan-card-${key}`}
                 className={isPro ? "pro-card p-7" : "panel-flat p-7 relative"}
+                style={isPending ? { boxShadow: "var(--glow-mint)", borderColor: "var(--mint-28)" } : undefined}
               >
                 {isPro && <span className="pro-tag">популярный</span>}
 

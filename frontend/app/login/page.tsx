@@ -1,5 +1,6 @@
 "use client";
 
+import type { Route } from "next";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
@@ -15,6 +16,8 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const inviteToken = searchParams.get("invite_token") ?? "";
   const invitedEmail = searchParams.get("email") ?? "";
+  // Пришёл с /plans с выбранным тарифом → после входа вернём на оплату.
+  const pendingPlan = searchParams.get("plan") ?? "";
   const registerHref = useMemo(() => {
     const raw = searchParams.toString();
     return (raw ? `/register?${raw}` : "/register") as "/register";
@@ -26,6 +29,8 @@ function LoginContent() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     if (invitedEmail) setEmail((current) => current || invitedEmail);
@@ -34,6 +39,7 @@ function LoginContent() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setFormError("");
+    setNeedsVerification(false);
     setLoading(true);
     try {
       const data = await api<{ access_token: string }>("/auth/login", {
@@ -57,13 +63,29 @@ function LoginContent() {
         toast.success("Вы успешно вошли");
       }
 
-      router.push("/dashboard");
+      router.push(pendingPlan ? (`/plans?plan=${encodeURIComponent(pendingPlan)}` as Route) : "/dashboard");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Не удалось войти";
       setFormError(msg);
+      setNeedsVerification(msg.includes("Подтвердите email"));
       toast.error(msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const resendVerification = async () => {
+    setResending(true);
+    try {
+      const response = await api<{ message: string }>("/auth/resend-verification", {
+        method: "POST",
+        body: JSON.stringify({ email }),
+      });
+      toast.success(response.message ?? "Письмо отправлено, проверьте почту");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Не удалось отправить письмо");
+    } finally {
+      setResending(false);
     }
   };
 
@@ -151,6 +173,18 @@ function LoginContent() {
               <div role="alert" aria-live="assertive" className="panel-flat px-3 py-2.5 text-[12px]" style={{ color: "var(--rose)" }}>
                 {formError}
               </div>
+            )}
+
+            {needsVerification && (
+              <button
+                type="button"
+                onClick={resendVerification}
+                disabled={resending}
+                className="btn btn-ghost w-full"
+                style={{ height: 40 }}
+              >
+                {resending ? "Отправляем…" : "Отправить письмо ещё раз"}
+              </button>
             )}
 
             <button

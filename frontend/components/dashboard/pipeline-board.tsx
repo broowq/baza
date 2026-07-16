@@ -4,6 +4,7 @@ import React, { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
+import { leadsN } from "@/lib/plural";
 import type { Lead, LeadStatus, OrgMember } from "@/lib/types";
 
 /* ─────────────────────────────────────────────────────────────────
@@ -381,7 +382,7 @@ export function PipelineBoard({
                   fontWeight: 600,
                   color: "var(--t-72)",
                 }}
-                aria-label={`${count} лидов`}
+                aria-label={leadsN(count)}
               >
                 {count}
               </span>

@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api } from "@/lib/api";
 import { useAuthGuard } from "@/lib/hooks";
+import { plural } from "@/lib/plural";
 import type {
   EmailSequence,
   OutreachReply,
@@ -124,6 +125,9 @@ export default function OutreachPage() {
   const [tab, setTab] = useState<Tab>("sequences");
   const [sequences, setSequences] = useState<EmailSequence[]>([]);
   const [settings, setSettings] = useState<OutreachSettings | null>(null);
+  // Участник видит рассылки read-only: создание, запуск/пауза, редактирование
+  // и удаление — только owner / admin (та же граница, что на бэке).
+  const [orgRole, setOrgRole] = useState<"owner" | "admin" | "member">("member");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -139,12 +143,14 @@ export default function OutreachPage() {
     setLoading(true);
     setError(null);
     try {
-      const [seqs, cfg] = await Promise.all([
+      const [seqs, cfg, membership] = await Promise.all([
         api<EmailSequence[]>("/outreach/sequences"),
         api<OutreachSettings>("/outreach/settings").catch(() => null),
+        api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null),
       ]);
       setSequences(Array.isArray(seqs) ? seqs : []);
       setSettings(cfg);
+      if (membership) setOrgRole(membership.role);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Не удалось загрузить рассылки");
       setSequences([]);
@@ -219,6 +225,8 @@ export default function OutreachPage() {
       </main>
     );
   }
+
+  const canManage = orgRole === "owner" || orgRole === "admin";
 
   return (
     <motion.main
@@ -305,13 +313,16 @@ export default function OutreachPage() {
           </div>
           <h3 className="empty-state__title">Пока нет рассылок</h3>
           <p className="empty-state__body">
-            Создайте цепочку писем — БАЗА разошлёт их вашим лидам по расписанию и
-            покажет, кто открыл и кто ответил.
+            {canManage
+              ? "Создайте цепочку писем — БАЗА разошлёт их вашим лидам по расписанию и покажет, кто открыл и кто ответил."
+              : "Когда владелец или админ организации создаст цепочку писем, она появится здесь."}
           </p>
-          <button onClick={openCreate} className="brand rounded-full px-5 py-2.5 text-[13.5px] inline-flex items-center gap-2 mt-2">
-            <Plus className="h-3.5 w-3.5" />
-            Создать рассылку
-          </button>
+          {canManage && (
+            <button onClick={openCreate} className="brand rounded-full px-5 py-2.5 text-[13.5px] inline-flex items-center gap-2 mt-2">
+              <Plus className="h-3.5 w-3.5" />
+              Создать рассылку
+            </button>
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -321,6 +332,7 @@ export default function OutreachPage() {
               seq={seq}
               index={idx}
               busy={pending.has(seq.id)}
+              canManage={canManage}
               onToggle={() => void toggleStatus(seq)}
               onEdit={() => openEdit(seq)}
               onDelete={() => setDeleteTarget(seq)}
@@ -371,6 +383,7 @@ function SequenceCard({
   seq,
   index,
   busy,
+  canManage,
   onToggle,
   onEdit,
   onDelete,
@@ -378,6 +391,7 @@ function SequenceCard({
   seq: EmailSequence;
   index: number;
   busy: boolean;
+  canManage: boolean;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -405,7 +419,7 @@ function SequenceCard({
           </div>
 
           <div className="lead-card__meta">
-            <span>{stepCount} {pluralSteps(stepCount)}</span>
+            <span>{stepCount} {plural(stepCount, "шаг", "шага", "шагов")}</span>
           </div>
 
           {/* Compact stats row */}
@@ -428,14 +442,15 @@ function SequenceCard({
               <span className="t-28">·</span>
               <Stat label="Клики" value={stats?.clicked ?? 0} />
               <span className="t-28">·</span>
-              <Stat label="Ответы" value={stats?.replies ?? 0} tone="mint" />
+              {/* «Ответили» выше — сколько лидов ответило; здесь — сколько всего писем-ответов */}
+              <Stat label="Всего ответов" value={stats?.replies ?? 0} tone="mint" />
             </span>
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — управление только для owner / admin, участнику read-only */}
         <div className="flex items-center gap-1.5 shrink-0">
-          {seq.status !== "archived" && (
+          {canManage && seq.status !== "archived" && (
             <button
               type="button"
               className="btn-icon"
@@ -447,18 +462,22 @@ function SequenceCard({
               {seq.status === "active" ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
             </button>
           )}
-          <button type="button" className="btn-icon" onClick={onEdit} aria-label="Редактировать" title="Редактировать">
-            <Pencil className="h-3 w-3" />
-          </button>
-          <button
-            type="button"
-            className="btn-icon hover:!text-[var(--rose)]"
-            onClick={onDelete}
-            aria-label="Удалить"
-            title="Удалить"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
+          {canManage && (
+            <>
+              <button type="button" className="btn-icon" onClick={onEdit} aria-label="Редактировать" title="Редактировать">
+                <Pencil className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                className="btn-icon hover:!text-[var(--rose)]"
+                onClick={onDelete}
+                aria-label="Удалить"
+                title="Удалить"
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </>
+          )}
           <button
             type="button"
             className={`btn-icon ${expanded ? "!text-[var(--t-100)]" : ""}`}
@@ -486,7 +505,7 @@ function SequenceCard({
             transition={{ duration: 0.22 }}
             className="overflow-hidden"
           >
-            <EnrollmentsPanel sequenceId={seq.id} />
+            <EnrollmentsPanel sequenceId={seq.id} canManage={canManage} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -610,7 +629,7 @@ function RepliesInbox() {
 
 /* ── Recipients (enrollments) panel ────────────────────────────────────── */
 
-function EnrollmentsPanel({ sequenceId }: { sequenceId: string }) {
+function EnrollmentsPanel({ sequenceId, canManage }: { sequenceId: string; canManage: boolean }) {
   const [rows, setRows] = useState<SequenceEnrollment[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState<Set<string>>(new Set());
@@ -684,7 +703,7 @@ function EnrollmentsPanel({ sequenceId }: { sequenceId: string }) {
                 <span className="chip shrink-0" style={{ padding: "2px 8px", fontSize: "9.5px" }}>
                   {enrollmentStatusLabel(enr.status)}
                 </span>
-                {active && (
+                {canManage && active && (
                   <button
                     type="button"
                     className="seg-btn shrink-0"
@@ -1091,13 +1110,6 @@ function shortDate(iso?: string | null): string {
     month: "short",
     ...(sameYear ? {} : { year: "numeric" }),
   });
-}
-
-function pluralSteps(n: number): string {
-  const rule = new Intl.PluralRules("ru").select(n);
-  if (rule === "one") return "шаг";
-  if (rule === "few") return "шага";
-  return "шагов";
 }
 
 /** Enrollment statuses where the lead is still mid-flight and can be stopped. */

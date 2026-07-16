@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 
 import { api } from "@/lib/api";
+import { pluralN } from "@/lib/plural";
 import type {
   Lead, LeadCallNote, LeadDetail, OrgMember, LeadTask, LeadActivity, EmailSequence,
 } from "@/lib/types";
@@ -24,7 +25,7 @@ const STATUS_LABELS: Record<string, string> = {
   qualified: "Квалифицирован",
   proposal: "КП отправлено",
   won: "Сделка",
-  rejected: "Отклонён",
+  rejected: "Отказ",
 };
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
@@ -55,7 +56,10 @@ const SOURCE_LABELS: Record<string, string> = {
   rusprofile: "ЕГРЮЛ",
   maps_searxng: "Яндекс Карты (web)",
   searxng: "Web-поиск",
+  yandex_search: "Яндекс.Поиск",
   bing: "Bing",
+  warehouse: "Наша база",
+  manual: "Вручную",
 };
 
 const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
@@ -159,6 +163,13 @@ function phoneDigits(phone?: string | null): string {
   return plus + trimmed.replace(/\D/g, "");
 }
 
+/* Digits for wa.me / t.me links: no «+», российское «8…» → «7…». */
+function messengerDigits(phone?: string | null): string {
+  const bare = phoneDigits(phone).replace(/^\+/, "");
+  if (bare.length === 11 && bare.startsWith("8")) return `7${bare.slice(1)}`;
+  return bare;
+}
+
 /* ─────────────────────────────────────────────────────────────────
    Copy-to-clipboard button helper
 ───────────────────────────────────────────────────────────────── */
@@ -246,7 +257,7 @@ function EmailStatusChip({ status }: { status?: string }) {
 /* ─────────────────────────────────────────────────────────────────
    Strip notes prefix (e.g. "relevance=85; demo=true; ...")
 ───────────────────────────────────────────────────────────────── */
-function stripNotesPrefix(notes: string): string {
+export function stripNotesPrefix(notes: string): string {
   // Strip leading "key=value; " metadata inserted by the pipeline
   return notes.replace(/^([\w]+=[^;]+;\s*)+/, "").trim();
 }
@@ -601,7 +612,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     if (!leadId || !detail) return;
     const digits = phoneDigits(detail.phone);
     if (!digits) return;
-    const bare = digits.replace(/^\+/, "");
+    const bare = messengerDigits(detail.phone);
     if (channel === "call") window.open(`tel:${digits}`, "_self");
     else if (channel === "whatsapp") window.open(`https://wa.me/${bare}`, "_blank", "noopener");
     else window.open(`https://t.me/+${bare}`, "_blank", "noopener");
@@ -810,9 +821,11 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                         </span>
                         <ExternalLink size={10} className="shrink-0 opacity-60" />
                       </a>
-                    ) : detail.website ? (
+                    ) : detail.website && SOURCE_LABELS[detail.source ?? ""] ? (
+                      /* Не-http «сайт» (например, maps://) — сырую ссылку не
+                         показываем, только откуда лид пришёл. */
                       <span className="lead-card__sub mt-1 block">
-                        {SOURCE_LABELS[detail.source ?? ""] ?? detail.website}
+                        {SOURCE_LABELS[detail.source ?? ""]}
                       </span>
                     ) : null}
                   </>
@@ -1062,7 +1075,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     <div className="panel-glass space-y-3 p-3">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="chip chip-em" style={{ fontSize: 11 }}>
-                          Найдена {detail.warehouse.times_seen ?? 1} раз
+                          Найдена {pluralN(detail.warehouse.times_seen ?? 1, "раз", "раза", "раз")}
                         </span>
                         {detail.warehouse.inn && (
                           <span className="chip" style={{ fontSize: 10.5 }}>

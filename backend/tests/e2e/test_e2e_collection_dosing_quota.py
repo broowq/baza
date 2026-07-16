@@ -237,9 +237,10 @@ def test_quota_clamps_dose_to_remaining_and_blocks_further(paid_account, stub_so
     assert len(_leads_in_project(db, pid)) == 3
 
 
-def test_collect_exceeding_remaining_quota_is_refused_429(paid_account, stub_sources, new_project, db):
-    """A dose LARGER than the remaining quota is refused up-front (429) by the
-    API quota pre-check — the job never runs and no leads are created."""
+def test_collect_exceeding_remaining_quota_clamps_to_remainder(paid_account, stub_sources, new_project, db):
+    """Доза БОЛЬШЕ остатка квоты не отклоняется (аудит 16.07: сырой 429 был
+    тупиком «Собрать 10» при остатке 3) — job принимается, сбор клампится по
+    остатку конвейерным SELECT FOR UPDATE, юзер получает частичную дозу."""
     stub_sources["n"] = 12
     acct = paid_account
     pid = new_project(acct)["id"]
@@ -249,17 +250,14 @@ def test_collect_exceeding_remaining_quota_is_refused_429(paid_account, stub_sou
     org.leads_used_current_month = 0
     db.commit()
 
-    # dose=10 > remaining=3 → 429, refused before any job is queued.
+    # dose=10 > remaining=3 → принят и обрезан до 3.
     r = _collect(acct, pid, limit=10)
-    assert r.status_code == 429, f"over-quota collect should be 429, got {r.status_code}: {r.text}"
-    assert "квот" in r.json()["detail"].lower()
-
-    # Nothing was collected and no collect job was even created.
-    assert _leads_in_project(db, pid) == []
-    assert _done_collect_jobs(acct, pid) == [], "no job should be queued on a 429 quota refusal"
+    assert r.status_code in (200, 201), f"over-quota collect should clamp, got {r.status_code}: {r.text}"
+    rows = _leads_in_project(db, pid)
+    assert len(rows) == 3, f"ровно остаток квоты, got {len(rows)}"
 
     db.expire_all()
-    assert _org_row(db, acct.org_id).leads_used_current_month == 0, "usage must stay at 0"
+    assert _org_row(db, acct.org_id).leads_used_current_month == 3
 
 
 def test_partial_remaining_quota_serves_only_the_remainder(paid_account, stub_sources, new_project, db):

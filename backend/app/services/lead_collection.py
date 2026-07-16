@@ -760,7 +760,11 @@ def _searxng_fetch_page(
 # эндпоинт /v2/web/search сразу отдаёт {rawData: base64-XML} классической схемы
 # Яндекса. Форма запроса/ответа — по docs.yandex.cloud/search-api и рабочему
 # клиенту openclaw-yandex-search. При любой ошибке — тихий фолбэк на SearXNG.
-_YANDEX_SEARCH_URL = "https://searchapi.api.cloud.yandex.net/v2/web/search"
+# NB: имя обязано отличаться от _YANDEX_SEARCH_URL выше (Geosearch/карты):
+# 13.07 одноимённое переопределение затёрло константу КАРТ, все вызовы
+# Яндекс.Карт били в cloud-URL и падали 404 — карты были мертвы у всех орг
+# до фикса 16.07 (нашлось финальным смоуком перед стартом продаж).
+_YANDEX_WEB_SEARCH_URL = "https://searchapi.api.cloud.yandex.net/v2/web/search"
 _HLWORD_RE = re.compile(r"</?hlword[^>]*>", re.IGNORECASE)
 # Кап платных Yandex Search запросов на один tier-проход (ограничивает счёт на
 # разреженных нишах, где резерв веб-прохода не набирается). Обычный сбор упрётся
@@ -870,7 +874,7 @@ def _yandex_search_fetch_page(
     if region:
         body["region"] = region
     headers = {"Authorization": f"Api-Key {settings.yandex_search_api_key}"}
-    resp = client.post(_YANDEX_SEARCH_URL, json=body, headers=headers,
+    resp = client.post(_YANDEX_WEB_SEARCH_URL, json=body, headers=headers,
                        timeout=settings.yandex_search_timeout_seconds)
     resp.raise_for_status()
     raw = (resp.json() or {}).get("rawData", "")

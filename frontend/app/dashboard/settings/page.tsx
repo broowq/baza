@@ -58,9 +58,19 @@ type Invite = {
   id: string;
   email: string;
   role: string;
-  token: string;
+  // Токен есть не во всех версиях API-ответа — без него ссылку не собрать,
+  // и кнопка «скопировать» не показывается (ссылка уходит получателю письмом).
+  token?: string;
   accepted: boolean;
+  expires_at?: string;
+  created_at?: string;
 };
+
+function isInviteExpired(invite: Invite): boolean {
+  if (invite.accepted || !invite.expires_at) return false;
+  const ts = new Date(invite.expires_at).getTime();
+  return !Number.isNaN(ts) && ts < Date.now();
+}
 
 type Member = {
   user_id: string;
@@ -119,6 +129,31 @@ const ROLE_DOTS: Record<string, string> = {
   admin: "dot-em",
   member: "dot-am",
 };
+
+// Слаги журнала действий (backend log_action) → человеческие подписи.
+// Неизвестные слаги показываем как есть.
+const ACTION_LABELS: Record<string, string> = {
+  "auth.password_changed": "Пароль изменён",
+  "billing.auto_renew.enabled": "Автопродление включено",
+  "billing.auto_renew.disabled": "Автопродление отключено",
+  "billing.checkout.created": "Начато оформление оплаты",
+  "invite.created": "Приглашение отправлено",
+  "invite.accepted": "Приглашение принято",
+  "leads.collect.queued": "Запущен сбор лидов",
+  "leads.enrich.queued": "Запущено обогащение лидов",
+  "leads.enrich_selected.queued": "Запущено обогащение выбранных лидов",
+  "member.removed": "Участник удалён",
+  "member.role.updated": "Роль участника изменена",
+  "organization.plan.updated": "Тариф изменён",
+  "pd.exported": "Экспорт персональных данных",
+  "pd.delete_requested": "Запрос на удаление данных",
+  "project.created": "Проект создан",
+  "project.updated": "Проект изменён",
+  "project.deleted": "Проект удалён",
+  "search.companies.saved": "Сохранены компании из поиска",
+};
+
+const actionLabel = (slug: string) => ACTION_LABELS[slug] ?? slug;
 
 export default function SettingsPage() {
   const authed = useAuthGuard();
@@ -287,9 +322,9 @@ export default function SettingsPage() {
     }
   };
 
-  const buildInviteLink = (invite: Invite) => {
+  const buildInviteLink = (invite: Invite, token: string) => {
     const params = new URLSearchParams({
-      invite_token: invite.token,
+      invite_token: token,
       email: invite.email,
     });
     const base = appOrigin;
@@ -297,8 +332,12 @@ export default function SettingsPage() {
   };
 
   const copyInviteLink = async (invite: Invite) => {
+    if (!invite.token) {
+      toast.error("Ссылка недоступна — она отправлена получателю на почту");
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(buildInviteLink(invite));
+      await navigator.clipboard.writeText(buildInviteLink(invite, invite.token));
       toast.success("Ссылка приглашения скопирована");
     } catch {
       toast.error("Не удалось скопировать ссылку");
@@ -504,14 +543,18 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <div className="panel-flat p-4">
-                    <div className="eyebrow mb-1">лиды в месяце</div>
+                    {/* Free-триал разовый: лиды не возобновляются, поэтому без «в месяце». */}
+                    <div className="eyebrow mb-1">
+                      {organization?.plan === "free" ? "пробные лиды" : "лиды в месяце"}
+                    </div>
                     <p
                       className="tnum text-[var(--t-100)]"
                       style={{ fontSize: 18, fontWeight: 300 }}
                     >
-                      {organization?.leads_used_current_month ?? 0}
+                      {(organization?.leads_used_current_month ?? 0).toLocaleString("ru-RU")}
                       <span className="t-48 ml-1 text-[13px]">
-                        / {organization?.leads_limit_per_month ?? 0}
+                        {organization?.plan === "free" ? "из" : "/"}{" "}
+                        {(organization?.leads_limit_per_month ?? 0).toLocaleString("ru-RU")}
                       </span>
                     </p>
                   </div>
@@ -561,7 +604,7 @@ export default function SettingsPage() {
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-[12px] t-72">
-                    Смена тарифа выполняется через checkout на странице тарифов.
+                    Смена тарифа выполняется через оформление оплаты на странице тарифов.
                   </p>
                   <Link
                     href="/plans"
@@ -813,29 +856,45 @@ export default function SettingsPage() {
                             </tr>
                           </thead>
                           <tbody>
-                            {invites.map((invite) => (
-                              <tr
-                                key={invite.id}
-                                className="border-b border-[var(--line)] last:border-0"
-                              >
-                                <td className="py-3 text-[13px] text-[var(--t-100)]">
-                                  <span className="block max-w-[240px] truncate" title={invite.email}>
-                                    {invite.email}
-                                  </span>
-                                </td>
-                                <td className="py-3">
-                                  <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
-                                    <span
-                                      className={`dot ${invite.accepted ? "dot-em" : "dot-am"}`}
-                                    />
-                                    {invite.accepted ? "принято" : "ожидает"}
-                                  </span>
-                                </td>
-                                <td className="text-right py-3">
-                                  <CopyButton onClick={() => copyInviteLink(invite)} />
-                                </td>
-                              </tr>
-                            ))}
+                            {invites.map((invite) => {
+                              const expired = isInviteExpired(invite);
+                              return (
+                                <tr
+                                  key={invite.id}
+                                  className="border-b border-[var(--line)] last:border-0"
+                                >
+                                  <td className="py-3 text-[13px] text-[var(--t-100)]">
+                                    <span className="block max-w-[240px] truncate" title={invite.email}>
+                                      {invite.email}
+                                    </span>
+                                  </td>
+                                  <td className="py-3">
+                                    <span className="inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono">
+                                      <span
+                                        className={`dot ${invite.accepted ? "dot-em" : expired ? "dot-rs" : "dot-am"}`}
+                                      />
+                                      {invite.accepted ? "принято" : expired ? "истекло" : "ожидает"}
+                                    </span>
+                                    {!invite.accepted && !expired && invite.expires_at && (
+                                      <span className="block text-[10.5px] mono t-48 mt-1">
+                                        до {new Date(invite.expires_at).toLocaleDateString("ru-RU")}
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="text-right py-3">
+                                    {!invite.accepted && !expired && (
+                                      invite.token ? (
+                                        <CopyButton onClick={() => copyInviteLink(invite)} />
+                                      ) : (
+                                        <span className="text-[10.5px] mono t-48">
+                                          ссылка отправлена письмом
+                                        </span>
+                                      )
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -914,8 +973,13 @@ export default function SettingsPage() {
                             className="border-b border-[var(--line)] last:border-0"
                           >
                             <td className="py-3">
-                              <span className="inline-flex items-center rounded-md panel-flat px-2 py-0.5 text-[11px] mono">
-                                {item.action}
+                              <span
+                                className={`inline-flex items-center rounded-md panel-flat px-2 py-0.5 text-[11px] ${
+                                  ACTION_LABELS[item.action] ? "" : "mono"
+                                }`}
+                                title={item.action}
+                              >
+                                {actionLabel(item.action)}
                               </span>
                             </td>
                             <td className="text-right py-3">
@@ -1359,7 +1423,13 @@ function OutreachTab({ canEdit, userEmail }: { canEdit: boolean; userEmail: stri
     );
   }
 
-  const ready = settings.configured && settings.verified;
+  // Три честных состояния: настроек нет / SMTP заполнен, но тест не пройден /
+  // подключено и проверено тестовым письмом.
+  const status = !settings.configured
+    ? { label: "Не настроено", dot: "dot-am", dim: true }
+    : settings.verified
+      ? { label: "Подключено и проверено", dot: "dot-em", dim: false }
+      : { label: "Настроено, ждёт проверки", dot: "dot-am", dim: false };
 
   return (
     <>
@@ -1368,11 +1438,11 @@ function OutreachTab({ canEdit, userEmail }: { canEdit: boolean; userEmail: stri
           <div className="eyebrow">email-рассылка</div>
           <span
             className={`inline-flex items-center gap-1.5 rounded-full panel-thin px-2.5 py-1 text-[11px] mono ${
-              ready ? "" : "t-56"
+              status.dim ? "t-56" : ""
             }`}
           >
-            <span className={`dot ${ready ? "dot-em" : "dot-am"}`} />
-            {ready ? "Подключено ✓ / проверено" : "Не настроено"}
+            <span className={`dot ${status.dot}`} />
+            {status.label}
           </span>
         </div>
         <p className="text-[12px] t-56 mb-3">

@@ -117,13 +117,13 @@ def ensure_lead_quota(organization: Organization, requested: int) -> None:
                 detail="Пробные лиды использованы. Выберите тариф, чтобы продолжить сбор.",
             )
         raise HTTPException(status_code=402, detail="Месячная квота лидов исчерпана — обновите тариф или дождитесь 1-го числа.")
+    # Запрос больше остатка НЕ ошибка ни на одном тарифе (аудит 16.07):
+    # раньше платный клиент с остатком 3 жал «Собрать 10» и получал сырой
+    # 429 без пейволла — тупик на ровном месте. Сбор клампится по остатку
+    # квоты ниже по конвейеру (SELECT FOR UPDATE в jobs/search), юзер
+    # получает частичную дозу и честный тост, а не отказ.
     if organization.leads_used_current_month + requested > organization.leads_limit_per_month:
-        # Для триала не 429-им «слишком много запрошено» — молча соберём
-        # остаток (кламп по квоте в jobs), иначе просьба «50 лидов» на триале
-        # с 10 умирала бы ошибкой вместо частичной выдачи.
-        if organization.plan == PlanType.free:
-            return
-        raise HTTPException(status_code=429, detail="Запрошенное количество лидов превышает месячную квоту")
+        return
 
 
 def ensure_ai_cost_budget(organization: Organization, *, slack_kopecks: int = 0) -> None:

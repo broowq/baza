@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
+import { LeadDetailDrawer, stripNotesPrefix } from "@/components/dashboard/lead-detail-drawer";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -48,6 +48,11 @@ type Props = {
   // when omitted, so existing call sites keep working unchanged.
   selectedIds?: string[];
   onSelectionChange?: (ids: string[]) => void;
+  // With hideInternalFilters the parent filters server-side, so an empty
+  // `leads` is ambiguous: no leads at all vs. nothing matched. These two
+  // props disambiguate and let the empty state offer a reset.
+  filtersActive?: boolean;
+  onResetFilters?: () => void;
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -56,7 +61,7 @@ const STATUS_LABELS: Record<string, string> = {
   qualified: "Квалифицирован",
   proposal: "КП отправлено",
   won: "Сделка",
-  rejected: "Отклонён",
+  rejected: "Отказ",
 };
 
 type StatusVariant = "default" | "online" | "brand" | "offline";
@@ -86,7 +91,7 @@ const STATUS_OPTIONS: { value: Lead["status"]; label: string }[] = [
   { value: "qualified", label: "Квалифицирован" },
   { value: "proposal", label: "КП отправлено" },
   { value: "won", label: "Сделка" },
-  { value: "rejected", label: "Отклонён" },
+  { value: "rejected", label: "Отказ" },
 ];
 
 const SOURCE_META: Record<string, { label: string; emoji: string; color: string }> = {
@@ -95,7 +100,10 @@ const SOURCE_META: Record<string, { label: string; emoji: string; color: string 
   rusprofile: { label: "ЕГРЮЛ (rusprofile)", emoji: "📋", color: "text-[var(--t-72)]" },
   maps_searxng: { label: "Яндекс Карты (web)", emoji: "🅉", color: "text-status-offline" },
   searxng: { label: "Web-поиск", emoji: "🌐", color: "text-[var(--t-56)]" },
+  yandex_search: { label: "Яндекс.Поиск", emoji: "🌐", color: "text-[var(--t-56)]" },
   bing: { label: "Bing", emoji: "🅱", color: "text-[var(--t-56)]" },
+  warehouse: { label: "Наша база", emoji: "🗄", color: "text-[var(--t-72)]" },
+  manual: { label: "Вручную", emoji: "✎", color: "text-[var(--t-56)]" },
 };
 
 function SourceBadge({ source, externalId }: { source?: string; externalId?: string }) {
@@ -187,7 +195,7 @@ function ScoreIndicator({ score }: { score: number }) {
 }
 
 function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: string, patch: Partial<Lead>) => void }) {
-  const [notes, setNotes] = useState(lead.notes ?? "");
+  const [notes, setNotes] = useState(stripNotesPrefix(lead.notes ?? ""));
   const [tagInput, setTagInput] = useState("");
   const [saving, setSaving] = useState(false);
   const tags = lead.tags ?? [];
@@ -208,7 +216,7 @@ function NotesRow({ lead, onLeadUpdate }: { lead: Lead; onLeadUpdate?: (leadId: 
   };
 
   const saveNotes = async () => {
-    if (notes === (lead.notes ?? "")) return;
+    if (notes === stripNotesPrefix(lead.notes ?? "")) return;
     await patchLead({ notes });
   };
 
@@ -333,6 +341,8 @@ export function LeadsTable({
   onLeadDelete,
   selectedIds: controlledSelectedIds,
   onSelectionChange,
+  filtersActive = false,
+  onResetFilters,
 }: Props) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Lead["status"]>("all");
@@ -449,6 +459,21 @@ export function LeadsTable({
   }
 
   if (leads.length === 0) {
+    // Parent-side filters/search hid everything — this is not «лидов нет»,
+    // предлагать «запустите сбор» здесь было бы враньём.
+    if (filtersActive) {
+      return (
+        <GlassCard variant="default" className="p-8 text-center">
+          <h3 className="text-base font-medium text-[var(--t-100)]">Ничего не найдено по фильтрам</h3>
+          <p className="mt-1 text-sm text-[var(--t-48)]">Попробуйте смягчить условия поиска.</p>
+          {onResetFilters && (
+            <Button variant="secondary" size="sm" className="mt-4" onClick={onResetFilters}>
+              Сбросить
+            </Button>
+          )}
+        </GlassCard>
+      );
+    }
     return (
       <GlassCard variant="default" className="p-8 text-center">
         <h3 className="text-base font-medium text-[var(--t-100)]">Лидов пока нет</h3>
@@ -473,10 +498,9 @@ export function LeadsTable({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Все статусы</SelectItem>
-              <SelectItem value="new">Новый</SelectItem>
-              <SelectItem value="contacted">Связались</SelectItem>
-              <SelectItem value="qualified">Квалифицирован</SelectItem>
-              <SelectItem value="rejected">Отклонён</SelectItem>
+              {STATUS_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
           <Button
@@ -508,14 +532,28 @@ export function LeadsTable({
         </div>
       )}
 
+      {/* Internal filters/search matched nothing — one empty state for both
+          layouts, with a reset instead of a dead end. */}
+      {filtered.length === 0 && (
+        <GlassCard variant="default" className="p-8 text-center">
+          <h3 className="text-base font-medium text-[var(--t-100)]">Ничего не найдено по фильтрам</h3>
+          <p className="mt-1 text-sm text-[var(--t-48)]">Попробуйте смягчить условия поиска.</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-4"
+            onClick={() => { setQuery(""); setStatusFilter("all"); }}
+          >
+            Сбросить
+          </Button>
+        </GlassCard>
+      )}
+
+      {filtered.length > 0 && (
+      <>
       {/* Mobile: card view (md:hidden). Each lead shows ALL fields stacked
           so users on phones can see phone/email/address without horizontal scroll. */}
       <div className="space-y-2 md:hidden">
-        {filtered.length === 0 && (
-          <GlassCard variant="default" className="px-4 py-6 text-center">
-            <p className="text-sm text-[var(--t-48)]">Нет лидов по текущим фильтрам.</p>
-          </GlassCard>
-        )}
         {filtered.map((lead) => {
           const isSelected = selectedIds.includes(lead.id);
           const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : "");
@@ -565,10 +603,15 @@ export function LeadsTable({
                   </a>
                 )}
               </div>
-              <div className="flex items-center justify-between pt-1">
-                <Badge variant={statusVariant} dot={statusDot} className="text-xs">
-                  {STATUS_LABELS[lead.status] ?? lead.status}
-                </Badge>
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Badge variant={statusVariant} dot={statusDot} className="text-xs">
+                    {STATUS_LABELS[lead.status] ?? lead.status}
+                  </Badge>
+                  {lead.tags?.includes("есть сайт") && (
+                    <Badge variant="online" className="text-[10px]">есть сайт</Badge>
+                  )}
+                </div>
                 {!lead.enriched && (
                   <Badge variant="warning" dot="warning" className="text-[10px]">
                     не обогащён
@@ -651,19 +694,24 @@ export function LeadsTable({
                               {lead.company}
                             </button>
                           </p>
-                          {lead.enriched ? (
-                            <span className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-[var(--t-48)]">
-                              <Sparkles size={9} /> обогащён
-                            </span>
-                          ) : (
-                            <span
-                              className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-status-warning"
-                              title="Контакты ещё не собраны — запустите обогащение"
-                            >
-                              <span className="status-dot" data-state="warning" aria-hidden />
-                              не обогащён
-                            </span>
-                          )}
+                          <span className="mt-0.5 inline-flex flex-wrap items-center gap-1.5">
+                            {lead.enriched ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] text-[var(--t-48)]">
+                                <Sparkles size={9} /> обогащён
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] text-status-warning"
+                                title="Контакты ещё не собраны — запустите обогащение"
+                              >
+                                <span className="status-dot" data-state="warning" aria-hidden />
+                                не обогащён
+                              </span>
+                            )}
+                            {lead.tags?.includes("есть сайт") && (
+                              <Badge variant="online" className="text-[10px]">есть сайт</Badge>
+                            )}
+                          </span>
                         </div>
                       </TableCell>
                       <TableCell className="max-w-[96px] px-4 py-3.5">
@@ -771,6 +819,8 @@ export function LeadsTable({
           </Table>
         </div>
       </div>
+      </>
+      )}
 
       <p className="text-[11px] text-[var(--t-48)]">
         Показано {filtered.length} из {leads.length}

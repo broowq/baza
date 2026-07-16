@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowRight, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { ArrowRight, CheckCircle2, Clock, RefreshCw, XCircle } from "lucide-react";
 
 import { api } from "@/lib/api";
 import { formatPlan } from "@/lib/plans";
@@ -86,7 +86,7 @@ function ReturnBody() {
           {phase === "checking" && (
             <>
               <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center">
-                <span className="h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white/70" />
+                <span className="h-8 w-8 animate-spin rounded-full border border-[var(--line-2)] border-t-[var(--t-72)]" />
               </div>
               <h1 className="h2 mb-3" style={{ fontSize: 28 }}>
                 Подтверждаем платёж
@@ -100,7 +100,7 @@ function ReturnBody() {
 
           {phase === "active" && (
             <>
-              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center text-[#A8C5C0]">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center c-mint">
                 <CheckCircle2 size={44} strokeWidth={1.5} />
               </div>
               <h1 className="h2 mb-3" style={{ fontSize: 28 }}>
@@ -119,7 +119,7 @@ function ReturnBody() {
 
           {phase === "pending" && (
             <>
-              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center text-white/70">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center t-72">
                 <Clock size={44} strokeWidth={1.5} />
               </div>
               <h1 className="h2 mb-3" style={{ fontSize: 28 }}>
@@ -127,19 +127,27 @@ function ReturnBody() {
               </h1>
               <p className="caption mb-6">
                 ЮKassa получила платёж, но подтверждение задерживается.
-                Подписка активируется автоматически, как только webhook
-                дойдёт. Можно закрыть эту страницу — мы пришлём email при
-                активации.
+                Активация занимает 1–2 минуты — обновите страницу,
+                чтобы проверить статус.
               </p>
-              <Link href="/dashboard" className="btn btn-ghost inline-flex" style={{ height: 42 }}>
-                В дашборд <ArrowRight size={13} />
-              </Link>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="btn btn-brand inline-flex"
+                  style={{ height: 42 }}
+                >
+                  <RefreshCw size={13} /> Обновить
+                </button>
+                <Link href="/dashboard" className="btn btn-ghost inline-flex" style={{ height: 42 }}>
+                  В дашборд <ArrowRight size={13} />
+                </Link>
+              </div>
             </>
           )}
 
           {phase === "canceled" && (
             <>
-              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center text-white/70">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center t-72">
                 <XCircle size={44} strokeWidth={1.5} />
               </div>
               <h1 className="h2 mb-3" style={{ fontSize: 28 }}>
@@ -157,7 +165,7 @@ function ReturnBody() {
 
           {phase === "error" && (
             <>
-              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center text-white/70">
+              <div className="mx-auto mb-6 flex h-12 w-12 items-center justify-center t-72">
                 <XCircle size={44} strokeWidth={1.5} />
               </div>
               <h1 className="h2 mb-3" style={{ fontSize: 28 }}>
@@ -174,7 +182,7 @@ function ReturnBody() {
 
           <p className="mono-cap mt-10">
             Вопросы по оплате —{" "}
-            <a href="mailto:support@usebaza.ru" className="text-white underline underline-offset-2">
+            <a href="mailto:support@usebaza.ru" className="text-[var(--t-100)] underline underline-offset-2">
               support@usebaza.ru
             </a>
           </p>
@@ -193,7 +201,7 @@ export default function BillingReturnPage() {
         <div className="grain" />
         <div className="relative z-10 mx-auto max-w-xl">
           <div className="panel p-10 text-center">
-            <span className="mx-auto block h-8 w-8 animate-spin rounded-full border border-white/15 border-t-white/70" />
+            <span className="mx-auto block h-8 w-8 animate-spin rounded-full border border-[var(--line-2)] border-t-[var(--t-72)]" />
           </div>
         </div>
       </main>

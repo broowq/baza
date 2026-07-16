@@ -51,11 +51,19 @@ def _compute(db: Session) -> dict:
     ).scalar_one_or_none()
     project = None
     if org is not None:
+        # Витрина = живой демо-проект с НАИБОЛЬШИМ числом лидов (инцидент
+        # 14.07: «первый по created_at» оказался пустым после чистки старых
+        # демо-проектов — лендинг показывал «0 лидов в демо-базе» на первом
+        # экране в день старта продаж).
         project = db.execute(
-            select(Project).where(
+            select(Project)
+            .outerjoin(Lead, Lead.project_id == Project.id)
+            .where(
                 Project.organization_id == org.id,
                 Project.deleted_at.is_(None),
-            ).order_by(Project.created_at.asc())
+            )
+            .group_by(Project.id)
+            .order_by(func.count(Lead.id).desc(), Project.created_at.asc())
         ).scalars().first()
     if project is None:
         return _empty_payload()

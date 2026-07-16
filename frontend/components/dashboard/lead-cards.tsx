@@ -16,7 +16,7 @@ const STATUS_LABELS: Record<string, string> = {
   qualified: "Квалифицирован",
   proposal: "КП отправлено",
   won: "Сделка",
-  rejected: "Отклонён",
+  rejected: "Отказ",
 };
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
@@ -34,7 +34,10 @@ const SOURCE_LABELS: Record<string, string> = {
   rusprofile: "ЕГРЮЛ",
   maps_searxng: "Я.Карты (web)",
   searxng: "Web",
+  yandex_search: "Web",
   bing: "Bing",
+  warehouse: "Наша база",
+  manual: "Вручную",
 };
 
 /* ─────────────────────────────────────────────────────────────────
@@ -115,6 +118,18 @@ function LeadCard({ lead, onClick }: LeadCardProps) {
           {STATUS_LABELS[lead.status] ?? lead.status}
         </span>
         {sourceLabel && <span className="badge badge--source">{sourceLabel}</span>}
+        {lead.tags?.includes("есть сайт") && (
+          <span
+            className="badge"
+            style={{
+              background: "rgba(168, 197, 192, 0.12)",
+              borderColor: "rgba(168, 197, 192, 0.32)",
+              color: "var(--mint)",
+            }}
+          >
+            есть сайт
+          </span>
+        )}
       </div>
 
       <hr className="lead-card__divider" />

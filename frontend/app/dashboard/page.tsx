@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState, useCallback } from "react";
-import { Plus, ChevronRight, Trash2, Pencil, Sparkles, Search, Wand2, Loader2 } from "lucide-react";
+import { Plus, ChevronRight, Trash2, Pencil, Sparkles, Search, Wand2, Loader2, X } from "lucide-react";
 
 import { VoiceInput } from "@/components/voice-input";
 import { toast } from "sonner";
@@ -26,8 +26,10 @@ import {
   AlertDialogMedia,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
+import { projectsN, seatsN } from "@/lib/plural";
 import { getOrgId, setOrgId } from "@/lib/auth";
 import { formatPlan } from "@/lib/plans";
 import { useAuthGuard } from "@/lib/hooks";
@@ -68,6 +70,51 @@ const DEMO_SAMPLE_FALLBACK: DemoSample[] = [
   { company: "Мастер Шин", city: "Екатеринбург", score: 77, has_email: false, has_phone: true },
   { company: "СпецТехникаСиб", city: "Кемерово", score: 76, has_email: true, has_phone: true },
 ];
+
+// Кнопка создания проекта. При исчерпанном лимите тарифа блокируется сразу,
+// с тултипом и ссылкой на тарифы — а не отказом в конце двухшагового диалога.
+function CreateProjectButton({
+  limitReached,
+  onClick,
+  className,
+  style,
+  children,
+}: {
+  limitReached: boolean;
+  onClick: () => void;
+  className: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  if (!limitReached) {
+    return (
+      <button type="button" onClick={onClick} className={className} style={style}>
+        {children}
+      </button>
+    );
+  }
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        {/* aria-disabled вместо disabled: disabled-кнопка не получает hover/focus,
+            и тултип с объяснением никогда бы не показался. */}
+        <TooltipTrigger
+          render={<button type="button" aria-disabled className={`${className} cursor-not-allowed opacity-50`} style={style} />}
+        >
+          {children}
+        </TooltipTrigger>
+        <TooltipContent>
+          <span>
+            Достигнут лимит проектов тарифа —{" "}
+            <Link href="/plans" className="underline underline-offset-2">
+              обновите тариф
+            </Link>
+          </span>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
 
 export default function DashboardPage() {
   const authed = useAuthGuard();
@@ -304,6 +351,8 @@ export default function DashboardPage() {
 
   const canManage = orgRole === "owner" || orgRole === "admin";
   const usagePercent = org ? Math.min(100, Math.round(((org.leads_used_current_month ?? 0) / (org.leads_limit_per_month || 1)) * 100)) : 0;
+  const projectsRemaining = org ? Math.max(0, org.projects_limit - projects.length) : 0;
+  const projectLimitReached = !!org && projects.length >= org.projects_limit;
 
   const roleLabel: Record<string, string> = {
     owner: "Владелец",
@@ -315,8 +364,8 @@ export default function DashboardPage() {
   // Sum across ALL jobs of ALL projects (not just the latest per project) so
   // the «по всем проектам» totals reflect the full collection history.
   const totalLeads = allJobs.reduce((acc, job) => acc + (job.added_count ?? 0), 0);
-  // TODO: replace with a lead-level stats endpoint — summing enriched_count over jobs double-counts re-enriched leads and can exceed the total.
-  const totalEnriched = allJobs.reduce((acc, job) => acc + (job.enriched_count ?? 0), 0);
+  // TODO: replace with a lead-level stats endpoint — summing enriched_count over jobs double-counts re-enriched leads and can exceed the total. Until then, clamp to the collected total.
+  const totalEnriched = Math.min(totalLeads, allJobs.reduce((acc, job) => acc + (job.enriched_count ?? 0), 0));
   const activeJobs = allJobs.filter((j) => j.status === "running").length;
 
   return (
@@ -382,9 +431,9 @@ export default function DashboardPage() {
               <span className="chip">{roleLabel[orgRole] ?? orgRole}</span>
             </div>
             <div className="mono-cap mt-3 flex items-center flex-wrap" style={{ gap: "0 4px" }}>
-              <span>{projects.length} {(new Intl.PluralRules("ru").select(projects.length) === "one" ? "проект" : new Intl.PluralRules("ru").select(projects.length) === "few" ? "проекта" : "проектов")}</span>
+              <span>{projectsN(projects.length)}</span>
               <span className="sep-dot mx-2" />
-              <span>{org?.users_limit ? `${org.users_limit} мест` : "—"}</span>
+              <span>{org?.users_limit ? seatsN(org.users_limit) : "—"}</span>
             </div>
           </div>
 
@@ -459,18 +508,18 @@ export default function DashboardPage() {
       )}
 
       {/* ── Projects header ── */}
-      <div className="flex items-end justify-between pt-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 pt-4">
         <div>
           <div className="eyebrow mb-2">проекты</div>
           <div className="flex items-end gap-4 flex-wrap">
-            <h1 className="h1" style={{ fontSize: 44 }}>Ваши воронки</h1>
+            <h1 className="h1" style={{ fontSize: "clamp(30px, 6vw, 44px)" }}>Ваши проекты</h1>
           </div>
         </div>
         {canManage && (
-          <button onClick={() => setShowForm(true)} className="btn btn-brand">
+          <CreateProjectButton limitReached={projectLimitReached} onClick={() => setShowForm(true)} className="btn btn-brand">
             <Plus className="h-3.5 w-3.5" />
             Новый проект
-          </button>
+          </CreateProjectButton>
         )}
       </div>
 
@@ -560,14 +609,24 @@ export default function DashboardPage() {
                   </div>
                 )}
 
-                {enhanced?.website_preference && enhanced.website_preference !== "any" && (
+                {enhanced && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                    <span className="text-xs t-56">Требование:</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {enhanced.website_preference === "no_website"
-                        ? "только компании без сайта"
-                        : "только компании с сайтом"}
-                    </Badge>
+                    <span className="text-xs t-56">Сайт у клиента:</span>
+                    <Select
+                      value={enhanced.website_preference ?? "any"}
+                      onValueChange={(val) =>
+                        setEnhanced((prev) => (prev ? { ...prev, website_preference: val ?? "any" } : prev))
+                      }
+                    >
+                      <SelectTrigger size="sm" className="w-auto gap-1 rounded-full px-3 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">любые компании</SelectItem>
+                        <SelectItem value="no_website">только без сайта</SelectItem>
+                        <SelectItem value="with_website">только с сайтом</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
 
@@ -575,8 +634,22 @@ export default function DashboardPage() {
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className="text-xs t-56">Исключаем:</span>
                     {enhanced.excluded_segments.map((type) => (
-                      <Badge key={type} variant="outline" className="text-xs line-through opacity-70">
-                        {type}
+                      <Badge key={type} variant="outline" className="gap-1 pr-1 text-xs opacity-70">
+                        <span className="line-through">{type}</span>
+                        <button
+                          type="button"
+                          aria-label={`Не исключать «${type}»`}
+                          className="rounded-full p-0.5 transition-opacity opacity-70 hover:opacity-100"
+                          onClick={() =>
+                            setEnhanced((prev) =>
+                              prev
+                                ? { ...prev, excluded_segments: (prev.excluded_segments ?? []).filter((s) => s !== type) }
+                                : prev
+                            )
+                          }
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
                       </Badge>
                     ))}
                   </div>
@@ -768,10 +841,14 @@ export default function DashboardPage() {
             ))}
           </div>
           {canManage && (
-            <button onClick={() => setShowForm(true)} className="brand rounded-full px-5 py-2.5 text-[13.5px] inline-flex items-center gap-2">
+            <CreateProjectButton
+              limitReached={projectLimitReached}
+              onClick={() => setShowForm(true)}
+              className="brand rounded-full px-5 py-2.5 text-[13.5px] inline-flex items-center gap-2"
+            >
               <Plus className="h-3.5 w-3.5" />
               Создать первый проект
-            </button>
+            </CreateProjectButton>
           )}
         </div>
 
@@ -984,8 +1061,8 @@ export default function DashboardPage() {
 
         {/* ── "+ Создать ещё проект" dashed placeholder ── */}
         {canManage && projects.length > 0 && (
-          <button
-            type="button"
+          <CreateProjectButton
+            limitReached={projectLimitReached}
             onClick={() => setShowForm(true)}
             className="px-5 py-4 flex items-center gap-3 t-56 hover:t-72 transition-colors animate-fade-in"
             style={{ border: "1px dashed var(--line-2)", borderRadius: 14 }}
@@ -993,9 +1070,9 @@ export default function DashboardPage() {
             <Plus className="h-3.5 w-3.5" />
             <span className="text-[13px]">Создать ещё проект</span>
             <span className="mono-cap t-40 ml-auto">
-              остаток квоты: {Math.max(0, (org?.projects_limit ?? 0) - projects.length)} проектов
+              остаток квоты: {projectsN(projectsRemaining)}
             </span>
-          </button>
+          </CreateProjectButton>
         )}
       </div>
     </motion.main>

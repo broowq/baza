@@ -91,7 +91,7 @@ function ResetPasswordContent() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-[var(--t-100)]"
                     aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                   >
                     <EyeIcon open={showPassword} />
@@ -118,7 +118,7 @@ function ResetPasswordContent() {
           <div className="hairline my-7" />
 
           <div className="text-center caption">
-            <Link href="/login" className="text-white underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
+            <Link href="/login" className="text-[var(--t-100)] underline underline-offset-4" style={{ textDecorationColor: "var(--t-40)" }}>
               ← Вернуться к входу
             </Link>
           </div>

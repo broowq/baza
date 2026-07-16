@@ -120,7 +120,7 @@ def test_yandex_search_fetch_page_builds_request_and_decodes(monkeypatch):
         yandex_search_region="", yandex_search_timeout_seconds=15.0,
     )
     items = lc._yandex_search_fetch_page(_Client(), "пилорама Томск", page=1, settings=settings)
-    assert captured["url"] == lc._YANDEX_SEARCH_URL
+    assert captured["url"] == lc._YANDEX_WEB_SEARCH_URL
     assert captured["headers"]["Authorization"] == "Api-Key test-key"
     assert captured["body"]["folderId"] == "test-folder"
     assert captured["body"]["query"]["queryText"] == "пилорама Томск"
@@ -145,3 +145,13 @@ def test_yandex_search_region_added_when_set(monkeypatch):
     )
     lc._yandex_search_fetch_page(_Client(), "q", page=1, settings=settings)
     assert _Client.body["region"] == "213"
+
+
+def test_maps_and_websearch_urls_are_distinct():
+    """Регрессия 16.07: одноимённое переопределение _YANDEX_SEARCH_URL при
+    интеграции веб-поиска затёрло константу КАРТ — все вызовы Яндекс.Карт
+    били в cloud-URL (404), карты были мертвы у всех орг три дня. Тест-метр
+    этого не видел: мок и код делили одну (затёртую) переменную."""
+    assert lc._YANDEX_SEARCH_URL.startswith("https://search-maps.yandex.ru/")
+    assert lc._YANDEX_WEB_SEARCH_URL.startswith("https://searchapi.api.cloud.yandex.net/")
+    assert lc._YANDEX_SEARCH_URL != lc._YANDEX_WEB_SEARCH_URL

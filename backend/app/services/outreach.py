@@ -177,7 +177,21 @@ def smtp_test(s, to_email: str) -> tuple[bool, str]:
         )
         return True, ""
     except Exception as exc:  # noqa: BLE001 — surface the real reason to the user
-        return False, f"{type(exc).__name__}: {exc}"[:300]
+        # Человеческий диагноз для типовых провалов; сырой Python-текст —
+        # только хвостом для нетиповых (аудит 16.07: клиент видел
+        # «SMTPAuthenticationError: (535, b'...')»).
+        import smtplib
+        import socket
+
+        if isinstance(exc, smtplib.SMTPAuthenticationError):
+            msg = "Сервер отклонил логин/пароль. Для Яндекс/Mail.ru нужен «пароль приложения», не обычный."
+        elif isinstance(exc, (socket.gaierror, ConnectionRefusedError, TimeoutError, socket.timeout)):
+            msg = "Не удалось подключиться к серверу — проверьте адрес хоста и порт (обычно 465 или 587)."
+        elif isinstance(exc, smtplib.SMTPRecipientsRefused):
+            msg = "Сервер отклонил адрес получателя — проверьте email."
+        else:
+            msg = f"Ошибка отправки: {type(exc).__name__}: {exc}"
+        return False, msg[:300]
 
 
 def poll_replies(s, since: datetime, addresses: set[str]) -> set[str]:

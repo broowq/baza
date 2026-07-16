@@ -77,7 +77,7 @@ export type Lead = {
   deal_value?: number;
   expected_close_at?: string | null;
   source_url: string;
-  source?: "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "bing" | "maps_searxng" | "";
+  source?: "yandex_maps" | "2gis" | "rusprofile" | "searxng" | "yandex_search" | "bing" | "maps_searxng" | "warehouse" | "";
   external_id?: string;
   enriched: boolean;
   demo?: boolean;

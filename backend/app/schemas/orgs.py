@@ -56,6 +56,10 @@ class InviteOut(BaseModel):
     id: UUID
     email: EmailStr
     role: str
+    # Токен нужен фронту для кнопки «скопировать ссылку» (аудит 16.07: без
+    # него ссылка строилась с invite_token=undefined). Эндпоинты инвайтов
+    # и так owner/admin-only — утечки постороннему нет.
+    token: str
     accepted: bool
     expires_at: datetime
     created_at: datetime
