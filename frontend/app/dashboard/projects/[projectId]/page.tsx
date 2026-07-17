@@ -72,6 +72,11 @@ const BULK_STAGE_LABELS = Object.fromEntries(
   Object.entries(STATUS_LABELS).filter(([value]) => value !== "all"),
 );
 
+// Тач-таргет ≥40px только на грубом указателе (телефон/планшет): min-height
+// побеждает фиксированные h-8/height-таргеты каскадно, десктоп с мышью не
+// меняется. pointer:coarse, а не ширина — планшеты тоже тач.
+const TOUCH_TARGET = "[@media(pointer:coarse)]:min-h-[40px]";
+
 export default function ProjectDetailsPage() {
   const params = useParams<{ projectId: string }>();
   const projectId = params.projectId;
@@ -550,9 +555,15 @@ export default function ProjectDetailsPage() {
     >
       {/* Header */}
       <div className="space-y-5">
-        {/* Breadcrumb */}
-        <div className="mono-cap" style={{ fontSize: "10.5px" }}>
-          <Link href="/dashboard" className="t-40 hover:text-[var(--t-100)] transition-colors">Проекты</Link>
+        {/* Breadcrumb — на мобиле «Проекты» получает 40px тап-зону и шрифт 12px
+            (10.5px-ссылку было не прочитать и не нажать); с sm — как раньше. */}
+        <div className="mono-cap flex flex-wrap items-center" style={{ fontSize: "10.5px" }}>
+          <Link
+            href="/dashboard"
+            className={`t-40 hover:text-[var(--t-100)] transition-colors inline-flex items-center min-h-[40px] text-[12px] sm:min-h-0 sm:text-[10.5px] ${TOUCH_TARGET}`}
+          >
+            Проекты
+          </Link>
           <span className="t-28 mx-1.5">/</span>
           <span className="t-72">{project?.name ?? "—"}</span>
         </div>
@@ -605,7 +616,7 @@ export default function ProjectDetailsPage() {
                   toast.error("Не удалось сохранить");
                 }
               }}
-              className="chip chip-sans cursor-pointer border-0 bg-transparent"
+              className={`chip chip-sans cursor-pointer border-0 bg-transparent ${TOUCH_TARGET}`}
               title="Требование к сайту клиента — учитывается при сборе"
             >
               <option value="any">сайт: любые</option>
@@ -785,7 +796,7 @@ export default function ProjectDetailsPage() {
                 <div className="seg ml-auto shrink-0" role="group" aria-label="Вид отображения">
                   <button
                     type="button"
-                    className={`seg-btn${viewMode === "cards" ? " active" : ""}`}
+                    className={`seg-btn ${TOUCH_TARGET}${viewMode === "cards" ? " active" : ""}`}
                     aria-pressed={viewMode === "cards"}
                     onClick={() => setViewMode("cards")}
                   >
@@ -793,7 +804,7 @@ export default function ProjectDetailsPage() {
                   </button>
                   <button
                     type="button"
-                    className={`seg-btn${viewMode === "table" ? " active" : ""}`}
+                    className={`seg-btn ${TOUCH_TARGET}${viewMode === "table" ? " active" : ""}`}
                     aria-pressed={viewMode === "table"}
                     onClick={() => setViewMode("table")}
                   >
@@ -801,7 +812,7 @@ export default function ProjectDetailsPage() {
                   </button>
                   <button
                     type="button"
-                    className={`seg-btn${viewMode === "kanban" ? " active" : ""}`}
+                    className={`seg-btn ${TOUCH_TARGET}${viewMode === "kanban" ? " active" : ""}`}
                     aria-pressed={viewMode === "kanban"}
                     onClick={() => setViewMode("kanban")}
                   >
@@ -940,7 +951,7 @@ export default function ProjectDetailsPage() {
 
                 {/* Change stage */}
                 <Select value="" onValueChange={(val: string | null) => { if (val) void runBulkAction({ action: "stage", status: val }); }} disabled={bulkBusy}>
-                  <SelectTrigger className="h-8 w-auto min-w-[150px] text-xs" aria-label="Сменить этап">
+                  <SelectTrigger className={`h-8 w-auto min-w-[150px] text-xs ${TOUCH_TARGET}`} aria-label="Сменить этап">
                     <SelectValue placeholder="Сменить этап">{() => "Сменить этап"}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -952,7 +963,7 @@ export default function ProjectDetailsPage() {
 
                 {/* Assign */}
                 <Select value="" onValueChange={(val: string | null) => { if (val) void runBulkAction({ action: "assign", assigned_to_user_id: val === "__none__" ? null : val }); }} disabled={bulkBusy}>
-                  <SelectTrigger className="h-8 w-auto min-w-[160px] text-xs" aria-label="Назначить ответственного">
+                  <SelectTrigger className={`h-8 w-auto min-w-[160px] text-xs ${TOUCH_TARGET}`} aria-label="Назначить ответственного">
                     <SelectValue placeholder="Назначить">{() => "Назначить"}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
@@ -966,7 +977,7 @@ export default function ProjectDetailsPage() {
                 {/* Enroll into an email sequence — only «active» targets */}
                 {sequences.length > 0 && (
                   <Select value="" onValueChange={(val: string | null) => { if (val) void bulkEnroll(val); }} disabled={bulkBusy}>
-                    <SelectTrigger className="h-8 w-auto min-w-[150px] text-xs" aria-label="Добавить в рассылку">
+                    <SelectTrigger className={`h-8 w-auto min-w-[150px] text-xs ${TOUCH_TARGET}`} aria-label="Добавить в рассылку">
                       <SelectValue placeholder="В рассылку">
                         {() => <span className="inline-flex items-center gap-1.5"><Send size={12} /> В рассылку</span>}
                       </SelectValue>
@@ -982,7 +993,7 @@ export default function ProjectDetailsPage() {
                 {/* Add tag */}
                 <div className="flex items-center gap-1.5">
                   <Input
-                    className="h-8 w-32 text-xs"
+                    className={`h-8 w-32 text-xs ${TOUCH_TARGET}`}
                     placeholder="+ тег"
                     value={bulkTag}
                     disabled={bulkBusy}
@@ -990,13 +1001,13 @@ export default function ProjectDetailsPage() {
                     onChange={(e) => setBulkTag(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && bulkTag.trim()) { e.preventDefault(); void runBulkAction({ action: "add_tag", tag: bulkTag.trim() }); } }}
                   />
-                  <Button size="sm" variant="secondary" disabled={bulkBusy || !bulkTag.trim()} onClick={() => void runBulkAction({ action: "add_tag", tag: bulkTag.trim() })}>
+                  <Button size="sm" variant="secondary" className={TOUCH_TARGET} disabled={bulkBusy || !bulkTag.trim()} onClick={() => void runBulkAction({ action: "add_tag", tag: bulkTag.trim() })}>
                     Добавить
                   </Button>
                 </div>
 
                 {/* Delete */}
-                <Button size="sm" variant="ghost" className="text-status-offline" disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
+                <Button size="sm" variant="ghost" className={`text-status-offline ${TOUCH_TARGET}`} disabled={bulkBusy} onClick={() => setBulkDeleteOpen(true)}>
                   <Trash2 size={13} className="mr-1" /> Удалить
                 </Button>
                 <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
@@ -1019,7 +1030,7 @@ export default function ProjectDetailsPage() {
                   </AlertDialogContent>
                 </AlertDialog>
 
-                <Button size="sm" variant="ghost" className="ml-auto" disabled={bulkBusy} onClick={() => setSelectedIds([])}>
+                <Button size="sm" variant="ghost" className={`ml-auto ${TOUCH_TARGET}`} disabled={bulkBusy} onClick={() => setSelectedIds([])}>
                   Снять выбор
                 </Button>
                 {bulkBusy && <Loader2 size={13} className="animate-spin text-muted-foreground" />}

@@ -310,16 +310,36 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Mobile hamburger */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="fixed left-4 top-4 z-50 min-h-[44px] min-w-[44px] rounded-xl border border-[var(--line-2)] bg-[rgba(15,16,20,0.72)] backdrop-blur-xl p-2.5 text-white shadow-lg lg:hidden"
-        aria-label="Открыть меню"
+      {/* Mobile top bar — replaces the old floating burger that overlapped
+          page content. The dashboard/plans layouts give <main> pt-14 lg:pt-0,
+          so content starts below it. Drawer mechanics unchanged. */}
+      <header
+        className="fixed inset-x-0 top-0 z-40 flex h-[52px] items-center gap-1.5 border-b border-[var(--line)] px-2 backdrop-blur-xl lg:hidden"
+        style={{ background: "var(--surface-2)" }}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <path d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl t-72 transition-colors hover:bg-[var(--surface-hover)]"
+          aria-label="Открыть меню"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <Link
+          href={"/" as Route}
+          className="flex shrink-0 items-center gap-2 min-w-0"
+          aria-label="На главную"
+        >
+          <span className="avatar w-6 h-6 text-[11px]">Б</span>
+          <span className="text-[14px]" style={{ fontWeight: 500 }}>
+            база
+          </span>
+        </Link>
+        <span className="ml-auto min-w-0 truncate pr-1 text-[12px] t-48">
+          {org?.name ?? "БАЗА Демо"}
+        </span>
+      </header>
 
       {/* Mobile overlay */}
       <AnimatePresence>

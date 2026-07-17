@@ -3,7 +3,7 @@
 import React, { useMemo } from "react";
 import { Mail, Phone } from "lucide-react";
 
-import { LeadDetailDrawer } from "@/components/dashboard/lead-detail-drawer";
+import { LeadDetailDrawer, telHref } from "@/components/dashboard/lead-detail-drawer";
 import type { Lead } from "@/lib/types";
 
 /* ─────────────────────────────────────────────────────────────────
@@ -77,6 +77,9 @@ function LeadCard({ lead, onClick }: LeadCardProps) {
   const subtitle = [domain, lead.city].filter(Boolean).join("  ·  ") || "—";
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // Enter on a focused inner link (tel/mailto) must follow the link,
+    // not open the drawer.
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onClick();
@@ -134,24 +137,46 @@ function LeadCard({ lead, onClick }: LeadCardProps) {
 
       <hr className="lead-card__divider" />
 
-      {/* Contacts — always two rows so every card is the same height */}
+      {/* Contacts — always two rows so every card is the same height.
+          Real values are tap-to-act links (mailto:/tel:), isolated from the
+          card tap via stopPropagation. */}
       <div className="lead-card__contacts">
-        <span
-          className={`lead-card__contact${
-            lead.email ? (lead.email_status === "valid" ? " lead-card__contact--valid" : "") : " lead-card__contact--empty"
-          }`}
-          title={lead.email || undefined}
-        >
-          <Mail size={11} />
-          <span>{lead.email || "—"}</span>
-        </span>
-        <span
-          className={`lead-card__contact${lead.phone ? "" : " lead-card__contact--empty"}`}
-          title={lead.phone || undefined}
-        >
-          <Phone size={11} />
-          <span className="font-mono">{lead.phone || "—"}</span>
-        </span>
+        {lead.email ? (
+          <a
+            href={`mailto:${lead.email}`}
+            onClick={(e) => e.stopPropagation()}
+            className={`lead-card__contact hover:text-[var(--t-100)]${
+              lead.email_status === "valid" ? " lead-card__contact--valid" : ""
+            }`}
+            title={lead.email}
+            aria-label={`Написать: ${lead.email}`}
+          >
+            <Mail size={11} />
+            <span>{lead.email}</span>
+          </a>
+        ) : (
+          <span className="lead-card__contact lead-card__contact--empty">
+            <Mail size={11} />
+            <span>—</span>
+          </span>
+        )}
+        {lead.phone ? (
+          <a
+            href={telHref(lead.phone)}
+            onClick={(e) => e.stopPropagation()}
+            className="lead-card__contact hover:text-[var(--t-100)]"
+            title={lead.phone}
+            aria-label={`Позвонить: ${lead.phone}`}
+          >
+            <Phone size={11} />
+            <span className="font-mono">{lead.phone}</span>
+          </a>
+        ) : (
+          <span className="lead-card__contact lead-card__contact--empty">
+            <Phone size={11} />
+            <span className="font-mono">—</span>
+          </span>
+        )}
       </div>
     </div>
   );

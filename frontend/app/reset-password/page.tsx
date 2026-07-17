@@ -52,7 +52,7 @@ function ResetPasswordContent() {
           <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
         </Link>
 
-        <div className="panel" style={{ padding: 40 }}>
+        <div className="panel p-6 sm:p-10">
           <div className="eyebrow mb-3">сброс пароля</div>
           <h2 className="h2">Новый пароль.</h2>
           <p className="caption mt-2">Придумайте новый надёжный пароль для вашего аккаунта.</p>
@@ -86,12 +86,12 @@ function ResetPasswordContent() {
                     required
                     autoComplete="new-password"
                     className="input"
-                    style={{ paddingRight: 40 }}
+                    style={{ paddingRight: 44 }}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-[var(--t-100)]"
+                    className="absolute right-0.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center t-56 hover:text-[var(--t-100)]"
                     aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                   >
                     <EyeIcon open={showPassword} />

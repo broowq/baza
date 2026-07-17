@@ -409,10 +409,12 @@ function SequenceCard({
       className="lead-card group relative"
       style={busy ? { opacity: 0.6 } : undefined}
     >
-      <div className="lead-card__row">
+      {/* На <sm ряд переносится: min-w у контента выталкивает блок кнопок
+          на отдельную строку вместо сжатия названия в ноль. */}
+      <div className="lead-card__row max-sm:flex-wrap">
         <span className={`dot ${meta.dot} shrink-0`} />
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 max-sm:min-w-[55%] flex-1">
           <div className="lead-card__row" style={{ gap: 8, marginBottom: 4 }}>
             <span className="lead-card__name truncate min-w-0">{seq.name}</span>
             <span className={`chip ${meta.chip} shrink-0`}>{meta.label}</span>
@@ -449,7 +451,7 @@ function SequenceCard({
         </div>
 
         {/* Actions — управление только для owner / admin, участнику read-only */}
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0 max-sm:ml-auto">
           {canManage && seq.status !== "archived" && (
             <button
               type="button"
@@ -691,9 +693,9 @@ function EnrollmentsPanel({ sequenceId, canManage }: { sequenceId: string; canMa
             return (
               <div
                 key={enr.id}
-                className="flex items-center gap-3 py-1.5 rounded-lg"
+                className="flex items-center gap-3 py-1.5 rounded-lg max-sm:flex-wrap"
               >
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 max-sm:min-w-[55%] flex-1">
                   <div className="text-[12.5px] text-[var(--t-84)] truncate">
                     {enr.lead_company || enr.to_email || "—"}
                   </div>
@@ -804,7 +806,7 @@ function SequenceFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[88vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{target ? "Редактировать рассылку" : "Новая рассылка"}</DialogTitle>
           <DialogDescription>

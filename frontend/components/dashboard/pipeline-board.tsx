@@ -1,8 +1,15 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
 
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { api } from "@/lib/api";
 import { leadsN } from "@/lib/plural";
 import type { Lead, LeadStatus, OrgMember } from "@/lib/types";
@@ -84,12 +91,13 @@ type CardProps = {
   lead: Lead;
   memberName: string | null;
   onOpen: (id: string) => void;
+  onMove: (id: string, stage: LeadStatus) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   dragging: boolean;
 };
 
-function PipelineCard({ lead, memberName, onOpen, onDragStart, onDragEnd, dragging }: CardProps) {
+function PipelineCard({ lead, memberName, onOpen, onMove, onDragStart, onDragEnd, dragging }: CardProps) {
   const value = lead.deal_value ?? 0;
   const assigneeInitials = memberName ? initials(memberName) : "—";
 
@@ -107,6 +115,9 @@ function PipelineCard({ lead, memberName, onOpen, onDragStart, onDragEnd, draggi
       }}
       onClick={() => onOpen(lead.id)}
       onKeyDown={(e) => {
+        // Only react to keys on the card itself — Enter/Space on the nested
+        // move-menu button must not also open the drawer.
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(lead.id);
@@ -139,6 +150,52 @@ function PipelineCard({ lead, memberName, onOpen, onDragStart, onDragEnd, draggi
         >
           {lead.score}
         </span>
+
+        {/* Тач-перенос: HTML5 DnD не работает на телефоне, поэтому на <lg
+            карточка получает меню «⋯» со списком стадий — тап переносит лид
+            той же мутацией, что и drop. На десктопе (lg+) кнопка скрыта,
+            там остаётся привычный drag-and-drop. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            className="btn-icon shrink-0 lg:hidden"
+            aria-label={`Переместить лид: ${lead.company}`}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <MoreHorizontal size={14} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[200px]">
+            <div className="mono-cap px-1.5 pb-1 pt-1.5" style={{ fontSize: 10 }}>
+              переместить в
+            </div>
+            {STAGES.map((s) => (
+              <DropdownMenuItem
+                key={s.key}
+                disabled={s.key === lead.status}
+                className="min-h-[40px]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(lead.id, s.key);
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: STAGE_ACCENT[s.key],
+                    flex: "none",
+                  }}
+                />
+                {s.label}
+                {s.key === lead.status && (
+                  <span className="t-40 ml-auto text-[10px]">текущий</span>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* City (muted) */}
@@ -248,10 +305,9 @@ export function PipelineBoard({
     return groups;
   }, [leads]);
 
-  const handleDrop = async (targetStage: LeadStatus, leadId: string) => {
-    setDragOverStage(null);
-    setDraggingId(null);
-
+  // Shared stage-change mutation — used by desktop drag-and-drop AND by the
+  // touch «⋯» move menu on the card, so both paths behave identically.
+  const moveLead = async (targetStage: LeadStatus, leadId: string) => {
     const lead = leads.find((l) => l.id === leadId);
     if (!lead) return;
     const prevStatus = lead.status;
@@ -271,6 +327,12 @@ export function PipelineBoard({
       const reason = err instanceof Error ? err.message : "неизвестная ошибка";
       toast.error(`Не удалось перенести лид: ${reason}`);
     }
+  };
+
+  const handleDrop = (targetStage: LeadStatus, leadId: string) => {
+    setDragOverStage(null);
+    setDraggingId(null);
+    void moveLead(targetStage, leadId);
   };
 
   return (
@@ -316,13 +378,14 @@ export function PipelineBoard({
               const id = e.dataTransfer.getData("text/plain") || draggingId;
               if (id) void handleDrop(stage.key, id);
             }}
-            className="panel-glass"
+            /* max-h-[70vh] на <lg: колонка перестаёт растягивать страницу на
+               телефоне — длинные списки скроллятся внутри колонки (карточный
+               контейнер ниже уже имеет overflow-y:auto). На lg+ поведение
+               прежнее (maxHeight:100% и так был no-op). */
+            className="panel-glass flex max-h-[70vh] flex-col lg:max-h-none"
             style={{
-              display: "flex",
-              flexDirection: "column",
               flex: "0 0 280px",
               width: 280,
-              maxHeight: "100%",
               borderRadius: 14,
               padding: 0,
               scrollSnapAlign: "start",
@@ -443,6 +506,7 @@ export function PipelineBoard({
                         : null
                     }
                     onOpen={onOpenLead}
+                    onMove={(id, stage) => void moveLead(stage, id)}
                     onDragStart={setDraggingId}
                     onDragEnd={() => {
                       setDraggingId(null);

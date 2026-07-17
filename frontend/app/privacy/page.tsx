@@ -27,7 +27,7 @@ export default function PrivacyPage() {
       <article className="relative z-10 mx-auto max-w-[760px]">
         <header className="mb-10">
           <div className="eyebrow mb-3">правовой документ</div>
-          <h1 className="h1 mb-3" style={{ fontSize: 44, lineHeight: 1.1 }}>
+          <h1 className="h1 mb-3" style={{ fontSize: "clamp(28px,6vw,44px)", lineHeight: 1.1 }}>
             Политика обработки персональных данных
           </h1>
           <p className="mono-cap">

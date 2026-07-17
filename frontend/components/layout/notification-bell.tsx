@@ -139,10 +139,8 @@ export function NotificationBell({ notifications }: Props) {
         aria-label="Уведомления"
         aria-haspopup="true"
         aria-expanded={open}
-        className="relative inline-flex items-center justify-center transition-colors"
+        className="relative inline-flex h-10 w-10 items-center justify-center transition-colors lg:h-[34px] lg:w-[34px]"
         style={{
-          width: 34,
-          height: 34,
           borderRadius: 10,
           border: "1px solid var(--line)",
           background: open ? "var(--surface-hover)" : "var(--surface-input)",
@@ -179,11 +177,14 @@ export function NotificationBell({ notifications }: Props) {
         )}
       </button>
 
+      {/* Mobile: fixed full-width strip below the top bar (the old absolute
+          left-anchored 320px panel ran past the right edge of narrow
+          viewports). lg: as before — absolute, left-anchored, 320px. */}
       {open && (
         <div
           role="menu"
-          className="panel absolute left-0 z-50 mt-1.5 overflow-hidden"
-          style={{ width: 320, maxWidth: "calc(100vw - 24px)", maxHeight: 420, overflowY: "auto", padding: 6 }}
+          className="panel fixed inset-x-3 top-16 z-50 overflow-hidden lg:absolute lg:inset-x-auto lg:left-0 lg:top-auto lg:mt-1.5 lg:w-[320px]"
+          style={{ maxWidth: "calc(100vw - 24px)", maxHeight: 420, overflowY: "auto", padding: 6 }}
         >
           <div
             className="flex items-center justify-between px-2 py-1.5"

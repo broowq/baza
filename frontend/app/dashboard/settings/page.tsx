@@ -110,7 +110,7 @@ function CopyButton({ onClick }: { onClick: () => Promise<void> }) {
     <button
       type="button"
       onClick={() => void handleClick()}
-      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:t-100 hover:bg-[var(--surface-hover)] transition-colors"
+      className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:t-100 hover:bg-[var(--surface-hover)] transition-colors [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-4"
     >
       {copied ? <CheckIcon className="size-3" style={{ color: "var(--green)" }} /> : <CopyIcon className="size-3" />}
       {copied ? "скопировано" : "скопировать"}
@@ -412,7 +412,7 @@ export default function SettingsPage() {
                   key={tab.value}
                   type="button"
                   onClick={() => setActiveTab(tab.value)}
-                  className={`nav-item w-auto md:w-full ${isActive ? "active" : ""}`}
+                  className={`nav-item w-auto md:w-full shrink-0 whitespace-nowrap ${isActive ? "active" : ""}`}
                   style={{ justifyContent: "flex-start" }}
                 >
                   <Icon className="ic" />
@@ -729,7 +729,7 @@ export default function SettingsPage() {
                                     render={
                                       <button
                                         type="button"
-                                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-[var(--surface-hover)] hover:t-100 transition-colors"
+                                        className="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] mono t-72 hover:bg-[var(--surface-hover)] hover:t-100 transition-colors [@media(pointer:coarse)]:min-h-10 [@media(pointer:coarse)]:px-4"
                                       >
                                         <Trash2Icon className="size-3" />
                                         удалить
@@ -1146,9 +1146,9 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
         </p>
 
         <div className="space-y-4">
-          {/* Экспорт ПД */}
-          <div className="panel-flat p-5 flex items-start justify-between gap-4">
-            <div className="min-w-0 flex-1">
+          {/* Экспорт ПД — на мобиле текст сверху, кнопка снизу во всю ширину */}
+          <div className="panel-flat p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+            <div className="min-w-0 flex-1 break-words">
               <div className="eyebrow mb-1">право на доступ · ст. 14 ч. 7</div>
               <p className="text-[13px] t-84">
                 Скачать все ваши персональные данные одним JSON-файлом — профиль,
@@ -1162,7 +1162,7 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
               type="button"
               onClick={onExport}
               disabled={exporting}
-              className="btn btn-ghost shrink-0"
+              className="btn btn-ghost shrink-0 w-full sm:w-auto"
             >
               <DownloadIcon className="size-3.5" />
               {exporting ? "Готовим…" : "Скачать ПД"}
@@ -1171,10 +1171,10 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
 
           {/* Удаление */}
           <div
-            className="panel-flat p-5 flex items-start justify-between gap-4"
+            className="panel-flat p-5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4"
             style={{ borderColor: "rgba(244,63,94,0.18)" }}
           >
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 break-words">
               <div className="eyebrow mb-1" style={{ color: "var(--rose)" }}>
                 право на уничтожение · ст. 21
               </div>
@@ -1190,7 +1190,7 @@ function PrivacyTab({ profileEmail }: { profileEmail: string }) {
             <button
               type="button"
               onClick={() => setDeleteOpen(true)}
-              className="btn btn-ghost shrink-0"
+              className="btn btn-ghost shrink-0 w-full sm:w-auto"
               style={{ color: "var(--rose)", borderColor: "rgba(244,63,94,0.30)" }}
             >
               <Trash2Icon className="size-3.5" />

@@ -53,7 +53,10 @@ function DialogContent({
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-[var(--bg-2)] backdrop-blur-2xl p-4 text-sm text-popover-foreground ring-1 ring-[var(--line)] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Mobile: anchor to the top (top-4, no y-translate) so the iOS keyboard
+          // doesn't cover the footer buttons of a vertically-centered dialog.
+          // Desktop (sm+): classic centering restored.
+          "fixed top-4 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain -translate-x-1/2 translate-y-0 sm:top-1/2 sm:-translate-y-1/2 gap-4 rounded-xl bg-[var(--bg-2)] backdrop-blur-2xl p-4 text-sm text-popover-foreground ring-1 ring-[var(--line)] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)] duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}

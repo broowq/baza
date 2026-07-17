@@ -73,7 +73,7 @@ function VerifyEmailContent() {
           <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
         </Link>
 
-        <div className="panel" style={{ padding: 40 }}>
+        <div className="panel p-6 sm:p-10">
           <div className="eyebrow mb-3">подтверждение email</div>
           <h2 className="h2">Проверяем адрес.</h2>
 

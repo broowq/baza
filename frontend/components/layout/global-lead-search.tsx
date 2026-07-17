@@ -157,12 +157,13 @@ export function GlobalLeadSearch() {
           onKeyDown={onKeyDown}
           placeholder="Поиск лидов…"
           aria-label="Глобальный поиск лидов"
-          className="input"
-          style={{ paddingLeft: 30, paddingRight: 28, height: 34, fontSize: 12.5 }}
+          className="input !h-10 lg:!h-[34px]"
+          style={{ paddingLeft: 30, paddingRight: 28, fontSize: 12.5 }}
         />
+        {/* ⌘K is meaningless on touch — desktop only. */}
         <kbd
           aria-hidden
-          className="mono pointer-events-none absolute right-2 top-1/2 -translate-y-1/2"
+          className="mono pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 lg:block"
           style={{ fontSize: 9.5, color: "var(--t-40)" }}
         >
           ⌘K

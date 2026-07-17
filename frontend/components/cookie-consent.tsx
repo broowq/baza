@@ -38,9 +38,9 @@ export function CookieConsent() {
           animate={shouldReduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
           exit={shouldReduce ? { opacity: 0 } : { opacity: 0, y: 24 }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className="fixed bottom-4 left-4 right-4 sm:left-auto z-50 max-w-[calc(100vw-2rem)] sm:max-w-md rounded-2xl border border-border/50 bg-background/90 p-4 shadow-lg backdrop-blur-lg"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto z-50 max-w-[calc(100vw-2rem)] sm:max-w-md rounded-2xl border border-border/50 bg-background/90 p-3 sm:p-4 shadow-lg backdrop-blur-lg"
         >
-          <p className="mb-3 text-sm text-muted-foreground">
+          <p className="mb-2.5 sm:mb-3 text-[13px] sm:text-sm text-muted-foreground">
             Мы используем файлы cookie для работы сервиса и аналитики.{" "}
             <Link
               href="/privacy"
@@ -49,7 +49,7 @@ export function CookieConsent() {
               Подробнее
             </Link>
           </p>
-          <div className="flex items-center justify-end gap-2 flex-wrap">
+          <div className="flex flex-nowrap items-center justify-end gap-2">
             <Button
               variant="ghost"
               size="sm"

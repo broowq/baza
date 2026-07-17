@@ -170,6 +170,14 @@ function messengerDigits(phone?: string | null): string {
   return bare;
 }
 
+/* tel: href — только цифры, российское «8…» → «+7…».
+   Shared by the drawer contacts and the mobile lead cards. */
+export function telHref(phone?: string | null): string {
+  let d = phoneDigits(phone);
+  if (!d.startsWith("+") && d.length === 11 && d.startsWith("8")) d = `+7${d.slice(1)}`;
+  return `tel:${d}`;
+}
+
 /* ─────────────────────────────────────────────────────────────────
    Copy-to-clipboard button helper
 ───────────────────────────────────────────────────────────────── */
@@ -187,7 +195,7 @@ function CopyButton({ value }: { value: string }) {
     <button
       type="button"
       onClick={handleCopy}
-      className="focus-ring ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity hover:opacity-80"
+      className="focus-ring ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity hover:opacity-80 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10 [@media(pointer:coarse)]:-my-2"
       aria-label={`Скопировать ${value}`}
       title="Скопировать"
     >
@@ -437,6 +445,15 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
     document.addEventListener("keydown", handleKey);
     return () => document.removeEventListener("keydown", handleKey);
   }, [isOpen, onClose]);
+
+  /* Lock body scroll while the drawer is open — на мобиле страница под
+     дровером не должна прокручиваться. Restore the previous value on close. */
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [isOpen]);
 
   /* Patch helper. Returns the updated lead on success (null on failure) so
      callers can refresh the timeline only when something actually changed. */
@@ -749,7 +766,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
       {/* Drawer */}
       <aside
         ref={drawerRef}
-        className={`detail-drawer${isOpen ? " drawer--open" : ""}`}
+        className={`detail-drawer max-sm:!w-full max-sm:!max-w-full${isOpen ? " drawer--open" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={detail?.company ?? "Детали лида"}
@@ -837,7 +854,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
               ref={closeBtnRef}
               type="button"
               onClick={onClose}
-              className="focus-ring ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg opacity-56 transition-opacity hover:opacity-100"
+              className="focus-ring ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg opacity-56 transition-opacity hover:opacity-100 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
               style={{ background: "var(--surface-2)", border: "1px solid var(--line)" }}
               aria-label="Закрыть"
             >
@@ -1025,7 +1042,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       <div className="flex items-center gap-2 px-3 py-2.5">
                         <Phone size={13} className="shrink-0 opacity-48" />
                         <a
-                          href={`tel:${detail.phone}`}
+                          href={telHref(detail.phone)}
                           className="caption font-mono min-w-0 flex-1 truncate hover:text-[var(--t-100)]"
                         >
                           {detail.phone}
@@ -1310,7 +1327,7 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                                 onClick={() => void deleteTask(t.id)}
                                 aria-label="Удалить задачу"
                                 title="Удалить задачу"
-                                className="focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity hover:opacity-80"
+                                className="focus-ring mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-40 transition-opacity hover:opacity-80 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10 [@media(pointer:coarse)]:-my-2 [@media(pointer:coarse)]:mt-0"
                               >
                                 <Trash2 size={12} />
                               </button>
@@ -1420,15 +1437,15 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                     </button>
                   ) : (
                     <div className="panel-glass mb-3 space-y-2 p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] uppercase tracking-wider text-[var(--t-40)]">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 flex-1 truncate text-[10px] uppercase tracking-wider text-[var(--t-40)]">
                           {detail.email ? `Письмо → ${detail.email}` : "Письмо"}
                         </span>
                         <button
                           type="button"
                           onClick={() => setComposerOpen(false)}
                           aria-label="Закрыть составление письма"
-                          className="focus-ring inline-flex h-5 w-5 items-center justify-center rounded opacity-48 hover:opacity-80"
+                          className="focus-ring inline-flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-48 hover:opacity-80 [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10 [@media(pointer:coarse)]:-my-2"
                         >
                           <X size={13} />
                         </button>

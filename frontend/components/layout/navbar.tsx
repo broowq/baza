@@ -100,7 +100,7 @@ export function Navbar() {
 
         {/* Mobile hamburger */}
         <div className="flex sm:hidden items-center gap-1">
-          <Button variant="ghost" onClick={() => setMobileOpen((v) => !v)} className="h-9 w-9 p-0" aria-label="Меню" aria-expanded={mobileOpen} aria-controls="mobile-nav">
+          <Button variant="ghost" onClick={() => setMobileOpen((v) => !v)} className="h-11 w-11 p-0 -mr-2" aria-label="Меню" aria-expanded={mobileOpen} aria-controls="mobile-nav">
             {mobileOpen ? <X size={20} /> : <Menu size={20} />}
           </Button>
         </div>
@@ -109,6 +109,10 @@ export function Navbar() {
       {/* Mobile menu */}
       {mobileOpen && (
         <nav id="mobile-nav" className="sm:hidden z-50 border-t border-white/[0.06] px-4 pb-4 pt-2 space-y-1" aria-label="Мобильная навигация">
+          <div className="flex items-center justify-between rounded-lg px-3 py-1.5">
+            <span className="text-sm text-slate-300">Тема</span>
+            <ThemeToggle className="h-11 w-11" />
+          </div>
           <Link href="/plans" className="block rounded-lg px-3 py-2.5 text-sm text-slate-300 transition-colors hover:bg-white/[0.06]">
             Тарифы
           </Link>

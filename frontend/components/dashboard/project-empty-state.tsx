@@ -73,23 +73,18 @@ export function ProjectEmptyState({
         </button>
       )}
       {canManage && (onAddLead || onImport) && (
-        <div className="mt-6 flex items-center justify-center gap-3 text-[12.5px] t-48 flex-wrap">
-          <span>или внесите свои контакты:</span>
+        <div className="mt-6 flex items-center justify-center gap-2.5 text-[12.5px] t-48 flex-wrap">
+          {/* Полноценные кнопки (≥40px), а не текстовые ссылки: на таче в
+              17px-строку было не попасть пальцем. */}
+          <span className="w-full text-center sm:w-auto sm:text-left">или внесите свои контакты:</span>
           {onAddLead && (
-            <button
-              onClick={onAddLead}
-              className="inline-flex items-center gap-1.5 t-72 hover:t-100 transition-colors"
-            >
-              <UserPlus size={13} /> добавить вручную
+            <button onClick={onAddLead} className="btn btn-ghost min-h-[40px]">
+              <UserPlus size={14} /> Добавить вручную
             </button>
           )}
-          {onAddLead && onImport && <span className="sep-dot" />}
           {onImport && (
-            <button
-              onClick={onImport}
-              className="inline-flex items-center gap-1.5 t-72 hover:t-100 transition-colors"
-            >
-              <FileUp size={13} /> импорт из файла
+            <button onClick={onImport} className="btn btn-ghost min-h-[40px]">
+              <FileUp size={14} /> Импорт из файла
             </button>
           )}
         </div>

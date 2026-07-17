@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
-import { LeadDetailDrawer, stripNotesPrefix } from "@/components/dashboard/lead-detail-drawer";
+import { LeadDetailDrawer, stripNotesPrefix, telHref } from "@/components/dashboard/lead-detail-drawer";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
@@ -449,6 +449,22 @@ export function LeadsTable({
     setExpandedId((prev) => (prev === leadId ? null : leadId));
   };
 
+  /* Mobile card tap → open the lead drawer (same guard as handleRowClick:
+     links, buttons, checkbox label and dropdown must not trigger it). */
+  const handleCardClick = (leadId: string, e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (
+      target.closest("a") ||
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("label") ||
+      target.closest("[data-slot]")
+    ) {
+      return;
+    }
+    setOpenLeadId(leadId);
+  };
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -554,66 +570,142 @@ export function LeadsTable({
       {/* Mobile: card view (md:hidden). Each lead shows ALL fields stacked
           so users on phones can see phone/email/address without horizontal scroll. */}
       <div className="space-y-2 md:hidden">
+        {/* Mobile bulk header: «выбрать все» appears once selection starts */}
+        {selectedIds.length > 0 && (
+          <div className="flex items-center gap-2 rounded-2xl border border-[var(--line)] bg-[var(--surface-1)] px-2 py-1 backdrop-blur-xl">
+            <label className="flex min-h-10 cursor-pointer items-center gap-2 px-2">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleAll}
+                className="h-5 w-5 cursor-pointer rounded"
+                aria-label={allVisibleSelected ? "Снять выбор со всех" : "Выбрать все"}
+              />
+              <span className="text-xs text-[var(--t-72)]">Выбрать все</span>
+            </label>
+            <span className="ml-auto pr-1 text-xs text-[var(--t-48)]">
+              Выбрано: {selectedIds.length}
+            </span>
+          </div>
+        )}
         {filtered.map((lead) => {
           const isSelected = selectedIds.includes(lead.id);
           const domain = lead.domain || (lead.website ? lead.website.replace(/^https?:\/\//, "").split("/")[0] : "");
           const statusVariant = STATUS_VARIANTS[lead.status] ?? "default";
           const statusDot = STATUS_DOTS[lead.status];
           return (
-            <GlassCard key={lead.id} variant="default" className="space-y-3 p-4">
+            <GlassCard
+              key={lead.id}
+              variant="default"
+              role="button"
+              tabIndex={0}
+              aria-label={`Открыть карточку: ${lead.company}`}
+              onClick={(e) => handleCardClick(lead.id, e)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpenLeadId(lead.id);
+                }
+              }}
+              className="cursor-pointer space-y-3 p-4 transition-colors active:bg-[var(--surface-hover)]"
+            >
               <div className="flex items-start justify-between gap-3">
-                <div className="flex min-w-0 flex-1 items-start gap-2">
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={(e) => setSelectedIds((prev) =>
-                      e.target.checked ? [...new Set([...prev, lead.id])] : prev.filter((id) => id !== lead.id)
-                    )}
-                    className="mt-1 h-4 w-4 cursor-pointer rounded"
-                  />
+                <div className="flex min-w-0 flex-1 items-start gap-1.5">
+                  {/* 20px checkbox with a 40px hit area (label padding), isolated
+                      from the card tap via the label guard in handleCardClick */}
+                  <label
+                    className="relative z-10 -ml-2.5 -mt-2.5 shrink-0 cursor-pointer p-2.5"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => setSelectedIds((prev) =>
+                        e.target.checked ? [...new Set([...prev, lead.id])] : prev.filter((id) => id !== lead.id)
+                      )}
+                      className="block h-5 w-5 cursor-pointer rounded"
+                      aria-label={`Выбрать ${lead.company}`}
+                    />
+                  </label>
                   <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 break-words text-sm font-medium text-[var(--t-100)]">
+                    <p className="flex items-start gap-1.5 break-words text-sm font-medium text-[var(--t-100)]">
                       <SourceBadge source={lead.source} externalId={lead.external_id} />
-                      <span>{lead.company}</span>
+                      <span className="min-w-0 break-words">{lead.company}</span>
                     </p>
-                    {lead.city && <p className="mt-0.5 text-xs text-[var(--t-48)]">{lead.city}</p>}
+                    {lead.city && <p className="mt-0.5 truncate text-xs text-[var(--t-48)]">{lead.city}</p>}
                   </div>
                 </div>
                 <div className="shrink-0">
                   <ScoreIndicator score={lead.score} />
                 </div>
               </div>
-              <div className="space-y-1.5 text-xs">
+              <div className="space-y-1 text-xs">
                 {lead.phone && (
-                  <a href={`tel:${lead.phone}`} className="block text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
+                  <a href={telHref(lead.phone)} className="block py-1 text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     📞 {lead.phone}
                   </a>
                 )}
                 {lead.email && (
-                  <a href={`mailto:${lead.email}`} className="block break-all text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
+                  <a href={`mailto:${lead.email}`} className="block break-all py-1 text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     ✉️ {lead.email}
                   </a>
                 )}
                 {lead.address && (
-                  <p className="text-[var(--t-56)]">📍 {lead.address}</p>
+                  <p className="break-words py-1 text-[var(--t-56)]">📍 {lead.address}</p>
                 )}
                 {domain && lead.website && /^https?:\/\//i.test(lead.website) && (
-                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block truncate text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
+                  <a href={lead.website} target="_blank" rel="noopener noreferrer" className="block truncate py-1 text-[var(--t-100)] underline decoration-[var(--t-28)] underline-offset-2 hover:decoration-[var(--t-100)]">
                     🌐 {domain}
                   </a>
                 )}
               </div>
               <div className="flex items-center justify-between gap-2 pt-1">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Badge variant={statusVariant} dot={statusDot} className="text-xs">
-                    {STATUS_LABELS[lead.status] ?? lead.status}
-                  </Badge>
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  {/* Quick action: tap the status chip to change stage */}
+                  {onLeadUpdate ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger
+                        render={
+                          <button
+                            type="button"
+                            className="-m-1 cursor-pointer p-1"
+                            aria-label={`Сменить статус: ${STATUS_LABELS[lead.status] ?? lead.status}`}
+                          >
+                            <Badge variant={statusVariant} dot={statusDot} className="pointer-events-none text-xs">
+                              {STATUS_LABELS[lead.status] ?? lead.status}
+                            </Badge>
+                          </button>
+                        }
+                      />
+                      <DropdownMenuContent align="start" sideOffset={4}>
+                        {STATUS_OPTIONS.map((opt) => {
+                          const optVariant = STATUS_VARIANTS[opt.value] ?? "default";
+                          const optDot = STATUS_DOTS[opt.value];
+                          return (
+                            <DropdownMenuItem
+                              key={opt.value}
+                              onClick={() => void changeStatus(lead.id, opt.value)}
+                            >
+                              <Badge variant={optVariant} dot={optDot} className="pointer-events-none">
+                                {opt.label}
+                              </Badge>
+                            </DropdownMenuItem>
+                          );
+                        })}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <Badge variant={statusVariant} dot={statusDot} className="text-xs">
+                      {STATUS_LABELS[lead.status] ?? lead.status}
+                    </Badge>
+                  )}
                   {lead.tags?.includes("есть сайт") && (
                     <Badge variant="online" className="text-[10px]">есть сайт</Badge>
                   )}
                 </div>
                 {!lead.enriched && (
-                  <Badge variant="warning" dot="warning" className="text-[10px]">
+                  <Badge variant="warning" dot="warning" className="shrink-0 text-[10px]">
                     не обогащён
                   </Badge>
                 )}

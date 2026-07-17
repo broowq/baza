@@ -6,6 +6,7 @@ import { Plus, ChevronRight, Trash2, Pencil, Sparkles, Search, Wand2, Loader2, X
 import { VoiceInput } from "@/components/voice-input";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,7 @@ function CreateProjectButton({
   style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
+  const router = useRouter();
   if (!limitReached) {
     return (
       <button type="button" onClick={onClick} className={className} style={style}>
@@ -93,13 +95,27 @@ function CreateProjectButton({
       </button>
     );
   }
+  // На таче hover-тултипа нет — по тапу объясняем лимит toast'ом с действием.
+  // На десктопе остаётся тултип (hover/focus), клик дублирует его toast'ом.
+  const showLimitToast = () =>
+    toast("Достигнут лимит проектов тарифа", {
+      action: { label: "Тарифы", onClick: () => router.push("/plans") },
+    });
   return (
     <TooltipProvider>
       <Tooltip>
         {/* aria-disabled вместо disabled: disabled-кнопка не получает hover/focus,
             и тултип с объяснением никогда бы не показался. */}
         <TooltipTrigger
-          render={<button type="button" aria-disabled className={`${className} cursor-not-allowed opacity-50`} style={style} />}
+          render={
+            <button
+              type="button"
+              aria-disabled
+              onClick={showLimitToast}
+              className={`${className} cursor-not-allowed opacity-50`}
+              style={style}
+            />
+          }
         >
           {children}
         </TooltipTrigger>
@@ -376,10 +392,10 @@ export default function DashboardPage() {
       className="mx-auto max-w-[1180px] space-y-8 px-4 py-8 sm:px-6 lg:px-10 lg:py-10"
     >
       {/* ── Workspace card (v4 elevated) ── */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="panel elev-2" style={{ padding: 32 }}>
+      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }} className="panel elev-2 p-5 sm:p-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           {/* Left: org + chips */}
-          <div className="lg:col-span-7">
+          <div className="lg:col-span-7 min-w-0">
             <div className="eyebrow mb-3">workspace</div>
             <div className="flex items-center gap-3 flex-wrap">
               {organizations.length > 1 ? (
@@ -420,7 +436,7 @@ export default function DashboardPage() {
                   </SelectContent>
                 </Select>
               ) : (
-                <h2 className="h2">{org?.name ?? "Организация"}</h2>
+                <h2 className="h2 truncate min-w-0 max-w-full" style={{ fontSize: "clamp(22px, 6vw, 32px)" }}>{org?.name ?? "Организация"}</h2>
               )}
               {org?.plan && (
                 <span className="chip chip-mint" style={{ padding: "4px 10px" }}>
@@ -439,9 +455,9 @@ export default function DashboardPage() {
 
           {/* Right: quota with v-hairline. Free = разовый пробный доступ:
               счётчик НЕ сбрасывается 1-го числа — не обещаем этого в подписи. */}
-          <div className="lg:col-span-5 lg:v-hairline lg:pl-10">
+          <div className="lg:col-span-5 lg:v-hairline lg:pl-10 min-w-0">
             <div className="eyebrow mb-3">{org?.plan === "free" ? "пробный доступ · лиды" : "квота · лиды"}</div>
-            <div className="h2 tnum mono">
+            <div className="h2 tnum mono truncate min-w-0" style={{ fontSize: "clamp(22px, 6vw, 32px)" }}>
               {(org?.leads_used_current_month ?? 0).toLocaleString("ru-RU")}{" "}
               <span className="t-40" style={{ fontWeight: 200 }}>/ {(org?.leads_limit_per_month ?? 0).toLocaleString("ru-RU")}</span>
             </div>
@@ -667,7 +683,7 @@ export default function DashboardPage() {
                       onChange={(e) => setProjectForm((p) => ({ ...p, name: e.target.value }))}
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="grid gap-1.5">
                       <Label htmlFor="proj-niche" className="text-xs text-muted-foreground">Кого ищем (ниша клиентов)</Label>
                       <Input
@@ -1013,7 +1029,7 @@ export default function DashboardPage() {
                           </span>
                         )}
                         <span className="t-28">·</span>
-                        <span className="t-40 flex items-center gap-1">
+                        <span className="t-40 flex flex-wrap items-center gap-1">
                           {sourceList.map((s) => (
                             <span key={s} className="badge badge--source" style={{ padding: "1px 6px", fontSize: 10 }}>{s}</span>
                           ))}
@@ -1027,14 +1043,18 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Action buttons — siblings of the Link overlay; re-enable
-                    pointer events since the row wrapper disables them. */}
-                <div className="flex items-center gap-1.5 shrink-0">
+                {/* Action buttons — siblings of the Link overlay (z-0); the
+                    edit/delete group re-enables pointer events and sits at z-10,
+                    so it (including the gap BETWEEN the buttons) catches taps —
+                    a near-miss on mobile no longer falls through to the project
+                    link. The chevron stays pass-through: tapping it opens the
+                    project, as its affordance implies. */}
+                <div className="flex items-center gap-2 sm:gap-1.5 shrink-0">
                   {canManage && (
-                    <>
+                    <div className="pointer-events-auto relative z-10 flex items-center gap-2 sm:gap-1.5">
                       <button
                         type="button"
-                        className="btn-icon pointer-events-auto relative z-10"
+                        className="btn-icon"
                         onClick={() => openEditDialog(project)}
                         aria-label="Редактировать"
                       >
@@ -1042,13 +1062,13 @@ export default function DashboardPage() {
                       </button>
                       <button
                         type="button"
-                        className="btn-icon pointer-events-auto relative z-10 hover:!text-[var(--rose)]"
+                        className="btn-icon hover:!text-[var(--rose)]"
                         onClick={() => setDeleteTarget(project)}
                         aria-label="Удалить"
                       >
                         <Trash2 className="h-3 w-3" />
                       </button>
-                    </>
+                    </div>
                   )}
                   <span className="btn-icon">
                     <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />

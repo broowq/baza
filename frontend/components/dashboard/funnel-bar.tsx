@@ -95,7 +95,7 @@ export function FunnelBar({ projectId, refreshKey }: FunnelBarProps) {
   if (loading) {
     return (
       <section className="panel-glass" style={{ padding: 14 }} aria-busy="true" aria-label="Загрузка воронки">
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 sm:gap-2.5">
           {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div className="skeleton" style={{ height: 9, borderRadius: 4, maxWidth: 56 }} />
@@ -125,14 +125,11 @@ export function FunnelBar({ projectId, refreshKey }: FunnelBarProps) {
     <section className="panel-glass" style={{ padding: 14 }} aria-label="Воронка проекта">
       <div className="eyebrow" style={{ marginBottom: 10 }}>Воронка</div>
 
+      {/* На <sm 6 колонок в один ряд нечитаемы (~50px на стадию при 360px),
+          поэтому мобильная сетка — 3×2; с sm возвращается один ряд из 6. */}
       <div
         role="list"
-        style={{
-          display: "grid",
-          gridTemplateColumns: `repeat(${stages.length || 6}, minmax(0, 1fr))`,
-          gap: 10,
-          alignItems: "end",
-        }}
+        className="grid grid-cols-3 items-end gap-2 sm:grid-cols-6 sm:gap-2.5"
       >
         {stages.map((stage) => {
           const color = stageColor(stage);

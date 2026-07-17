@@ -142,17 +142,17 @@ function AnalyticsBody({ data }: { data: Dashboard }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="stat-tile elev-1">
           <div className="stat-tile__label">Лидов всего</div>
-          <div className="stat-tile__value tnum">{formatInt(data.leads_total)}</div>
+          <div className="stat-tile__value tnum min-w-0 truncate max-sm:!text-[length:clamp(17px,6.5vw,28px)]">{formatInt(data.leads_total)}</div>
           <div className="stat-tile__sub">по всем проектам</div>
         </div>
         <div className="stat-tile elev-1">
           <div className="stat-tile__label">За месяц</div>
-          <div className="stat-tile__value tnum">{formatInt(data.leads_this_month)}</div>
+          <div className="stat-tile__value tnum min-w-0 truncate max-sm:!text-[length:clamp(17px,6.5vw,28px)]">{formatInt(data.leads_this_month)}</div>
           <div className="stat-tile__sub">новых в этом месяце</div>
         </div>
         <div className="stat-tile elev-1">
           <div className="stat-tile__label">Конверсия</div>
-          <div className="stat-tile__value tnum">
+          <div className="stat-tile__value tnum min-w-0 truncate max-sm:!text-[length:clamp(17px,6.5vw,28px)]">
             {Math.round((data.conversion_rate || 0) * 100)}%
           </div>
           <div className="stat-tile__sub">
@@ -161,7 +161,7 @@ function AnalyticsBody({ data }: { data: Dashboard }) {
         </div>
         <div className="stat-tile elev-1">
           <div className="stat-tile__label">В работе</div>
-          <div className="stat-tile__value tnum">{formatRub(data.pipeline_value)}</div>
+          <div className="stat-tile__value tnum min-w-0 truncate max-sm:!text-[length:clamp(17px,6.5vw,28px)]">{formatRub(data.pipeline_value)}</div>
           <div className="stat-tile__sub">открытый pipeline</div>
         </div>
       </div>
@@ -198,23 +198,23 @@ function FunnelSection({ data }: { data: Dashboard }) {
             const label = STATUS_LABELS[s.status] ?? s.status;
             const frac = Math.max(s.count > 0 ? 0.04 : 0, s.count / maxCount);
             return (
-              <div key={s.status} className="flex items-center gap-3">
+              <div key={s.status} className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <span
+                  className="w-[68px] shrink-0 truncate sm:w-[92px]"
+                  title={label}
                   style={{
                     fontSize: 11,
                     letterSpacing: "0.04em",
                     textTransform: "uppercase",
                     color: "var(--t-56)",
-                    width: 92,
-                    flex: "none",
                   }}
                 >
                   {label}
                 </span>
                 <div
                   aria-hidden
+                  className="min-w-0 flex-1"
                   style={{
-                    flex: 1,
                     height: 8,
                     borderRadius: 999,
                     background: "var(--surface-3)",
@@ -233,14 +233,14 @@ function FunnelSection({ data }: { data: Dashboard }) {
                   />
                 </div>
                 <span
-                  className="tnum"
-                  style={{ fontSize: 14, color: "var(--t-100)", width: 56, textAlign: "right", flex: "none" }}
+                  className="tnum min-w-[32px] shrink-0 whitespace-nowrap text-right sm:min-w-[56px]"
+                  style={{ fontSize: 14, color: "var(--t-100)" }}
                 >
                   {formatInt(s.count)}
                 </span>
                 <span
-                  className="tnum"
-                  style={{ fontSize: 11.5, color: "var(--t-56)", width: 88, textAlign: "right", flex: "none" }}
+                  className="tnum min-w-[58px] shrink-0 whitespace-nowrap text-right sm:min-w-[88px]"
+                  style={{ fontSize: 11.5, color: "var(--t-56)" }}
                 >
                   {formatRub(s.value)}
                 </span>
@@ -383,7 +383,7 @@ function OverTimeSection({ data }: { data: Dashboard }) {
             height: 120,
           }}
         >
-          {points.map((p) => {
+          {points.map((p, i) => {
             const frac = p.count > 0 ? Math.max(0.06, p.count / maxCount) : 0;
             return (
               <div
@@ -408,8 +408,11 @@ function OverTimeSection({ data }: { data: Dashboard }) {
                     transition: "height 320ms cubic-bezier(0.4, 0, 0.2, 1)",
                   }}
                 />
+                {/* На узких экранах 14 nowrap-подписей наслаиваются друг на друга —
+                    показываем каждую вторую (invisible, а не hidden, чтобы низ
+                    столбиков оставался на одной линии). */}
                 <span
-                  className="tnum"
+                  className={`tnum${i % 2 === 1 ? " max-sm:invisible" : ""}`}
                   style={{ fontSize: 9, color: "var(--t-40)", whiteSpace: "nowrap" }}
                 >
                   {weekday(p.date)}

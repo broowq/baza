@@ -108,7 +108,7 @@ function RegisterContent() {
           <span className="text-[16px]" style={{ fontWeight: 500 }}>база</span>
         </Link>
 
-        <div className="panel" style={{ padding: 40 }}>
+        <div className="panel p-6 sm:p-10">
           <div className="eyebrow mb-3">создание аккаунта</div>
           <h2 className="h2">Начнём с первых лидов.</h2>
           <p className="caption mt-2">
@@ -171,12 +171,12 @@ function RegisterContent() {
                   onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                   required
                   autoComplete="new-password"
-                  style={{ paddingRight: 40 }}
+                  style={{ paddingRight: 44 }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 t-56 hover:text-[var(--t-100)]"
+                  className="absolute right-0.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center t-56 hover:text-[var(--t-100)]"
                   aria-label={showPassword ? "Скрыть пароль" : "Показать пароль"}
                 >
                   <EyeIcon open={showPassword} />
@@ -191,9 +191,9 @@ function RegisterContent() {
 
             {/* Consent block */}
             <div className="panel-flat p-4 mt-2 flex flex-col gap-3">
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex items-start gap-3 cursor-pointer py-1.5 -my-1.5 sm:py-0 sm:my-0">
                 <span
-                  className={`cbox mt-[2px] ${acceptedTerms ? "checked" : ""}`}
+                  className={`cbox mt-[2px] !size-[18px] sm:!size-4 ${acceptedTerms ? "checked" : ""}`}
                   aria-hidden="true"
                 >
                   {acceptedTerms && (
@@ -222,9 +222,9 @@ function RegisterContent() {
                   </Link>.
                 </span>
               </label>
-              <label className="flex items-start gap-3 cursor-pointer">
+              <label className="flex items-start gap-3 cursor-pointer py-1.5 -my-1.5 sm:py-0 sm:my-0">
                 <span
-                  className={`cbox mt-[2px] ${acceptedPrivacy ? "checked" : ""}`}
+                  className={`cbox mt-[2px] !size-[18px] sm:!size-4 ${acceptedPrivacy ? "checked" : ""}`}
                   aria-hidden="true"
                 >
                   {acceptedPrivacy && (
