@@ -704,7 +704,11 @@ export default function SettingsPage() {
                                   }
                                 >
                                   <SelectTrigger size="sm" className="bg-[var(--surface-input)] border-[var(--line-2)]">
-                                    <SelectValue />
+                                    {/* render-функция обязательна — Base UI иначе
+                                        показывает сырую роль (E2E 17.07). */}
+                                    <SelectValue>
+                                      {(v: string | null) => ({ member: "Участник", admin: "Админ", owner: "Владелец" }[v ?? ""] ?? "Участник")}
+                                    </SelectValue>
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="member">Участник</SelectItem>

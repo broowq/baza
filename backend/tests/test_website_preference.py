@@ -27,6 +27,9 @@ from app.tasks.jobs import _matches_website_preference
         ("Я делаю сайты, мне нужны клиенты, у которых нет сайтов", "no_website"),
         ("нужны клиенты без сайта в Томске", "no_website"),
         ("ищу компании у которых отсутствует сайт", "no_website"),
+        ("нужны клиенты в Томске у которых нет своего сайта", "no_website"),  # E2E 17.07
+        ("клиенты без собственного сайта", "no_website"),
+        ("у нас нет своего сайта, делаем клиентам", "any"),  # про себя, не клиента
         ("дорабатываю существующие сайты компаний", "with_website"),
         ("редизайн: нужны компании, у которых есть сайт", "with_website"),
         ("продаю кормовые добавки", "any"),
@@ -170,3 +173,41 @@ def test_yandex_lookup_generic_words_do_not_match(monkeypatch, _no_lookup_cache)
 def test_yandex_lookup_unconfigured_returns_empty(monkeypatch):
     monkeypatch.setattr(lc, "_yandex_search_configured", lambda s: False)
     assert lc.yandex_search_company_lookup("Ромашка", "Томск") == {}
+
+
+# ── бэкстоп LLM-пути (E2E 17.07) ─────────────────────────────────────────────
+
+def _stub_llm(monkeypatch, website_preference):
+    import json as _json
+
+    from app.services import prompt_enhancer as pe
+
+    payload = {
+        "enhanced_prompt": "x", "project_name": "P", "niche": "малый бизнес",
+        "geography": "Томск", "segments": ["кафе", "магазин", "салон"],
+        "excluded_segments": [], "website_preference": website_preference,
+        "okved_codes": [], "explanation": "e",
+    }
+    monkeypatch.setattr(pe.llm_client, "is_configured", lambda: True)
+    monkeypatch.setattr(pe.llm_client, "chat", lambda *a, **k: _json.dumps(payload))
+    return pe
+
+
+def test_llm_any_overridden_by_heuristic_when_prompt_is_explicit(monkeypatch):
+    """LLM часто возвращает website_preference="any" при явном «нет своего
+    сайта» (воспроизведено вживую 17.07 — инцидент 14.07 повторялся). Финали-
+    зация в _try_llm_enhance доверяет regex-эвристике, когда LLM сказал "any"."""
+    pe = _stub_llm(monkeypatch, "any")
+    out = pe._try_llm_enhance("делаю сайты, нужны клиенты у которых нет своего сайта", organization_id=None)
+    assert out is not None
+    assert out["website_preference"] == "no_website"
+
+
+def test_llm_definite_verdict_survives_backstop(monkeypatch):
+    """Если LLM дал НЕ-"any" вердикт — он сохраняется (ловит формулировки,
+    которые regex пропускает); эвристика не перетирает его."""
+    pe = _stub_llm(monkeypatch, "no_website")
+    # промпт без явного regex-сигнала — эвристика вернула бы "any", но LLM уверен
+    out = pe._try_llm_enhance("хочу выйти на компании, которым нужен новый лендинг", organization_id=None)
+    assert out is not None
+    assert out["website_preference"] == "no_website"

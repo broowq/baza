@@ -59,6 +59,14 @@ const JOB_STATUS_MAP: Record<string, string> = {
   failed: "Ошибка",
 };
 
+// Подписи требования к сайту для <SelectValue> (Base UI показывает сырое
+// значение без render-функции — E2E 17.07).
+const WEBSITE_PREF_LABELS: Record<string, string> = {
+  any: "любые компании",
+  no_website: "только без сайта",
+  with_website: "только с сайтом",
+};
+
 // Onboarding preview rows. Real values come from the public /public/landing feed
 // (demo project, contacts masked to booleans); this fallback keeps the table
 // populated before the fetch resolves / if it fails.
@@ -427,7 +435,11 @@ export default function DashboardPage() {
                   }}
                 >
                   <SelectTrigger className="rounded-full border border-[var(--line-2)] px-4 py-1.5 text-[26px] font-light tracking-tight text-[var(--t-100)] outline-none focus:border-[var(--line-3)] h-auto max-w-[70vw] sm:max-w-sm" style={{ background: "var(--surface-input)" }}>
-                    <SelectValue />
+                    {/* render-функция обязательна: иначе Base UI показывает
+                        сырой org-id вместо имени организации (E2E 17.07). */}
+                    <SelectValue>
+                      {(v: string | null) => organizations.find((o) => o.id === v)?.name ?? org?.name ?? "Организация"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {organizations.map((item) => (
@@ -631,11 +643,15 @@ export default function DashboardPage() {
                     <Select
                       value={enhanced.website_preference ?? "any"}
                       onValueChange={(val) =>
-                        setEnhanced((prev) => (prev ? { ...prev, website_preference: val ?? "any" } : prev))
+                        setEnhanced((prev) => (prev ? { ...prev, website_preference: (val as string) ?? "any" } : prev))
                       }
                     >
                       <SelectTrigger size="sm" className="w-auto gap-1 rounded-full px-3 text-xs">
-                        <SelectValue />
+                        {/* Base UI <SelectValue> без render-функции показывает
+                            СЫРОЕ значение ("any"), а не подпись — E2E 17.07. */}
+                        <SelectValue>
+                          {(v: string | null) => WEBSITE_PREF_LABELS[v ?? "any"] ?? "любые компании"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">любые компании</SelectItem>
