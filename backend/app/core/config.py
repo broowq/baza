@@ -106,6 +106,8 @@ class Settings(BaseSettings):
     # from https://beta.rusender.ru/api/ — goes in server .env, NOT committed.
     rusender_api_key: str = ""
     rusender_from_email: str = "support@usebaza.ru"
+    # Куда слать операторские уведомления (заявки юрлиц на счёт и т.п.).
+    billing_notify_email: str = "support@usebaza.ru"
     rusender_from_name: str = "БАЗА"
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

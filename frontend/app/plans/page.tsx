@@ -70,7 +70,39 @@ export default function PlansPage() {
   const [currentPlan, setCurrentPlan] = useState<string | null>(null);
   // Согласие на автопродление (сохранение карты в ЮKassa + ежемесячные
   // автосписания). По умолчанию включено; отключается тут же или в настройках.
-  const [autoRenew, setAutoRenew] = useState(true);
+  const [autoRenew, setAutoRenew] = useState(false); // опт-ин: явное согласие пользователя, не преднажатая галочка (ревью 20.07)
+  // Оплата по счёту для юрлиц (безнал): лёгкий диалог-заявка (19.07).
+  const [invoiceOpen, setInvoiceOpen] = useState(false);
+  const [invoicePlan, setInvoicePlan] = useState("starter");
+  const [invoiceInn, setInvoiceInn] = useState("");
+  const [invoiceCompany, setInvoiceCompany] = useState("");
+  const [invoiceSending, setInvoiceSending] = useState(false);
+
+  const submitInvoice = async () => {
+    if (!/^\d{10}$|^\d{12}$/.test(invoiceInn.replace(/\D/g, ""))) {
+      toast.error("ИНН должен содержать 10 или 12 цифр");
+      return;
+    }
+    if (invoiceCompany.trim().length < 3) {
+      toast.error("Укажите название организации-плательщика");
+      return;
+    }
+    setInvoiceSending(true);
+    try {
+      const res = await api<{ message: string }>("/billing/invoice-request", {
+        method: "POST",
+        body: JSON.stringify({ plan: invoicePlan, inn: invoiceInn, company_name: invoiceCompany }),
+      });
+      toast.success(res.message ?? "Заявка на счёт принята");
+      setInvoiceOpen(false);
+      setInvoiceInn("");
+      setInvoiceCompany("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Не удалось отправить заявку");
+    } finally {
+      setInvoiceSending(false);
+    }
+  };
   // Тариф, выбранный до регистрации (из sessionStorage). Не оплачиваем его
   // автоматически: подсвечиваем карточку и предлагаем продолжить вручную,
   // чтобы согласие на автопродление было осознанным — чекбокс на виду.
@@ -132,6 +164,16 @@ export default function PlansPage() {
       .getElementById(`plan-card-${pendingPlan.toLowerCase()}`)
       ?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [pendingPlan, loading, plans]);
+
+  // Esc закрывает диалог заявки на счёт (a11y, ревью 20.07).
+  useEffect(() => {
+    if (!invoiceOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setInvoiceOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [invoiceOpen]);
 
   const startCheckout = async (plan: string) => {
     if (!isLoggedIn) {
@@ -246,6 +288,98 @@ export default function PlansPage() {
           </label>
         )}
 
+        {/* Оплата по счёту для юрлиц (безнал) */}
+        {isLoggedIn && !loading && plans.length > 0 && (
+          <div className="mt-3 text-center">
+            <button
+              type="button"
+              onClick={() => setInvoiceOpen(true)}
+              className="text-[12px] t-56 underline underline-offset-2 hover:t-100"
+            >
+              Юридическое лицо? Оплатить по счёту (безнал)
+            </button>
+          </div>
+        )}
+
+        {invoiceOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm sm:items-center"
+            onClick={() => setInvoiceOpen(false)}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="invoice-title"
+          >
+            <div
+              className="panel my-auto max-h-[calc(100dvh-2rem)] w-full max-w-md space-y-4 overflow-y-auto p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div>
+                <div className="eyebrow mb-1">безналичная оплата</div>
+                <h3 id="invoice-title" className="text-lg font-medium t-100">Счёт для юридического лица</h3>
+                <p className="mt-1 text-[12px] t-56">
+                  Выставим счёт на реквизиты и активируем тариф после поступления оплаты.
+                  Закрывающие документы — по вашим реквизитам.
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-plan" className="eyebrow">Тариф</label>
+                  <select
+                    id="invoice-plan"
+                    value={invoicePlan}
+                    onChange={(e) => setInvoicePlan(e.target.value)}
+                    className="w-full rounded-lg border border-[var(--line-2)] bg-[var(--surface-input)] px-3 py-2.5 text-sm t-100"
+                  >
+                    {plans.filter((p) => p.id.toLowerCase() !== "free").map((p) => (
+                      <option key={p.id} value={p.id.toLowerCase()}>
+                        {formatPlan(p.id)}{p.price_monthly_rub ? ` — ${p.price_monthly_rub.toLocaleString("ru-RU")} ₽/мес` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-company" className="eyebrow">Название организации-плательщика</label>
+                  <input
+                    id="invoice-company"
+                    value={invoiceCompany}
+                    onChange={(e) => setInvoiceCompany(e.target.value)}
+                    placeholder="ООО «Ромашка»"
+                    className="w-full rounded-lg border border-[var(--line-2)] bg-[var(--surface-input)] px-3 py-2.5 text-sm t-100"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="invoice-inn" className="eyebrow">ИНН</label>
+                  <input
+                    id="invoice-inn"
+                    value={invoiceInn}
+                    onChange={(e) => setInvoiceInn(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="10 или 12 цифр"
+                    className="w-full rounded-lg border border-[var(--line-2)] bg-[var(--surface-input)] px-3 py-2.5 text-sm t-100"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setInvoiceOpen(false)}
+                  className="btn"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={submitInvoice}
+                  disabled={invoiceSending}
+                  className="btn brand disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {invoiceSending ? "Отправляем…" : "Запросить счёт"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Plan cards (v3): 4 тира — на десктопе в один ряд, на планшете 2×2 */}
         <div className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-4 mt-12">
           {plans.map((plan) => {
@@ -280,6 +414,11 @@ export default function PlansPage() {
                       </span>
                     )}
                   </div>
+                  {rublePrice.sub === "/мес" && (
+                    <div className="t-40 mt-1" style={{ fontSize: 11 }}>
+                      в т.ч. НДС 5%
+                    </div>
+                  )}
                   <div className="mono-cap mt-2">
                     {isStarter ? "для старта"
                       : key === "growth" ? "первый шаг с Яндекс.Картами"

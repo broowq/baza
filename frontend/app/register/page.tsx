@@ -210,15 +210,11 @@ function RegisterContent() {
                   required
                 />
                 <span className="text-[12.5px] t-72">
-                  Принимаю{" "}
+                  {/* Один документ /terms = «Пользовательское соглашение (публичная
+                      оферта)». Раньше было два разных названия на одну ссылку. */}
+                  Принимаю условия{" "}
                   <Link href="/terms" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
-                    условия использования
-                  </Link>
-                  {/* Оферта = договорные условия (/terms), как в футере лендинга.
-                      Раньше вела на /privacy — акцептовался не тот документ. */}
-                  {" "}и{" "}
-                  <Link href="/terms" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
-                    оферту
+                    публичной оферты
                   </Link>.
                 </span>
               </label>

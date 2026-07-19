@@ -1,11 +1,32 @@
 "use client";
 
 import Script from "next/script";
+import { useEffect, useState } from "react";
 
+const COOKIE_CONSENT_KEY = "baza_cookie_consent";
+
+/**
+ * Яндекс.Метрика (с вебвизором) грузится ТОЛЬКО после явного согласия на
+ * cookie (ревью 20.07: раньше скрипт и запись сессий стартовали безусловно,
+ * вопреки собственной политике §11 и требованию к cookie-согласию). Кнопка
+ * «Отклонить» теперь реально отключает аналитику.
+ *
+ * Согласие читается из localStorage (baza_cookie_consent="accepted") + слушаем
+ * кастомное событие baza-cookie-consent, чтобы включиться сразу после клика
+ * «Принять» без перезагрузки.
+ */
 export default function Analytics() {
   const id = process.env.NEXT_PUBLIC_YANDEX_METRIKA_ID;
+  const [consented, setConsented] = useState(false);
 
-  if (!id) return null;
+  useEffect(() => {
+    const read = () => setConsented(localStorage.getItem(COOKIE_CONSENT_KEY) === "accepted");
+    read();
+    window.addEventListener("baza-cookie-consent", read);
+    return () => window.removeEventListener("baza-cookie-consent", read);
+  }, []);
+
+  if (!id || !consented) return null;
 
   return (
     <>

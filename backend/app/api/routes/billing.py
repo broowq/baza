@@ -53,9 +53,11 @@ _YOOKASSA_WEBHOOK_NETS = [
 
 class CheckoutRequest(BaseModel):
     plan: PlanType
-    # Согласие на сохранение способа оплаты + ежемесячные автосписания
-    # (чекбокс в UI, включён по умолчанию; отключается в настройках).
-    auto_renew: bool = True
+    # Согласие на сохранение способа оплаты + ежемесячные автосписания.
+    # ОПТ-ИН: по умолчанию False — согласие на рекуррент должно быть активным
+    # действием пользователя, не преднажатой галочкой (ст. 16 ЗоЗПП, позиция
+    # ЦБ по рекуррентам; ревью 20.07). UI-чекбокс тоже снят по умолчанию.
+    auto_renew: bool = False
 
 
 class AutoRenewRequest(BaseModel):
@@ -477,3 +479,91 @@ def set_auto_renew(
     )
     db.commit()
     return {"status": "ok", "auto_renew": subscription.auto_renew}
+
+# ── Оплата по счёту для юридических лиц ──────────────────────────────────────
+
+class InvoiceRequestPayload(BaseModel):
+    plan: PlanType
+    inn: str
+    company_name: str
+    contact_email: str = ""
+
+
+@router.post("/invoice-request")
+def request_invoice(
+    payload: InvoiceRequestPayload,
+    organization: Organization = Depends(get_current_org),
+    membership=Depends(require_org_roles("owner", "admin")),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Заявка юрлица на оплату по счёту (безнал): письмо оператору + запись в
+    журнале. Активация тарифа — вручную после поступления средств (через
+    админ-пульт). Появилось 19.07: до этого юрлица без карты не могли купить
+    вовсе — оферта обещает безнал, эта ручка делает обещание честным.
+    """
+    if payload.plan == PlanType.free:
+        raise HTTPException(status_code=400, detail="Free-тариф не оплачивается")
+    inn = "".join(ch for ch in payload.inn if ch.isdigit())
+    if len(inn) not in (10, 12):
+        raise HTTPException(status_code=400, detail="ИНН должен содержать 10 или 12 цифр")
+    company = payload.company_name.strip()
+    if len(company) < 3:
+        raise HTTPException(status_code=400, detail="Укажите название организации-плательщика")
+
+    amount = PLAN_PRICES_RUB.get(payload.plan.value)
+    plan_name = PLAN_NAMES.get(payload.plan.value, payload.plan.value)
+    contact = (payload.contact_email or user.email).strip()
+
+    log_action(
+        db,
+        user_id=str(membership.user_id),
+        organization_id=str(organization.id),
+        action="billing.invoice.requested",
+        meta={"plan": payload.plan.value, "inn": inn, "company": company[:200], "contact": contact},
+    )
+    db.commit()
+
+    # Письмо оператору — вся нужная для счёта информация в одном месте.
+    try:
+        from app.tasks.email_tasks import send_email_task
+
+        settings = get_settings()
+        send_email_task.delay(
+            f"БАЗА: заявка на счёт — {plan_name} для «{company[:60]}»",
+            (
+                "Заявка на оплату по счёту (юрлицо).\n\n"
+                f"Тариф: {plan_name} — {amount} ₽/мес\n"
+                f"Плательщик: {company}\n"
+                f"ИНН: {inn}\n"
+                f"Контакт для счёта: {contact}\n"
+                f"Организация в БАЗЕ: «{organization.name}» (id {organization.id})\n"
+                f"Заявитель: {user.email}\n\n"
+                "После поступления средств активируйте тариф через админ-пульт."
+            ),
+            settings.billing_notify_email or "support@usebaza.ru",
+        )
+    except Exception:  # noqa: BLE001 — заявка записана в журнал, письмо best-effort
+        logger.warning("invoice-request email enqueue failed", exc_info=True)
+        # Клиенту сказано «счёт придёт» — если письмо оператору не ушло,
+        # заявка потеряется из виду. Запись в action_log есть (durable), но
+        # дублируем алертом, чтобы оператор точно увидел (ревью 20.07).
+        try:
+            from app.services.notifications import send_alert
+
+            send_alert(
+                "error",
+                "Заявка на счёт: письмо оператору не ушло",
+                f"org={organization.id} inn={inn} company={company[:60]} — см. action_log billing.invoice.requested",
+                key="invoice-email-fail",
+                throttle_seconds=300,
+            )
+        except Exception:
+            logger.debug("invoice alert failed", exc_info=True)
+
+    return {
+        "message": (
+            "Заявка принята. Мы выставим счёт на указанные реквизиты в течение "
+            "рабочего дня и активируем тариф после поступления оплаты."
+        )
+    }

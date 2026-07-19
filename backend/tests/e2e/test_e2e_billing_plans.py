@@ -336,3 +336,27 @@ def client_post_webhook(acct, payload):
     """Webhooks are unauthenticated (called by YooKassa, not a user) — post via the
     raw client without auth headers."""
     return acct.client.post("/api/billing/webhook/yookassa", json=payload)
+
+
+def test_invoice_request_for_legal_entity(paid_account):
+    """Заявка юрлица на счёт (безнал): валидирует ИНН/название, пишет в журнал,
+    возвращает подтверждение (19.07 — юрлица без карты теперь могут купить)."""
+    acct = paid_account
+    # плохой ИНН → 400
+    bad = acct.request("POST", "/api/billing/invoice-request",
+                       json={"plan": "starter", "inn": "123", "company_name": "ООО Ромашка"})
+    assert bad.status_code == 400, bad.text
+    assert "ИНН" in bad.json()["detail"]
+    # короткое название → 400
+    noname = acct.request("POST", "/api/billing/invoice-request",
+                          json={"plan": "starter", "inn": "5406817586", "company_name": "ОО"})
+    assert noname.status_code == 400, noname.text
+    # free → 400
+    free = acct.request("POST", "/api/billing/invoice-request",
+                        json={"plan": "free", "inn": "5406817586", "company_name": "ООО Ромашка"})
+    assert free.status_code == 400, free.text
+    # валидная заявка → 200 + подтверждение
+    ok = acct.request("POST", "/api/billing/invoice-request",
+                      json={"plan": "pro", "inn": "540681758612", "company_name": "ООО «Тест Плюс»"})
+    assert ok.status_code == 200, ok.text
+    assert "счёт" in ok.json()["message"].lower()

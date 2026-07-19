@@ -21,6 +21,9 @@ export function CookieConsent() {
 
   function dismiss(value: "accepted" | "declined") {
     localStorage.setItem(COOKIE_CONSENT_KEY, value);
+    // Сообщаем Analytics о выборе — включиться/остаться выключенной без
+    // перезагрузки (аналитика гейтится согласием, ревью 20.07).
+    window.dispatchEvent(new Event("baza-cookie-consent"));
     setExiting(true);
   }
 
