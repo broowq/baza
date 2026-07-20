@@ -132,6 +132,13 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Согласие на новостные/рекламные рассылки (ст. 18 ФЗ «О рекламе» —
+    # реклама по email только с предварительного согласия). ОТДЕЛЬНОЕ и
+    # НЕобязательное: транзакционные письма (верификация, счета, уведомления
+    # о готовности) шлются независимо от этого флага. marketing_consent_at —
+    # доказательство момента согласия/отзыва.
+    marketing_consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    marketing_consent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     memberships = relationship("Membership", back_populates="user", cascade="all, delete-orphan")

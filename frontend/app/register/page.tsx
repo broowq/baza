@@ -48,6 +48,7 @@ function RegisterContent() {
   const [formError, setFormError] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
+  const [acceptedMarketing, setAcceptedMarketing] = useState(false);
 
   useEffect(() => {
     if (invitedEmail) {
@@ -62,7 +63,7 @@ function RegisterContent() {
     try {
       const data = await api<RegisterResponse>("/auth/register", {
         method: "POST",
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, marketing_consent: acceptedMarketing }),
       });
 
       if (data.email_verification_required) {
@@ -241,6 +242,30 @@ function RegisterContent() {
                   <Link href="/privacy" target="_blank" className="text-[var(--t-100)] underline underline-offset-2" style={{ textDecorationColor: "var(--t-40)" }}>
                     152-ФЗ
                   </Link>.
+                </span>
+              </label>
+              {/* Необязательное согласие на рекламу (ст. 18 ФЗ «О рекламе») —
+                  без required, по умолчанию снято (опт-ин). */}
+              <label className="flex items-start gap-3 cursor-pointer py-1.5 -my-1.5 sm:py-0 sm:my-0">
+                <span
+                  className={`cbox mt-[2px] !size-[18px] sm:!size-4 ${acceptedMarketing ? "checked" : ""}`}
+                  aria-hidden="true"
+                >
+                  {acceptedMarketing && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  )}
+                </span>
+                <input
+                  type="checkbox"
+                  checked={acceptedMarketing}
+                  onChange={(e) => setAcceptedMarketing(e.target.checked)}
+                  className="sr-only"
+                />
+                <span className="text-[12.5px] t-72">
+                  Хочу получать новости, советы и специальные предложения БАЗЫ
+                  на почту (необязательно, отписаться можно в любой момент).
                 </span>
               </label>
             </div>

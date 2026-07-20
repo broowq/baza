@@ -158,7 +158,8 @@ const actionLabel = (slug: string) => ACTION_LABELS[slug] ?? slug;
 export default function SettingsPage() {
   const authed = useAuthGuard();
   const [loading, setLoading] = useState(true);
-  const [profile, setProfile] = useState<{ email: string; full_name: string; is_admin: boolean } | null>(null);
+  const [profile, setProfile] = useState<{ email: string; full_name: string; is_admin: boolean; marketing_consent?: boolean } | null>(null);
+  const [marketingSaving, setMarketingSaving] = useState(false);
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -186,7 +187,7 @@ export default function SettingsPage() {
   const load = useCallback(async () => {
     try {
       const [me, org, membership, sub] = await Promise.all([
-        api<{ email: string; full_name: string; is_admin: boolean }>("/auth/me").catch(() => null),
+        api<{ email: string; full_name: string; is_admin: boolean; marketing_consent?: boolean }>("/auth/me").catch(() => null),
         api<Organization>("/organizations/me").catch(() => null),
         api<{ role: "owner" | "admin" | "member" }>("/organizations/membership").catch(() => null),
         api<{
@@ -453,6 +454,44 @@ export default function SettingsPage() {
                       <p className="text-[12px] mono t-56 truncate">{profile?.email}</p>
                     </div>
                   </div>
+                </section>
+
+                <section className="panel p-6">
+                  <div className="eyebrow mb-1">рассылки</div>
+                  <p className="text-[12px] t-56 mb-4">
+                    Новости, советы и специальные предложения БАЗЫ на почту.
+                    Служебные письма (подтверждение почты, счета, готовность
+                    сбора) приходят всегда.
+                  </p>
+                  <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={!!profile?.marketing_consent}
+                      disabled={marketingSaving}
+                      onChange={async (e) => {
+                        const next = e.target.checked;
+                        const prev = !!profile?.marketing_consent;
+                        setProfile((p) => (p ? { ...p, marketing_consent: next } : p));
+                        setMarketingSaving(true);
+                        try {
+                          await api("/auth/me/marketing-consent", {
+                            method: "POST",
+                            body: JSON.stringify({ consent: next }),
+                          });
+                          toast.success(next ? "Подписка оформлена" : "Вы отписались от рассылок");
+                        } catch (err) {
+                          setProfile((p) => (p ? { ...p, marketing_consent: prev } : p));
+                          toast.error(err instanceof Error ? err.message : "Не удалось сохранить");
+                        } finally {
+                          setMarketingSaving(false);
+                        }
+                      }}
+                      className="mt-0.5 size-4 shrink-0 accent-[var(--mint)]"
+                    />
+                    <span className="text-[13px] t-84">
+                      Получать новости и специальные предложения
+                    </span>
+                  </label>
                 </section>
 
                 <section className="panel p-6">

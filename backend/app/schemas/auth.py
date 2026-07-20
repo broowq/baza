@@ -6,6 +6,9 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     password: str = Field(min_length=8, max_length=128)
     organization_name: str = Field(min_length=2, max_length=120)
+    # Необязательное согласие на новости/рекламу (ст. 18 ФЗ «О рекламе»).
+    # Дефолт False: не проставлен — не подписан.
+    marketing_consent: bool = False
 
 
 class LoginRequest(BaseModel):

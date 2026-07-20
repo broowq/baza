@@ -1,9 +1,10 @@
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 import redis
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, select
@@ -133,6 +134,10 @@ def register(payload: RegisterRequest, request: Request, response: Response, db:
         full_name=payload.full_name,
         hashed_password=hash_password(payload.password),
         email_verified=not settings.email_verification_required,
+        marketing_consent=bool(payload.marketing_consent),
+        marketing_consent_at=(
+            datetime.now(timezone.utc) if payload.marketing_consent else None
+        ),
     )
     try:
         db.add_all([org, user])
@@ -304,7 +309,27 @@ def me(user: User = Depends(get_current_user)):
         "full_name": user.full_name,
         "is_admin": user.is_admin,
         "email_verified": user.email_verified,
+        "marketing_consent": user.marketing_consent,
     }
+
+
+class MarketingConsentRequest(BaseModel):
+    consent: bool
+
+
+@router.post("/me/marketing-consent")
+def set_marketing_consent(
+    payload: MarketingConsentRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Подписка/отписка на новостные и рекламные рассылки. Отписаться можно в
+    любой момент (ст. 18 ч. 2 ФЗ «О рекламе»). Момент действия фиксируется в
+    marketing_consent_at как доказательство."""
+    user.marketing_consent = bool(payload.consent)
+    user.marketing_consent_at = datetime.now(timezone.utc) if payload.consent else None
+    db.commit()
+    return {"marketing_consent": user.marketing_consent}
 
 
 @router.post("/change-password")
@@ -477,6 +502,11 @@ def export_my_data(
             "email_verified": user.email_verified,
             # ФЗ-152: IP регистрации — хранимые ПД, обязан попасть в экспорт
             "registration_ip": user.registration_ip or "",
+            # Согласие на рассылки — тоже хранимый факт о субъекте
+            "marketing_consent": user.marketing_consent,
+            "marketing_consent_at": (
+                user.marketing_consent_at.isoformat() if user.marketing_consent_at else None
+            ),
             "created_at": user.created_at.isoformat() if user.created_at else None,
         },
         "memberships": [

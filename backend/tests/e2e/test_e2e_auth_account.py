@@ -334,7 +334,7 @@ def test_me_shape(make_account):
     r = acct.get("/api/auth/me")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert set(body.keys()) == {"id", "email", "full_name", "is_admin", "email_verified"}
+    assert set(body.keys()) == {"id", "email", "full_name", "is_admin", "email_verified", "marketing_consent"}
     assert body["email"] == acct.email
     assert body["full_name"] == acct.full_name
     assert body["is_admin"] is False
@@ -837,4 +837,57 @@ def test_trial_refunded_when_deleted_unused(client, db):
     finally:
         _purge(db, email, org_a)
         _purge(db, email, org_b)
+        _purge_trial_grant(db, email)
+
+
+def test_marketing_consent_optional_default_off(client, db):
+    """Согласие на рассылки НЕОБЯЗАТЕЛЬНО и по умолчанию выключено (опт-ин,
+    ст. 18 ФЗ «О рекламе»). Регистрация без флага → marketing_consent=False."""
+    email = _unique_email()
+    payload = _register_payload(email=email)  # без marketing_consent
+    try:
+        r = client.post("/api/auth/register", json=payload)
+        assert r.status_code == 200, r.text
+        u = db.execute(select(User).where(User.email == email)).scalar_one()
+        assert u.marketing_consent is False
+        assert u.marketing_consent_at is None
+    finally:
+        _purge(db, email, payload["organization_name"])
+        _purge_trial_grant(db, email)
+
+
+def test_marketing_consent_opt_in_and_toggle(client, db):
+    """Флаг при регистрации сохраняется с датой; ручка подписки/отписки
+    меняет его в обе стороны."""
+    email = _unique_email()
+    payload = _register_payload(email=email)
+    payload["marketing_consent"] = True
+    try:
+        r = client.post("/api/auth/register", json=payload)
+        assert r.status_code == 200, r.text
+        token = r.json()["access_token"]
+        hdr = {"Authorization": f"Bearer {token}"}
+
+        u = db.execute(select(User).where(User.email == email)).scalar_one()
+        assert u.marketing_consent is True
+        assert u.marketing_consent_at is not None
+
+        # /me отдаёт статус
+        me = client.get("/api/auth/me", headers=hdr)
+        assert me.json()["marketing_consent"] is True
+
+        # отписка
+        off = client.post("/api/auth/me/marketing-consent", headers=hdr, json={"consent": False})
+        assert off.status_code == 200 and off.json()["marketing_consent"] is False
+        db.expire_all()
+        u = db.execute(select(User).where(User.email == email)).scalar_one()
+        assert u.marketing_consent is False and u.marketing_consent_at is None
+
+        # повторная подписка проставляет дату
+        on = client.post("/api/auth/me/marketing-consent", headers=hdr, json={"consent": True})
+        assert on.json()["marketing_consent"] is True
+        db.expire_all()
+        assert db.execute(select(User).where(User.email == email)).scalar_one().marketing_consent_at is not None
+    finally:
+        _purge(db, email, payload["organization_name"])
         _purge_trial_grant(db, email)
