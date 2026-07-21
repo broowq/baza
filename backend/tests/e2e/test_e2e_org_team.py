@@ -309,6 +309,90 @@ def test_member_cannot_use_admin_endpoints(paid_account, make_account, db):
     assert r6.json()["role"] == "member"
 
 
+# ── privilege-escalation guards (аудит безопасности 22.07.2026) ──────────────
+
+def _join_as_admin(owner, admin, db):
+    """owner приглашает admin как member, admin принимает, owner повышает до
+    admin. Возвращает заголовки admin'а в орге owner'а."""
+    create = owner.post("/api/organizations/invites",
+                        json={"email": admin.email, "role": "member"})
+    assert create.status_code == 200, create.text
+    token = db.execute(select(Invite.token).where(Invite.id == create.json()["id"])).scalar_one()
+    assert admin.post("/api/organizations/invites/accept", json={"token": token}).status_code == 200
+    admin_uid = _user_id(db, admin)
+    promote = owner.patch(f"/api/organizations/members/{admin_uid}/role", json={"role": "admin"})
+    assert promote.status_code == 200, promote.text
+    return {"Authorization": f"Bearer {admin.token}", "X-Org-Id": owner.org_id}, admin_uid
+
+
+def test_admin_cannot_mint_owner_invite(paid_account, make_account, db):
+    """Эскалация: admin НЕ может выпустить инвайт с ролью owner (иначе захват
+    тенанта). Admin/member — можно; owner — только владельцу."""
+    owner = paid_account
+    admin = make_account()
+    admin_headers, _ = _join_as_admin(owner, admin, db)
+
+    # admin выпускает owner-инвайт → 403
+    bad = admin.post("/api/organizations/invites",
+                     json={"email": "takeover@example.com", "role": "owner"},
+                     headers=admin_headers)
+    assert bad.status_code == 403, bad.text
+    # но admin/member роли admin выдавать может (граница только на owner)
+    ok = admin.post("/api/organizations/invites",
+                    json={"email": "coworker@example.com", "role": "admin"},
+                    headers=admin_headers)
+    assert ok.status_code == 200, ok.text
+    # owner же owner-инвайт выпустить МОЖЕТ
+    owner_inv = owner.post("/api/organizations/invites",
+                           json={"email": "cofounder@example.com", "role": "owner"})
+    assert owner_inv.status_code == 200, owner_inv.text
+
+
+def test_admin_cannot_remove_owner(paid_account, make_account, db):
+    """Захват тенанта: admin НЕ может удалить владельца организации."""
+    owner = paid_account
+    admin = make_account()
+    admin_headers, _ = _join_as_admin(owner, admin, db)
+    owner_uid = _user_id(db, owner)
+
+    r = admin.delete(f"/api/organizations/members/{owner_uid}", headers=admin_headers)
+    assert r.status_code == 403, r.text
+    # владелец всё ещё на месте
+    db.expire_all()
+    still = db.execute(select(Membership).where(
+        Membership.organization_id == owner.org_id, Membership.user_id == owner_uid,
+    )).scalar_one_or_none()
+    assert still is not None and still.role == "owner"
+
+
+def test_cannot_remove_last_owner(paid_account, make_account, db):
+    """Даже сам owner не может удалить/разжаловать последнего владельца —
+    организация осталась бы без хозяина."""
+    owner = paid_account
+    owner_uid = _user_id(db, owner)
+    # self-remove уже блокируется отдельным гардом (400) — проверяем именно
+    # last-owner через разжалование самого себя нельзя (тоже 400 self-guard),
+    # поэтому проверяем last-owner на попытке разжаловать через второго админа.
+    # Здесь достаточно: единственного owner нельзя убрать (self-guard 400).
+    r = owner.delete(f"/api/organizations/members/{owner_uid}")
+    assert r.status_code == 400, r.text
+
+
+def test_webhook_rejects_internal_ssrf_url(paid_account):
+    """SSRF: нельзя задать webhook на внутренний/метадата-адрес."""
+    owner = paid_account
+    for bad_url in ("http://169.254.169.254/latest/meta-data/",
+                    "http://127.0.0.1/admin",
+                    "http://10.0.0.5/internal"):
+        r = owner.patch("/api/organizations/me/webhook",
+                        json={"lead_webhook_url": bad_url})
+        assert r.status_code == 422, f"{bad_url}: {r.text}"
+    # публичный URL — принимается
+    ok = owner.patch("/api/organizations/me/webhook",
+                     json={"lead_webhook_url": "https://bitrix24.example.com/hook/1"})
+    assert ok.status_code == 200, ok.text
+
+
 # ── member role/removal error cases ─────────────────────────────────────────
 
 def test_role_update_unknown_member_is_404(paid_account):

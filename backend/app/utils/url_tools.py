@@ -241,11 +241,28 @@ def _is_safe_url(url: str) -> bool:
 
     for family, _type, _proto, _canonname, sockaddr in addrinfos:
         ip_str = sockaddr[0]
+        # IPv6-scope может прийти как "fe80::1%eth0" — срезаем зону.
+        ip_str = ip_str.split("%")[0]
         try:
             addr = ipaddress.ip_address(ip_str)
         except ValueError:
             return False
-        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+        # IPv4-mapped/compat IPv6 (::ffff:169.254.169.254, ::a.b.c.d) обходили
+        # проверки is_private для v6-обёртки — разворачиваем в v4 и проверяем её.
+        if addr.version == 6:
+            mapped = getattr(addr, "ipv4_mapped", None)
+            if mapped is None and getattr(addr, "sixtofour", None) is not None:
+                mapped = addr.sixtofour
+            if mapped is not None:
+                addr = mapped
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
             return False
 
     return True

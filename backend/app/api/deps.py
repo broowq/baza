@@ -1,9 +1,11 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
+import redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,32 @@ from app.models import Membership, Organization, User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 settings = get_settings()
+_logger = logging.getLogger("app.deps")
+# Тот же клиент/ключ, что и в auth.py: смена/сброс пароля и удаление участника
+# пишут user_tokens_revoked_at:<uid> = ts. Access-токен с iat <= ts считается
+# отозванным. Fail-open при недоступности Redis (как rate-limiter) — доступность
+# важнее, а refresh-слой всё равно отзовётся при следующей ротации.
+_revocation_redis = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+
+
+def _access_token_revoked(user_id: str, token_iat) -> bool:
+    try:
+        revoked_at = _revocation_redis.get(f"user_tokens_revoked_at:{user_id}")
+    except Exception:
+        _logger.warning("token-revocation Redis check failed — fail-open")
+        return False
+    if not revoked_at:
+        return False
+    try:
+        revoked_ts = int(revoked_at)
+    except (ValueError, TypeError):
+        return False
+    if token_iat is None:
+        return True  # консервативно: старые токены без iat считаем отозванными
+    try:
+        return int(token_iat) <= revoked_ts
+    except (ValueError, TypeError):
+        return True
 
 
 def get_current_user(
@@ -32,6 +60,10 @@ def get_current_user(
     except JWTError as exc:
         raise credentials_exception from exc
     if not user_id:
+        raise credentials_exception
+    # Массовый отзыв access-токенов (смена/сброс пароля, удаление участника):
+    # токен, выпущенный ДО отметки отзыва, больше не действует.
+    if _access_token_revoked(str(user_id), payload.get("iat")):
         raise credentials_exception
     user = db.get(User, user_id)
     if not user:

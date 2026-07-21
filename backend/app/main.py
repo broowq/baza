@@ -63,6 +63,10 @@ _RATE_LIMIT_TIERS: list[tuple] = [
     # LLM-backed endpoints (Anthropic/GigaChat) — cost real money per call,
     # so tier them tightly to prevent cost-explosion DoS vectors.
     ("/api/projects/enhance-prompt", 50 if _is_dev else 5, 60),
+    # Поиск (preview/companies) дёргает внешние источники (2GIS/веб/Yandex) —
+    # стоимостной вектор. Превью не тратит квоту, поэтому душим на HTTP-слое.
+    # Аудит безопасности: без этого tier'а preview падал в общий /api (120/мин).
+    ("/api/search", 100 if _is_dev else 15, 60),
     # ── Lead collection (external APIs: 2GIS/Yandex/scraping + queue) ────────
     # ONLY the write-side collect/enrich endpoints hit external sources and burn
     # quota, so keep THEM tight. These prefixes are more specific than

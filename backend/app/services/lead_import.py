@@ -47,6 +47,13 @@ _NORM_SYNONYMS: dict[str, set[str]] = {
     field: {_norm_header(s) for s in syns} for field, syns in HEADER_SYNONYMS.items()
 }
 
+# Жёсткий предел строк ПРИ ПАРСИНГЕ (аудит, DoS): роут отклоняет файлы > 5000
+# строк, но проверка идёт ПОСЛЕ полного парсинга — вредоносный .xlsx с
+# миллионами строк (декомпресс-бомба) раздул бы память до отказа ДО проверки.
+# Прекращаем накопление на этом пределе (заметно выше легитимных 5000, чтобы
+# честный файл распарсился целиком, а роут потом честно вернул 422).
+_HARD_ROW_CAP = 20000
+
 
 def _decode_csv_bytes(content: bytes) -> str:
     """Decode CSV bytes, stripping a UTF-8 BOM. Russian Excel CSVs are often
@@ -89,6 +96,8 @@ def _parse_csv(content: bytes) -> tuple[list[str], list[dict]]:
         for i, header in enumerate(headers):
             row[header] = (raw[i].strip() if i < len(raw) and raw[i] is not None else "")
         rows.append(row)
+        if len(rows) >= _HARD_ROW_CAP:
+            break  # анти-DoS: не копим сверх предела (роут отклонит по MAX_IMPORT_ROWS)
     return headers, rows
 
 
@@ -116,6 +125,8 @@ def _parse_xlsx(content: bytes) -> tuple[list[str], list[dict]]:
         for i, header in enumerate(headers):
             row[header] = cells[i] if i < len(cells) else ""
         rows.append(row)
+        if len(rows) >= _HARD_ROW_CAP:
+            break  # анти-DoS: xlsx-декомпресс-бомба не раздует память до отказа
     try:
         wb.close()
     except Exception:

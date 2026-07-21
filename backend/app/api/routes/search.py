@@ -17,7 +17,10 @@ router = APIRouter(prefix="/search", tags=["search"])
 logger = logging.getLogger("baza.search")
 
 
-def _run_search(query: str, geography: str, limit: int, *, organization_id: str | None = None) -> list[dict]:
+def _run_search(
+    query: str, geography: str, limit: int, *,
+    organization_id: str | None = None, use_yandex: bool = True,
+) -> list[dict]:
     """Execute search_leads and return raw result dicts."""
     return search_leads(
         query=query,
@@ -25,6 +28,7 @@ def _run_search(query: str, geography: str, limit: int, *, organization_id: str 
         niche=query,
         geography=geography,
         organization_id=organization_id,
+        use_yandex=use_yandex,
     )
 
 
@@ -54,7 +58,16 @@ def search_preview(
     Dry-run search: returns matching companies from available sources
     without saving anything to the database.
     """
-    raw = _run_search(payload.query, payload.geography, payload.limit, organization_id=str(organization.id))
+    # Стоимостная DoS (аудит, HIGH): preview доступен любому участнику орги и НЕ
+    # тратит месячную квоту (в отличие от /companies), а раньше по умолчанию
+    # дёргал ПЛАТНЫЙ Yandex Maps. Любой мог спамить превью и жечь деньги
+    # оператора. Для «сухого прогона» платные карты не нужны — используем
+    # бесплатные источники (2GIS-скрейп/веб/склад). Дополнительно роут прикрыт
+    # жёстким rate-tier'ом в main.py.
+    raw = _run_search(
+        payload.query, payload.geography, payload.limit,
+        organization_id=str(organization.id), use_yandex=False,
+    )
     return _to_result_items(raw)
 
 

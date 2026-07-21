@@ -320,14 +320,30 @@ def test_webhook_forged_payload_cannot_activate_org(make_account, db, monkeypatc
     not _NO_YOOKASSA_CREDS,
     reason="asserts the no-credentials re-fetch failure; creds are configured here",
 )
-def test_webhook_with_spoofed_ip_still_blocked_without_creds(client, monkeypatch):
-    """A spoofed YooKassa IP passes the first guard but the authoritative re-fetch
-    needs creds → 503. Confirms the IP allow-list is not the only barrier."""
-    # Keep the IP guard ON, send a header that LOOKS like a YooKassa source.
+def test_webhook_spoofed_xff_is_rejected(client, monkeypatch):
+    """Аудит безопасности: подделка X-Forwarded-For БОЛЬШЕ не проходит IP-гард.
+
+    nginx делает $proxy_add_x_forwarded_for (дописывает реальный IP к
+    клиентскому XFF), поэтому первому элементу XFF доверять нельзя. Теперь IP
+    берётся из X-Real-IP (его nginx жёстко ставит в remote_addr), а клиентский
+    XFF игнорируется. Без X-Real-IP (как здесь) источник = адрес сокета
+    TestClient, который НЕ в диапазоне ЮKassa → 403 ещё до ре-фетча."""
     r = client.post(
         "/api/billing/webhook/yookassa",
         json={"event": "payment.succeeded", "object": {"id": "spoofed"}},
-        headers={"X-Forwarded-For": "185.71.76.1"},
+        headers={"X-Forwarded-For": "185.71.76.1"},  # подделка — игнорируется
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_webhook_trusts_x_real_ip(client, monkeypatch):
+    """Доверенный источник = X-Real-IP (его ставит nginx). IP из диапазона
+    ЮKassa проходит IP-гард и упирается в авторитетный ре-фетч (503 без
+    credentials в тесте) — вторая линия защиты."""
+    r = client.post(
+        "/api/billing/webhook/yookassa",
+        json={"event": "payment.succeeded", "object": {"id": "spoofed"}},
+        headers={"X-Real-IP": "185.71.76.1"},
     )
     assert r.status_code == 503, r.text
 

@@ -19,6 +19,7 @@ from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
 from app.tasks.celery_app import celery
+from app.utils.logredact import mask_email
 from app.utils.url_tools import extract_domain, get_base_domain, is_aggregator_domain, is_real_domain, normalize_url
 
 # Maximum concurrent queued/running jobs per organisation (mirrors the API guard).
@@ -205,7 +206,7 @@ def _notify_owner_project_ready(db, project: Project, enriched_count: int) -> No
     try:
         send_email_task = celery.signature("email.send_email", args=[subject, body, user.email])
         send_email_task.delay()
-        logger.info("Notified %s about project %s ready (%d leads)", user.email, project.id, total_leads)
+        logger.info("Notified %s about project %s ready (%d leads)", mask_email(user.email), project.id, total_leads)
     except Exception:
         logger.warning("Failed to enqueue notification email", exc_info=True)
 

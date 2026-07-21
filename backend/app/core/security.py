@@ -25,7 +25,12 @@ def create_access_token(subject: str, expires_delta: timedelta | None = None) ->
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    payload: dict[str, Any] = {"sub": subject, "exp": expire, "type": "access"}
+    # iat нужен, чтобы access-токен можно было массово отзывать (смена/сброс
+    # пароля, удаление участника): deps.get_current_user сравнивает iat с
+    # маркером user_tokens_revoked_at. Без iat отозвать access нельзя.
+    payload: dict[str, Any] = {
+        "sub": subject, "exp": expire, "type": "access", "iat": int(time.time()),
+    }
     return jwt.encode(payload, settings.secret_key, algorithm=ALGORITHM)
 
 

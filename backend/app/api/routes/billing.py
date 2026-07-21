@@ -222,9 +222,19 @@ def create_checkout(
 
 
 def _request_source_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    """Достоверный источник запроса для IP-allowlist вебхука.
+
+    ВАЖНО (аудит безопасности): нельзя доверять первому элементу
+    X-Forwarded-For — nginx делает $proxy_add_x_forwarded_for, т.е. ДОПИСЫВАЕТ
+    реальный remote_addr к КЛИЕНТСКОМУ значению XFF. Значит первый элемент
+    полностью подконтролен атакующему и подделкой XFF любой мог бы выдать себя
+    за IP ЮKassa. Доверяем X-Real-IP, который nginx ЖЁСТКО ставит в $remote_addr
+    (перезаписывает клиентский), а при прямом обращении (dev, без прокси) —
+    адресу сокета. Клиентский XFF игнорируем полностью.
+    """
+    real_ip = (request.headers.get("x-real-ip") or "").strip()
+    if real_ip:
+        return real_ip
     return request.client.host if request.client else ""
 
 
@@ -337,14 +347,28 @@ def yookassa_webhook(payload: dict, request: Request, db: Session = Depends(get_
                     organization_id, new_plan.value, payment_id)
         return {"status": "ok", "refunded": True}
 
-    # Идемпотентность: если уже активировали этим же платежом — выходим.
+    # Идемпотентность + защита от replay (аудит безопасности, CRITICAL).
+    # ОДИН payment_id активирует подписку РОВНО ОДИН РАЗ за свой жизненный цикл.
+    # provider_subscription_id проставляется = payment_id ТОЛЬКО при активации,
+    # поэтому равенство `provider_subscription_id == payment_id` означает, что
+    # этим платежом подписку уже активировали. Любой последующий
+    # payment.succeeded с тем же id — это дубль (ретрай ЮKassa) или REPLAY, и
+    # НИЧЕГО менять не должен, независимо от текущего статуса
+    # (active/refunded/canceled/EXPIRED). Легитимное продление всегда приходит
+    # НОВЫМ платежом с новым id (renew_subscriptions).
+    #
+    # Раньше короткозамыкание срабатывало только при status=="active" — поэтому
+    # после возврата (refunded) или истечения периода (periodic ставит
+    # "expired", payment_id не сбрасывает) повторный проигрыш payment.succeeded
+    # (ЮKassa при ре-фетче отдаёт «succeeded» — возврат/истечение это отдельные
+    # события) РЕАКТИВИРОВАЛ подписку на +30 дней бесконечно. В связке с обходом
+    # IP-allowlist вебхука это давало вечный платный тариф бесплатно.
     if (
         event_type == "payment.succeeded"
         and payment_status == "succeeded"
-        and subscription.status == "active"
         and subscription.provider_subscription_id == payment_id
     ):
-        return {"status": "ok", "duplicate": True}
+        return {"status": "ok", "duplicate": True, "state": subscription.status}
 
     if event_type == "payment.succeeded" and payment_status == "succeeded":
         try:

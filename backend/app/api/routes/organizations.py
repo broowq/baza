@@ -33,10 +33,16 @@ _redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 def _revoke_all_user_refresh_tokens(user_id: str) -> None:
-    """Revoke all refresh tokens for a user by storing a revocation timestamp."""
+    """Revoke all refresh tokens for a user by storing a revocation timestamp.
+
+    TTL — по МАКСИМАЛЬНОМУ сроку жизни refresh-токена (remember-me, 30 дней),
+    а не обычному (7). Аудит: раньше маркер отзыва жил 7 дней, а «Запомнить
+    меня»-токен — 30, поэтому через 7 дней маркер исчезал и отозванная/угнанная
+    30-дневная сессия ВОСКРЕСАЛА ещё на ~23 дня.
+    """
     _redis_client.setex(
         f"user_tokens_revoked_at:{user_id}",
-        settings.refresh_token_expire_minutes * 60,
+        settings.refresh_token_remember_expire_minutes * 60,
         str(int(time.time())),
     )
 
@@ -111,8 +117,21 @@ def update_webhook(
     or AmoCRM webhook endpoint both work. Empty string disables.
     """
     url = (payload.lead_webhook_url or "").strip()
-    if url and not (url.startswith("http://") or url.startswith("https://")):
-        raise HTTPException(status_code=422, detail="URL должен начинаться с http:// или https://")
+    if url:
+        if not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(status_code=422, detail="URL должен начинаться с http:// или https://")
+        # SSRF-гард на этапе установки (аудит): вебхук-URL задаёт админ орги, а
+        # воркер потом POST'ит на него ПД лидов. Без проверки можно навести
+        # его на внутреннюю сеть / облачную метадату (169.254.169.254) или
+        # localhost-сервисы. Отсекаем приватные/loopback/link-local цели.
+        # На отправке (webhook_tasks) стоит второй гард (защита от DNS-rebind).
+        from app.utils.url_tools import _is_safe_url
+
+        if not _is_safe_url(url):
+            raise HTTPException(
+                status_code=422,
+                detail="URL вебхука недопустим: нельзя указывать внутренние/приватные адреса.",
+            )
     organization.lead_webhook_url = url
     db.commit()
     db.refresh(organization)
@@ -143,6 +162,11 @@ def create_invite(
         raise HTTPException(status_code=403, detail="Текущий тариф не поддерживает приглашения")
     if payload.role not in {"owner", "admin", "member"}:
         raise HTTPException(status_code=400, detail="Недопустимая роль")
+    # Эскалация привилегий (аудит, HIGH): роут открыт для owner И admin, но
+    # ВЫДАВАТЬ роль owner (полный контроль над тенантом) может ТОЛЬКО owner.
+    # Иначе admin приглашал бы owner-инвайт → принятие → захват организации.
+    if payload.role == "owner" and _membership.role != "owner":
+        raise HTTPException(status_code=403, detail="Только владелец может приглашать с ролью «владелец»")
     members_count = (
         db.scalar(select(func.count(Membership.id)).where(Membership.organization_id == organization.id)) or 0
     )
@@ -283,6 +307,17 @@ def update_member_role(
         raise HTTPException(status_code=404, detail="Участник не найден")
     if str(target_membership.user_id) == str(membership.user_id):
         raise HTTPException(status_code=400, detail="Нельзя изменить собственную роль")
+    # Нельзя разжаловать ПОСЛЕДНЕГО владельца — организация осталась бы без
+    # хозяина (никто не смог бы менять тариф/участников). Аудит: last-owner guard.
+    if target_membership.role == "owner" and payload.role != "owner":
+        owners_count = db.scalar(
+            select(func.count(Membership.id)).where(
+                Membership.organization_id == organization.id,
+                Membership.role == "owner",
+            )
+        ) or 0
+        if owners_count <= 1:
+            raise HTTPException(status_code=400, detail="Нельзя разжаловать единственного владельца организации")
     target_membership.role = payload.role
     log_action(
         db,
@@ -319,6 +354,20 @@ def remove_member(
         raise HTTPException(status_code=404, detail="Участник не найден")
     if str(target.user_id) == str(membership.user_id):
         raise HTTPException(status_code=400, detail="Нельзя удалить себя из организации")
+    # Эскалация/захват тенанта (аудит, HIGH): роут открыт owner И admin, но
+    # удалять ВЛАДЕЛЬЦА может только владелец — иначе admin выгонял бы owner'а
+    # и перехватывал контроль. Плюс защита от удаления последнего владельца.
+    if target.role == "owner":
+        if membership.role != "owner":
+            raise HTTPException(status_code=403, detail="Только владелец может удалить другого владельца")
+        owners_count = db.scalar(
+            select(func.count(Membership.id)).where(
+                Membership.organization_id == organization.id,
+                Membership.role == "owner",
+            )
+        ) or 0
+        if owners_count <= 1:
+            raise HTTPException(status_code=400, detail="Нельзя удалить единственного владельца организации")
     db.delete(target)
     log_action(
         db,

@@ -30,6 +30,7 @@ from app.schemas.auth import (
 )
 from app.services.audit import log_action
 from app.services.notifications import email_delivery_configured
+from app.utils.logredact import mask_email
 from app.services.quota import apply_plan_limits
 from app.services.registration_guard import (
     ensure_registration_allowed,
@@ -49,10 +50,17 @@ redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 def _revoke_all_user_refresh_tokens(user_id: str) -> None:
-    """Store a timestamp in Redis; any refresh token issued before this time is invalid."""
+    """Store a timestamp in Redis; any refresh token issued before this time is invalid.
+
+    TTL — по МАКСИМАЛЬНОМУ сроку жизни refresh (remember-me, 30 дней). Аудит:
+    раньше маркер жил 7 дней, а «Запомнить меня»-токен 30 → после смены/сброса
+    пароля через 7 дней маркер исчезал и старый (в т.ч. угнанный) токен снова
+    проходил проверку отзыва. Access-токен тоже проверяется против этого
+    маркера в deps.get_current_user, поэтому смена пароля рубит и access.
+    """
     redis_client.setex(
         f"user_tokens_revoked_at:{user_id}",
-        settings.refresh_token_expire_minutes * 60,
+        settings.refresh_token_remember_expire_minutes * 60,
         str(int(time.time())),
     )
 
@@ -223,7 +231,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         client_ip = request.client.host if request.client else "unknown"
         _auth_logger.warning(
             "Failed login attempt for email=%s from ip=%s",
-            normalized_email,
+            mask_email(normalized_email),
             client_ip,
         )
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
@@ -359,12 +367,21 @@ def change_password(
 
 @router.post("/forgot-password", response_model=AuthMessageResponse)
 def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    # Анти-enumeration (аудит): проверку доступности email-сервиса ДЕЛАЕМ ДО
+    # поиска юзера, чтобы ответ не зависел от существования email. Раньше для
+    # существующего email при недоступной почте отдавался 503, а для
+    # несуществующего — 200: это оракул перечисления аккаунтов. Теперь оба
+    # ответа одинаковы независимо от того, есть ли такой email.
+    email_ok = email_delivery_configured() or settings.app_env == "development"
+    generic = AuthMessageResponse(message="Если email существует, инструкция отправлена")
     normalized_email = payload.email.lower().strip()
     user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
-    if not user:
-        return AuthMessageResponse(message="Если email существует, инструкция отправлена")
-    if not email_delivery_configured() and settings.app_env != "development":
-        raise HTTPException(status_code=503, detail="Сервис email временно недоступен.")
+    if not user or not email_ok:
+        # Молча возвращаем одинаковый ответ. Недоступность почты логируем, но
+        # наружу не раскрываем (иначе — тот же оракул).
+        if user and not email_ok:
+            _auth_logger.warning("forgot-password: email delivery unavailable, skipping send")
+        return generic
     token = secrets.token_urlsafe(32)
     redis_client.setex(
         f"password_reset:{token}",
@@ -377,7 +394,7 @@ def forgot_password(payload: ForgotPasswordRequest, db: Session = Depends(get_db
         f"Ссылка для сброса пароля: {reset_link}",
         user.email,
     )
-    return AuthMessageResponse(message="Если email существует, инструкция отправлена")
+    return generic
 
 
 @router.post("/reset-password")

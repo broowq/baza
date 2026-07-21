@@ -3134,13 +3134,19 @@ def enrich_website_contacts(base_url: str) -> dict:
     # feed the content to parse(). On any failure treat as "all allowed".
     robots: RobotFileParser | None = None
     robots_url = f"{root_url.rstrip('/')}/robots.txt"
+    # SSRF-гард (аудит): у этого httpx-клиента НЕТ event-hook'а _ssrf_guard
+    # (он определён ниже), поэтому (1) проверяем robots_url на приватные адреса
+    # заранее и (2) отключаем follow_redirects — robots.txt лежит по
+    # фиксированному пути, следовать 30x-редиректу (в т.ч. на внутренний хост)
+    # незачем.
     try:
-        with httpx.Client(timeout=8.0, follow_redirects=True) as _rb_client:
-            _rb_resp = _rb_client.get(robots_url, headers={"User-Agent": DEFAULT_USER_AGENT})
-        if _rb_resp.status_code == 200:
-            robots = RobotFileParser()
-            robots.set_url(robots_url)
-            robots.parse(_rb_resp.text.splitlines())
+        if _is_safe_url(robots_url):
+            with httpx.Client(timeout=8.0, follow_redirects=False) as _rb_client:
+                _rb_resp = _rb_client.get(robots_url, headers={"User-Agent": DEFAULT_USER_AGENT})
+            if _rb_resp.status_code == 200:
+                robots = RobotFileParser()
+                robots.set_url(robots_url)
+                robots.parse(_rb_resp.text.splitlines())
     except Exception:
         # Any network/timeout error → proceed without robots.txt restriction
         robots = None

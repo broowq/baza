@@ -626,6 +626,23 @@ def list_jobs(
 _NOTES_MACHINE_PREFIX_RE = re.compile(r"^(?:relevance=\d+;\s*)?(?:demo=true;\s*)?")
 
 
+def _formula_safe(value):
+    """Нейтрализация CSV/XLSX formula-injection (аудит безопасности).
+
+    Значения лидов приходят из СКРЕЙПИНГА — злонамеренная компания может
+    назваться `=cmd|'/c calc'!A1` или `@SUM(...)`, и при открытии выгрузки в
+    Excel/LibreOffice формула ВЫПОЛНИТСЯ на машине пользователя (RCE у клиента).
+    Экранируем: если строка начинается с = + - @ или управляющих символов
+    (tab/CR/LF), предваряем одинарной кавычкой — Excel трактует ячейку как
+    текст. Нестроки (числа) возвращаем как есть.
+    """
+    if not isinstance(value, str):
+        return value
+    if value and value[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+        return "'" + value
+    return value
+
+
 def _export_website(lead: Lead) -> str:
     """Человеческий сайт для выгрузки: maps://2gis/{id} → ссылка на карточку
     2ГИС, прочие maps:// (нет публичного URL) → пусто."""
@@ -701,21 +718,21 @@ def export_project_csv(
             contacts = lead.contacts_json or lead.contacts or {}
             writer.writerow(
                 [
-                    lead.company,
-                    lead.city,
-                    _export_website(lead),
-                    lead.domain or extract_domain(lead.website),
-                    lead.email,
+                    _formula_safe(lead.company),
+                    _formula_safe(lead.city),
+                    _formula_safe(_export_website(lead)),
+                    _formula_safe(lead.domain or extract_domain(lead.website)),
+                    _formula_safe(lead.email),
                     lead.email_status,
-                    lead.phone,
-                    lead.address,
-                    (lead.description or "")[:600],
+                    _formula_safe(lead.phone),
+                    _formula_safe(lead.address),
+                    _formula_safe((lead.description or "")[:600]),
                     lead.score,
                     lead.status.value,
-                    lead.source_url,
-                    json.dumps(contacts, ensure_ascii=False),
+                    _formula_safe(lead.source_url),
+                    _formula_safe(json.dumps(contacts, ensure_ascii=False)),
                     str(bool(lead.demo)).lower(),
-                    lead.inn or "",
+                    _formula_safe(lead.inn or ""),
                     lead.legal_status or "",
                     "" if lead.rating is None else lead.rating,
                     "" if lead.review_count is None else lead.review_count,
@@ -790,33 +807,35 @@ def export_project_xlsx(
 
     row_num = 2
     for lead in db.execute(select(Lead).where(Lead.project_id == project.id)).yield_per(500).scalars():
-        ws.cell(row=row_num, column=1, value=lead.company or "")
-        ws.cell(row=row_num, column=2, value=lead.city or "")
+        # _formula_safe на всех строковых ячейках из лида/скрейпинга —
+        # защита от formula-injection при открытии в Excel (аудит).
+        ws.cell(row=row_num, column=1, value=_formula_safe(lead.company or ""))
+        ws.cell(row=row_num, column=2, value=_formula_safe(lead.city or ""))
         export_site = _export_website(lead)
-        website_cell = ws.cell(row=row_num, column=3, value=export_site)
+        website_cell = ws.cell(row=row_num, column=3, value=_formula_safe(export_site))
         if export_site.startswith("http"):
             website_cell.hyperlink = export_site
             website_cell.font = Font(color="0000FF", underline="single")
-        email_cell = ws.cell(row=row_num, column=4, value=lead.email or "")
+        email_cell = ws.cell(row=row_num, column=4, value=_formula_safe(lead.email or ""))
         if lead.email:
             email_cell.hyperlink = f"mailto:{lead.email}"
             email_cell.font = Font(color="0000FF", underline="single")
         ws.cell(row=row_num, column=5, value=email_status_labels.get(lead.email_status, lead.email_status))
-        phone_cell = ws.cell(row=row_num, column=6, value=lead.phone or "")
+        phone_cell = ws.cell(row=row_num, column=6, value=_formula_safe(lead.phone or ""))
         if lead.phone:
             phone_cell.hyperlink = f"tel:{lead.phone}"
             phone_cell.font = Font(color="0000FF", underline="single")
-        ws.cell(row=row_num, column=7, value=lead.address or "")
-        ws.cell(row=row_num, column=8, value=(lead.description or "")[:600])
+        ws.cell(row=row_num, column=7, value=_formula_safe(lead.address or ""))
+        ws.cell(row=row_num, column=8, value=_formula_safe((lead.description or "")[:600]))
         ws.cell(row=row_num, column=9, value=lead.score)
         ws.cell(row=row_num, column=10, value=status_labels.get(lead.status.value, lead.status.value))
-        ws.cell(row=row_num, column=11, value=", ".join(lead.tags or []))
+        ws.cell(row=row_num, column=11, value=_formula_safe(", ".join(lead.tags or [])))
         if lead.last_contacted_at:
             ws.cell(row=row_num, column=12, value=lead.last_contacted_at.strftime("%d.%m.%Y"))
         if lead.reminder_at:
             ws.cell(row=row_num, column=13, value=lead.reminder_at.strftime("%d.%m.%Y"))
-        ws.cell(row=row_num, column=14, value=_export_notes(lead))
-        ws.cell(row=row_num, column=15, value=lead.inn or "")
+        ws.cell(row=row_num, column=14, value=_formula_safe(_export_notes(lead)))
+        ws.cell(row=row_num, column=15, value=_formula_safe(lead.inn or ""))
         if lead.rating is not None:
             ws.cell(row=row_num, column=16, value=lead.rating)
         if lead.review_count is not None:
@@ -850,6 +869,9 @@ VALID_STATUSES = {s.value for s in LeadStatus}
 # Hard cap on rows accepted per import — guards against memory/DB blow-up from a
 # malicious or accidental giant upload.
 MAX_IMPORT_ROWS = 5000
+# Байтовый потолок загружаемого файла импорта (аудит, DoS). Совпадает с
+# nginx client_max_body_size (10m); дублируем на уровне приложения.
+MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 @router.post("/project/{project_id}", response_model=LeadOut, status_code=201)
@@ -965,9 +987,13 @@ def import_leads(
     if not (lower.endswith(".csv") or lower.endswith(".xlsx")):
         raise HTTPException(status_code=422, detail="Поддерживаются только файлы .csv или .xlsx")
 
-    content = file.file.read()
+    # Байтовый предел на уровне приложения (аудит, DoS): nginx режет тело на
+    # 10 МБ, но это defense-in-depth на случай прямого обращения/смены конфига.
+    content = file.file.read(MAX_IMPORT_BYTES + 1)
     if not content:
         raise HTTPException(status_code=422, detail="Пустой файл")
+    if len(content) > MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="Файл слишком большой (макс 10 МБ)")
 
     try:
         headers, rows = lead_import.parse_upload(filename, content)
