@@ -231,6 +231,8 @@ def score_lead(
     relevance_score: int = 0,
     segments: list[str] | None = None,
     description: str = "",
+    hiring: bool = False,
+    legal_status: str = "",
 ) -> int:
     """Скоринг лида 0–100 (≥80 — «горячий», 60–79 — amber).
 
@@ -375,10 +377,24 @@ def score_lead(
     if niche_key in ru_niches and (domain.endswith(".ru") or domain.endswith(".рф")):
         score += w("ru_domain_bonus", 3)
 
+    # Сигнал «компания нанимает» (hh.ru open_vacancies > 0): растущая компания
+    # тратит деньги — небольшой бонус. НЕ входит в match_pts: найм не
+    # подтверждает принадлежность к целевой нише, кап-70 остаётся в силе.
+    if hiring:
+        score += w("hiring_bonus", 5)
+
     # АУДИТ FIX 1 (P0): без единого матч-сигнала (keyword/segment/relevance)
     # лид не может быть «горячим». Раньше base(35)+domain(10)+email(20)+
     # phone(10)+address(8)=83 ≥ 80 при НУЛЕВОЙ релевантности нише.
     if match_pts == 0:
         score = min(score, 70)
+
+    # ЕГРЮЛ-статус (DaData): мёртвому юрлицу продать нельзя — жёсткий кап
+    # поверх всего остального. LIQUIDATING — юрлицо ещё живо, но сделка
+    # рискованна: кап на уровне «холодного» лида.
+    if legal_status in ("LIQUIDATED", "BANKRUPT"):
+        score = min(score, 20)
+    elif legal_status == "LIQUIDATING":
+        score = min(score, 45)
 
     return _clamp(score)

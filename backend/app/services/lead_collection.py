@@ -629,7 +629,15 @@ def _merge_fields(target: dict, source: dict) -> None:
     enrichment path) that the 2GIS/registry base row lacks — dropping it threw
     away the contact trail.
     """
-    merge_keys = ["address", "city", "phone", "email", "company", "category", "description", "website", "domain"]
+    # Ревью 21.07 (major): при swap'е базы (веб-кандидат победил 2GIS по
+    # relevance) поля батча «поиск v2» — rating/review_count/vk/telegram — и
+    # firm_id/extra_phones молча выбрасывались. `not target.get(key)` корректен
+    # и для None/""/[]: пустое у цели → берём из источника.
+    merge_keys = [
+        "address", "city", "phone", "email", "company", "category",
+        "description", "website", "domain",
+        "vk", "telegram", "rating", "review_count", "firm_id", "extra_phones",
+    ]
     for key in merge_keys:
         if not target.get(key) and source.get(key):
             target[key] = source[key]
@@ -1512,6 +1520,38 @@ def _resolve_2gis_city_id(geo: str) -> str | None:
     return city_id
 
 
+def _parse_2gis_reviews(item: dict) -> tuple[float | None, int | None]:
+    """Рейтинг и число отзывов из блока items.reviews ответа 2GIS.
+
+    Терпит любой мусор: нет блока / нули / строки → (None, None) либо
+    частичный результат. Нулевой рейтинг трактуем как «нет данных» (2GIS
+    отдаёт 0 у карточек без оценок — это не «одна звезда»).
+    """
+    reviews = item.get("reviews") or {}
+    if not isinstance(reviews, dict):
+        return None, None
+    rating: float | None = None
+    review_count: int | None = None
+    try:
+        raw = reviews.get("general_rating") or reviews.get("rating")
+        if raw is not None:
+            rating = round(float(raw), 1)
+            # NaN-безопасная форма (NaN проваливал `<=`-пару, ревью 21.07).
+            if not (0 < rating <= 5):
+                rating = None
+    except (TypeError, ValueError):
+        rating = None
+    try:
+        raw_n = reviews.get("general_review_count") or reviews.get("review_count")
+        if raw_n is not None:
+            review_count = max(0, int(raw_n))
+    except (TypeError, ValueError):
+        review_count = None
+    if rating is None and not review_count:
+        return None, None
+    return rating, review_count
+
+
 def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
     global _TWOGIS_DEAD_KEY
     if _TWOGIS_DEAD_KEY:
@@ -1525,7 +1565,10 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
         return []
 
     # ── Redis cache: same (niche, geo) → skip API call entirely ──
-    cache_k = _cache_key("search", niche, geo, str(limit))
+    # v2 (21.07): формат кэшируемых кандидатов расширился (rating/vk/…) —
+    # смена имени ключа инвалидирует записи старого формата, иначе активные
+    # ниши до 7 дней отдавали бы кандидатов без рейтинга/соцсетей.
+    cache_k = _cache_key("search_v2", niche, geo, str(limit))
     r = _get_redis()
     if r:
         try:
@@ -1549,7 +1592,9 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
         "type": "branch",
         "page_size": page_size,
         "key": api_key,
-        "fields": "items.contact_groups,items.adm_div,items.external_content,items.org",
+        # items.reviews — рейтинг/число отзывов (бесплатно в том же ответе);
+        # на тарифах без reviews ключ просто отсутствует, парсер терпит.
+        "fields": "items.contact_groups,items.adm_div,items.external_content,items.org,items.reviews",
     }
     if city_id:
         params["city_id"] = city_id
@@ -1611,6 +1656,8 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                     website = ""
                     phone = ""
                     email = ""
+                    vk = ""
+                    telegram = ""
                     extra_phones: list[str] = []
                     # Try org.website first (more reliable)
                     org_info = item.get("org", {})
@@ -1621,6 +1668,22 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                     for group in item.get("contact_groups", []):
                         for contact in group.get("contacts", []):
                             ctype = contact.get("type")
+                            if ctype in ("vkontakte", "telegram"):
+                                # Соцсети 2GIS кладёт в url; text/value там —
+                                # подпись («Наша группа»). Санитайзер отсекает
+                                # не-URL мусор (ревью 21.07).
+                                soc = sanitize_social(
+                                    "vk" if ctype == "vkontakte" else "telegram",
+                                    contact.get("url") or contact.get("value") or "",
+                                )
+                                if soc:
+                                    if ctype == "vkontakte" and not vk:
+                                        vk = soc
+                                    elif ctype == "telegram" and not telegram:
+                                        telegram = soc
+                                continue
+                            # Для phone/email/website url НЕ фолбэк: там лежат
+                            # tel:/mailto:/соц-ссылки — мусор в этих полях.
                             cval = (contact.get("text") or contact.get("value") or "").strip()
                             if not cval:
                                 continue
@@ -1659,6 +1722,7 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             break
 
                     firm_id = str(item.get("id") or "")
+                    rating, review_count = _parse_2gis_reviews(item)
                     results.append(
                         {
                             "company": name[:180],
@@ -1668,6 +1732,10 @@ def _search_2gis(niche: str, geo: str, limit: int) -> list[dict]:
                             "phone": phone,
                             "extra_phones": extra_phones,
                             "email": email,
+                            "vk": vk,
+                            "telegram": telegram,
+                            "rating": rating,
+                            "review_count": review_count,
                             "source_url": f"https://2gis.ru/search/{quote_plus(niche)}",
                             "snippet": f"{address_name} {phone}".strip()[:400],
                             "address": address_name[:300],
@@ -2471,6 +2539,7 @@ def search_leads(
     website_preference: str = "any",
     use_yandex: bool = True,
     organization_id: str | None = None,
+    deep_pages: bool = False,
 ) -> list[dict]:
     """Public entry point. Runs the single-tier search, and if the result
     set is materially below target, also probes the broader geographic
@@ -2488,7 +2557,7 @@ def search_leads(
         niche=niche, geography=geography, segments=segments,
         prompt=prompt, excluded_segments=excluded_segments,
         website_preference=website_preference, use_yandex=use_yandex,
-        organization_id=organization_id,
+        organization_id=organization_id, deep_pages=deep_pages,
     )
     # If we already have a healthy chunk OR geography is 'Россия' (no broader
     # tier to expand to), return as-is.
@@ -2516,7 +2585,7 @@ def search_leads(
             niche=niche, geography=tier_geo, segments=segments,
             prompt=prompt, excluded_segments=excluded_segments,
             website_preference=website_preference, use_yandex=use_yandex,
-            organization_id=organization_id,
+            organization_id=organization_id, deep_pages=deep_pages,
         )
         if not extra:
             continue
@@ -2544,7 +2613,7 @@ def search_leads(
     return merged[:limit]
 
 
-def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", excluded_segments: list[str] | None = None, website_preference: str = "any", use_yandex: bool = True, organization_id: str | None = None) -> list[dict]:
+def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography: str = "", segments: list[str] | None = None, prompt: str = "", excluded_segments: list[str] | None = None, website_preference: str = "any", use_yandex: bool = True, organization_id: str | None = None, deep_pages: bool = False) -> list[dict]:
     effective_niche = (niche or query).strip()
     effective_geo = geography.strip()
     effective_segments = segments or []
@@ -2802,11 +2871,18 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
         )
         yandex_used = use_yandex_search  # был ли Яндекс основным на старте прохода
         yx_requests = 0                  # платные запросы Yandex Search за проход
+        # Глубина выдачи: базово web_search_pages (3); на повторных сборах
+        # (deep_pages, у проекта уже много компаний) — web_search_pages_deep,
+        # чтобы хвост выдачи тоже прочёсывался и ниша «истощалась» позже.
+        # Кап платных запросов _YANDEX_SEARCH_MAX_REQ_PER_TIER остаётся жёстким.
+        _pages_cap = max(1, int(getattr(
+            settings, "web_search_pages_deep" if deep_pages else "web_search_pages", 3
+        )))
         with httpx.Client(timeout=client_timeout, follow_redirects=True) as client:
             for search_query in queries:
                 if _web_pass_done():
                     break
-                for page_num in range(1, 4):
+                for page_num in range(1, _pages_cap + 1):
                     if use_yandex_search:
                         # Кап на платные запросы: на разреженной нише резерв
                         # веб-прохода может не набраться, и без капа fan-out
@@ -2917,6 +2993,63 @@ def _search_leads_one_tier(query: str, limit: int, *, niche: str = "", geography
 
 _ANCHOR_RE = re.compile(r'<a\b[^>]*?href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', re.IGNORECASE | re.DOTALL)
 _CONTACT_LINK_KW = ("контакт", "contact", "kontakt", "связ", "реквизит", "о компании", "o-kompanii", "about")
+
+# ── Соцсети компании (VK / Telegram) ────────────────────────────────────────
+# Для компаний «без сайта» и малого бизнеса группа VK — часто единственный
+# digital-канал; для менеджера это дополнительный способ связаться с лидом.
+# Сервисные пути VK (share/away/video/wall/…) и telegram-виджеты отсекаются.
+_VK_LINK_RE = re.compile(
+    # Лукахед заякорен (ревью 21.07): «share»/«video»/… режутся только как
+    # ЦЕЛЫЙ сегмент (share.php, video-123), а легитимные ники с таким
+    # префиксом (sharemarket, videostudio70) проходят.
+    r"https?://(?:www\.|m\.)?vk\.com/"
+    r"(?!(?:share|away|images|video|wall|feed|app\d|widget|dev|id0)(?![A-Za-z]))"
+    r"[A-Za-z0-9_.\-]{3,64}",
+    re.IGNORECASE,
+)
+_TG_LINK_RE = re.compile(
+    # Инвайты t.me/joinchat/… и t.me/+… поддержаны явно (ревью 21.07: раньше
+    # joinchat обрезался до нерабочей ссылки t.me/joinchat).
+    r"https?://(?:www\.)?t\.me/"
+    r"(?:joinchat/[A-Za-z0-9_\-]{10,}|\+[A-Za-z0-9_\-]{10,}"
+    r"|(?!share\b|iv\b|joinchat\b)[A-Za-z0-9_]{4,64})",
+    re.IGNORECASE,
+)
+
+
+def sanitize_social(kind: str, value: str) -> str:
+    """Валидный https-URL соцсети или "". kind: "vk" | "telegram".
+
+    Единая точка защиты (ревью 21.07): значения приходят из чужого HTML и
+    2GIS-контактов (голые ники, подписи «Наша группа», произвольные схемы) —
+    в лид/склад/href фронта уходит ТОЛЬКО то, что матчит наш регекс соцссылок.
+    Бессхемные vk.com/… и t.me/… нормализуются в https://.
+    """
+    v = (value or "").strip()
+    if not v:
+        return ""
+    low = v.lower()
+    if not low.startswith(("http://", "https://")):
+        if low.startswith(("vk.com/", "www.vk.com/", "m.vk.com/", "t.me/", "www.t.me/")):
+            v = "https://" + v
+        else:
+            return ""
+    rex = _VK_LINK_RE if kind == "vk" else _TG_LINK_RE
+    m = rex.match(v)
+    return m.group(0).rstrip(".,;)") if m else ""
+
+
+def _extract_social_links(html: str) -> dict:
+    """Первые VK/Telegram ссылки из HTML. {"vk": str, "telegram": str} —
+    пустые строки, если не нашли."""
+    if not html:
+        return {"vk": "", "telegram": ""}
+    vk_m = _VK_LINK_RE.search(html)
+    tg_m = _TG_LINK_RE.search(html)
+    return {
+        "vk": (vk_m.group(0) if vk_m else "").rstrip(".,;)"),
+        "telegram": (tg_m.group(0) if tg_m else "").rstrip(".,;)"),
+    }
 
 
 def _discover_contact_links(html: str, root_url: str, domain: str) -> list[str]:
@@ -3104,6 +3237,13 @@ def enrich_website_contacts(base_url: str) -> dict:
     # вопрос «чем занимается компания». Возвращаем отдельным ключом; вызывающие
     # без него живут как раньше (dict.get).
     result["site_description"] = _extract_site_description(home_html)
+    # Соцсети компании (VK/Telegram) — дополнительные каналы связи; ключи
+    # опциональные, старые вызывающие живут как раньше.
+    social = _extract_social_links(gathered_html)
+    if social.get("vk"):
+        result["vk"] = social["vk"]
+    if social.get("telegram"):
+        result["telegram"] = social["telegram"]
     logger.info(
         "enrich_website_contacts: %s — %d pages, %d emails, %d phones, %d addresses%s",
         base_url,

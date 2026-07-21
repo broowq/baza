@@ -679,6 +679,14 @@ def export_project_csv(
                 "source_url",
                 "contacts_json",
                 "demo",
+                # Новые колонки (батч «поиск v2») — строго В ХВОСТ: потребители
+                # CSV с позиционным парсингом не должны ломаться (та же
+                # политика, что в XLSX-экспорте).
+                "inn",
+                "legal_status",
+                "rating",
+                "review_count",
+                "hiring_vacancies",
             ]
         )
         yield output.getvalue()
@@ -707,6 +715,11 @@ def export_project_csv(
                     lead.source_url,
                     json.dumps(contacts, ensure_ascii=False),
                     str(bool(lead.demo)).lower(),
+                    lead.inn or "",
+                    lead.legal_status or "",
+                    "" if lead.rating is None else lead.rating,
+                    "" if lead.review_count is None else lead.review_count,
+                    "" if lead.hiring_vacancies is None else lead.hiring_vacancies,
                 ]
             )
             yield output.getvalue()
@@ -751,6 +764,10 @@ def export_project_xlsx(
         ("О компании", 45), ("Score", 8), ("Статус", 14),
         ("Теги", 20), ("Последний контакт", 16), ("Напомнить", 16),
         ("Заметка", 40),
+        # Качество компании (батч «поиск v2») — в хвосте, чтобы не сдвигать
+        # привычные пользователям колонки.
+        ("ИНН", 14), ("Рейтинг", 9), ("Отзывы", 9), ("Вакансии (hh)", 12),
+        ("Статус юрлица", 16),
     ]
     for i, (title, width) in enumerate(headers, 1):
         cell = ws.cell(row=1, column=i, value=title)
@@ -799,6 +816,19 @@ def export_project_xlsx(
         if lead.reminder_at:
             ws.cell(row=row_num, column=13, value=lead.reminder_at.strftime("%d.%m.%Y"))
         ws.cell(row=row_num, column=14, value=_export_notes(lead))
+        ws.cell(row=row_num, column=15, value=lead.inn or "")
+        if lead.rating is not None:
+            ws.cell(row=row_num, column=16, value=lead.rating)
+        if lead.review_count is not None:
+            ws.cell(row=row_num, column=17, value=lead.review_count)
+        if lead.hiring_vacancies is not None:
+            ws.cell(row=row_num, column=18, value=lead.hiring_vacancies)
+        legal_labels = {
+            "ACTIVE": "действует", "LIQUIDATING": "ликвидируется",
+            "LIQUIDATED": "ликвидирована", "BANKRUPT": "банкротство",
+            "REORGANIZING": "реорганизация", "": "",
+        }
+        ws.cell(row=row_num, column=19, value=legal_labels.get(lead.legal_status or "", lead.legal_status or ""))
         row_num += 1
 
     # Write to in-memory buffer

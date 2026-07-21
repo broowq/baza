@@ -43,6 +43,11 @@ def _norm_name(s: str) -> str:
     return " ".join(str(s).lower().replace("ё", "е").split()).strip()
 
 
+# Статусы ЕГРЮЛ, при которых компания НЕ лид (см. search_warehouse и скоринг).
+# LIQUIDATING/REORGANIZING не в списке: юрлицо ещё живо, продать ему можно.
+_DEAD_LEGAL_STATUSES = ("LIQUIDATED", "BANKRUPT")
+
+
 def _dedup_key(domain: str, name: str, city: str) -> str:
     """Identity key for upsert dedupe.
 
@@ -209,6 +214,38 @@ def _upsert_one(db: Session, key: str, c: dict, *, niche_norm: str) -> None:
     contacts_json = c.get("contacts_json") or {}
     if not isinstance(contacts_json, dict):
         contacts_json = {}
+    contacts_json = dict(contacts_json)  # не мутируем словарь кандидата
+    # Соцсети кандидат несёт top-level (2GIS/краулер) — складываем в
+    # contacts_json через единый санитайзер (в склад — только валидные
+    # https-ссылки vk.com/t.me; ревью 21.07). Ленивый импорт: не тащим
+    # тяжёлый lead_collection при импорте склада.
+    for _sk in ("vk", "telegram"):
+        _sv = c.get(_sk) if isinstance(c.get(_sk), str) else ""
+        if _sv and not contacts_json.get(_sk):
+            try:
+                from app.services.lead_collection import sanitize_social
+                _sv = sanitize_social(_sk, _sv)
+            except Exception:
+                _sv = _sv.strip() if _sv.lower().startswith(("http://", "https://")) else ""
+            if _sv:
+                contacts_json[_sk] = _sv
+
+    # Рейтинг/отзывы с карт: терпим мусор, нули = «нет данных».
+    rating: float | None = None
+    review_count: int | None = None
+    try:
+        if c.get("rating") is not None:
+            rating = round(float(c["rating"]), 1)
+            # NaN-безопасная форма (NaN проваливал `<=`-пару, ревью 21.07).
+            if not (0 < rating <= 5):
+                rating = None
+    except (TypeError, ValueError):
+        rating = None
+    try:
+        if c.get("review_count") is not None:
+            review_count = max(0, int(c["review_count"]))
+    except (TypeError, ValueError):
+        review_count = None
 
     score = int(c.get("score") or c.get("relevance_score") or 0)
     description = c.get("snippet") or c.get("description") or ""
@@ -217,6 +254,21 @@ def _upsert_one(db: Session, key: str, c: dict, *, niche_norm: str) -> None:
     existing = db.execute(
         select(Company).where(Company.dedup_key == key).with_for_update()
     ).scalar_one_or_none()
+
+    if existing is None and inn:
+        # Дедуп по ИНН: та же компания могла осесть в складе под другим
+        # dedup_key (домен vs имя|город, переезд, переименование). ИНН —
+        # более сильная идентичность; сливаем в существующую строку вместо
+        # создания дубля.
+        # companies.inn НЕ уникален исторически — детерминированный выбор
+        # цели слияния (старейшая строка), иначе .first() без ORDER BY давал
+        # случайного из дублей (ревью 21.07).
+        existing = db.execute(
+            select(Company)
+            .where(Company.inn == inn)
+            .order_by(Company.first_seen_at.asc(), Company.id.asc())
+            .with_for_update()
+        ).scalars().first()
 
     if existing is None:
         company = Company(
@@ -236,6 +288,9 @@ def _upsert_one(db: Session, key: str, c: dict, *, niche_norm: str) -> None:
             twogis_firm_id=_clip(firm_id, 80),
             rusprofile_id=_clip(rusprofile_id, 80),
             inn=_clip(inn, 20),
+            legal_status=_clip(str(c.get("legal_status") or ""), 20),
+            rating=rating,
+            review_count=review_count,
             description=description,
             contacts_json=contacts_json,
             best_score=score,
@@ -273,8 +328,24 @@ def _upsert_one(db: Session, key: str, c: dict, *, niche_norm: str) -> None:
         existing.sources = _merge_distinct(existing.sources, source)
     if categories:
         existing.categories = _merge_distinct(existing.categories, *categories)
-    if contacts_json and not existing.contacts_json:
-        existing.contacts_json = contacts_json
+    if contacts_json:
+        # Поключевой merge (fill-empty): vk/telegram и будущие ключи не должны
+        # ждать, пока у строки опустеет ВЕСЬ contacts_json.
+        merged_cj = dict(existing.contacts_json or {})
+        cj_changed = False
+        for k, v in contacts_json.items():
+            if v and not merged_cj.get(k):
+                merged_cj[k] = v
+                cj_changed = True
+        if cj_changed:
+            existing.contacts_json = merged_cj
+
+    # Рейтинг/отзывы обновляем на свежайшие не-пустые (отзывы накапливаются,
+    # рейтинг дрейфует — «последнее наблюдение» точнее старого).
+    if rating is not None:
+        existing.rating = rating
+    if review_count is not None:
+        existing.review_count = review_count
 
     existing.times_seen = (existing.times_seen or 0) + 1
     existing.last_seen_at = now
@@ -387,6 +458,11 @@ def search_warehouse(
         seg_list = [s.strip() for s in (segments or []) if s and s.strip()]
 
         stmt = select(Company)
+
+        # ── мёртвые юрлица не выдаются ───────────────────────────────────
+        # ЕГРЮЛ-статус (DaData, enrich write-back): ликвидированные и
+        # банкроты — не лиды. "" (не проверяли) и ACTIVE/… проходят.
+        stmt = stmt.where(Company.legal_status.notin_(_DEAD_LEGAL_STATUSES))
 
         # ── niche predicate ──────────────────────────────────────────────
         # NB: case folding is done in Python (_case_variants) because the local
@@ -533,6 +609,14 @@ def _company_to_candidate(row: Company) -> dict:
         "source_url": row.website or "",
         "snippet": row.description or "",
         "categories": list(row.categories or []),
+        # Качество компании: рейтинг/отзывы с карт, ЕГРЮЛ-идентичность и
+        # соцсети — прокидываются в лид при сохранении дозы.
+        "rating": row.rating,
+        "review_count": row.review_count,
+        "inn": row.inn or "",
+        "legal_status": row.legal_status or "",
+        "vk": (row.contacts_json or {}).get("vk") or "",
+        "telegram": (row.contacts_json or {}).get("telegram") or "",
         "external_id": external_id,
         # firm_id / rusprofile_id mirror the originating-source identifiers so the
         # persist loop in collect_leads_task can rebuild external_id and the

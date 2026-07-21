@@ -69,6 +69,24 @@ class Settings(BaseSettings):
     # Суточный ГЛОБАЛЬНЫЙ потолок платных web-lookup'ов (все орги суммарно) —
     # предохранитель от кронового жжения; кэш-хиты не считаются.
     web_lookup_daily_cap: int = 200
+    # ── DaData Suggestions (ЕГРЮЛ по названию: ИНН, статус, ОКВЭД) ────────
+    # Ключ с dadata.ru (бесплатно до 10k запросов/сутки). Пусто = сервис
+    # выключен, обогащение работает как раньше. Кэш вердиктов 30 дней.
+    dadata_api_key: str = ""
+    dadata_max_per_job: int = 25
+    # ── hh.ru (открытый API, без ключа) — сигнал «компания нанимает» ──────
+    hh_enabled: bool = True
+    hh_max_per_job: int = 15
+    hh_user_agent: str = "BAZA-LeadGen/1.0 (support@usebaza.ru)"
+    # Кап проходов обогащения для лида, у которого так и нет контактов:
+    # после N безрезультатных попыток лид перестаёт занимать слоты enrich
+    # (пока пользователь не запустит обогащение по нему явно).
+    enrich_attempts_cap: int = 3
+    # Глубина веб-поиска: страниц выдачи на запрос. deep-режим включается на
+    # повторных сборах (у проекта уже ≥50 компаний) — ниша «истощается»
+    # позже, потому что хвост выдачи тоже прочёсывается.
+    web_search_pages: int = 3
+    web_search_pages_deep: int = 5
     password_reset_expire_minutes: int = 30
     frontend_app_url: str = "http://localhost:3000"
     log_level: str = "INFO"

@@ -731,6 +731,14 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
   /* Derive useful values */
   const websiteOk = detail?.website && /^https?:\/\//i.test(detail.website.trim());
   const isAccent = (detail?.score ?? 0) >= 80;
+  // Качество компании (батч «поиск v2»): соцсети из contacts_json, статус юрлица.
+  // В href уходят ТОЛЬКО http(s)-ссылки — значения исторически могли прийти из
+  // чужого HTML/2GIS без санитайзера (защита в глубину поверх бэкенда).
+  const rawVk = typeof detail?.contacts_json?.vk === "string" ? detail.contacts_json.vk : "";
+  const rawTg = typeof detail?.contacts_json?.telegram === "string" ? detail.contacts_json.telegram : "";
+  const socialVk = /^https?:\/\//i.test(rawVk) ? rawVk : "";
+  const socialTg = /^https?:\/\//i.test(rawTg) ? rawTg : "";
+  const deadLegal = detail?.legal_status === "LIQUIDATED" || detail?.legal_status === "BANKRUPT";
   const activeSequences = (sequences ?? []).filter((s) => s.status === "active");
   const memberName = (uid?: string | null): string => {
     if (!uid) return "";
@@ -814,6 +822,40 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                       {detail.source && (
                         <span className="badge badge--source">
                           {SOURCE_LABELS[detail.source] ?? detail.source}
+                        </span>
+                      )}
+                      {deadLegal && (
+                        <span
+                          className="badge"
+                          style={{ color: "var(--rose)", borderColor: "var(--rose)" }}
+                          title="Статус юрлица по ЕГРЮЛ"
+                        >
+                          {detail.legal_status === "BANKRUPT" ? "Банкротство" : "Ликвидирована"}
+                        </span>
+                      )}
+                      {typeof detail.rating === "number" && (
+                        <span
+                          className="chip chip-sans py-0.5 px-1.5 text-[10px]"
+                          title="Рейтинг компании на картах (2ГИС)"
+                        >
+                          ★ {detail.rating.toFixed(1)}
+                          {detail.review_count ? ` · ${detail.review_count} отз.` : ""}
+                        </span>
+                      )}
+                      {typeof detail.hiring_vacancies === "number" && detail.hiring_vacancies > 0 && (
+                        <span
+                          className="chip chip-sans py-0.5 px-1.5 text-[10px]"
+                          title="Открытые вакансии на hh.ru — компания растёт и тратит деньги"
+                        >
+                          Нанимает · {detail.hiring_vacancies}
+                        </span>
+                      )}
+                      {detail.inn && (
+                        <span
+                          className="chip chip-sans py-0.5 px-1.5 text-[10px] font-mono"
+                          title="ИНН по ЕГРЮЛ (DaData)"
+                        >
+                          ИНН {detail.inn}
                         </span>
                       )}
                       {hasEngagement && (
@@ -1048,6 +1090,34 @@ export function LeadDetailDrawer({ leadId, onClose, onLeadUpdate }: LeadDetailDr
                           {detail.phone}
                         </a>
                         <CopyButton value={detail.phone} />
+                      </div>
+                    )}
+                    {socialVk && (
+                      <div className="flex items-center gap-2 px-3 py-2.5">
+                        <MessageCircle size={13} className="shrink-0 opacity-48" />
+                        <a
+                          href={socialVk}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="caption min-w-0 flex-1 truncate hover:text-[var(--t-100)]"
+                        >
+                          {socialVk.replace(/^https?:\/\//, "")}
+                        </a>
+                        <CopyButton value={socialVk} />
+                      </div>
+                    )}
+                    {socialTg && (
+                      <div className="flex items-center gap-2 px-3 py-2.5">
+                        <Send size={13} className="shrink-0 opacity-48" />
+                        <a
+                          href={socialTg}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="caption min-w-0 flex-1 truncate hover:text-[var(--t-100)]"
+                        >
+                          {socialTg.replace(/^https?:\/\//, "")}
+                        </a>
+                        <CopyButton value={socialTg} />
                       </div>
                     )}
                     {detail.address && (

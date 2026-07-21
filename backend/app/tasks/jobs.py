@@ -5,15 +5,16 @@ from uuid import UUID
 
 from celery.exceptions import SoftTimeLimitExceeded
 from croniter import croniter
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from app.db.session import SessionLocal
 from app.core.config import get_settings
-from app.models import CollectionJob, JobStatus, Lead, Membership, Organization, Project, User
+from app.models import CollectionJob, Company, JobStatus, Lead, LeadStatus, Membership, Organization, Project, User
 from app.services import company_warehouse
+from app.services import dadata, hh
 from app.services import quota
-from app.services.lead_collection import _NATIONWIDE_GEOS, _get_redis, enrich_2gis_lead, enrich_website_contacts, search_leads, yandex_search_company_lookup
+from app.services.lead_collection import _NATIONWIDE_GEOS, _get_redis, enrich_2gis_lead, enrich_website_contacts, sanitize_social, search_leads, yandex_search_company_lookup
 from app.services.llm_filter import filter_candidates_llm
 from app.services.notifications import send_email, send_telegram
 from app.services.scoring import score_lead
@@ -91,6 +92,37 @@ def _candidate_saveable(c: dict) -> bool:
         if not phone_val and not address_val and not _has_rusprofile_id(c):
             return False
     return True
+
+
+def _rejected_examples(db, project_id, cap: int = 12) -> list[str]:
+    """Имена (+ краткое описание) rejected-лидов проекта — негативные примеры
+    для LLM-фильтра (петля обратной связи, 21.07.2026). Свежайшие первыми.
+
+    Best-effort: любая ошибка → пустой список, сбор работает как раньше.
+    """
+    try:
+        # created_at (не updated_at!): любая правка заметок отклонённого лида
+        # меняла бы окно топ-N → дрожание кэш-ключа LLM-фильтра без нового
+        # негативного сигнала (ревью 21.07).
+        rows = db.execute(
+            select(Lead.company, Lead.description)
+            .where(Lead.project_id == project_id, Lead.status == LeadStatus.rejected)
+            .order_by(Lead.created_at.desc())
+            .limit(cap)
+        ).all()
+    except Exception:
+        logger.debug("rejected-examples fetch failed", exc_info=True)
+        return []
+    out: list[str] = []
+    for company, desc in rows:
+        # Нормализация против промпт-инъекции: схлопнуть переводы строк и
+        # капнуть длину (текст под контролем пользователя/чужих сайтов).
+        company = " ".join((company or "").split())[:80]
+        if not company:
+            continue
+        desc = " ".join((desc or "").split())[:60]
+        out.append(f"{company} ({desc})" if desc else company)
+    return out
 
 
 def _as_utc(dt: datetime | None) -> datetime | None:
@@ -317,6 +349,9 @@ def collect_leads_task(job_id: str) -> None:
         # Companies already collected for THIS project — excluded so every dose
         # brings genuinely NEW businesses (no repeats on re-run).
         already_keys = _project_dedup_keys(db, project.id)
+        # Петля обратной связи: rejected-лиды проекта → негативные примеры для
+        # LLM-фильтра дозы (кэш вердиктов инвалидируется содержимым списка).
+        rejected_examples = _rejected_examples(db, project.id)
 
         candidates: list[dict] = []
         chosen: set[str] = set(already_keys)
@@ -412,6 +447,10 @@ def collect_leads_task(job_id: str) -> None:
                     website_preference=website_preference,
                     use_yandex=use_yandex,
                     organization_id=str(job.organization_id),
+                    # Повторный сбор (проект уже накопил компании) → веб-проход
+                    # идёт глубже по страницам выдачи: хвост ниши тоже
+                    # прочёсывается, «истощение» наступает позже.
+                    deep_pages=len(already_keys) >= 50,
                 )
                 live_count = len(live)
                 # Web rows (searxng/bing) carry no city → their warehouse rows
@@ -431,6 +470,29 @@ def collect_leads_task(job_id: str) -> None:
                         logger.info("warehouse: seeded %d/%d live finds", stored, live_count)
                     except Exception:
                         logger.warning("warehouse seed write-through failed", exc_info=True)
+                        db.rollback()
+                    # Live-кандидаты не знают ЕГРЮЛ-статус, известный складу
+                    # (DaData write-back прошлых обогащений): SQL-фильтр
+                    # search_warehouse мёртвых отсеет, но _take(live)-фолбэк
+                    # ниже пронёс бы их лидами (ревью 21.07). Сверяем разом.
+                    try:
+                        live_keys = [k for k in {company_warehouse.candidate_key(r) for r in live} if k]
+                        if live_keys:
+                            dead_keys = set(db.execute(
+                                select(Company.dedup_key).where(
+                                    Company.dedup_key.in_(live_keys),
+                                    Company.legal_status.in_(("LIQUIDATED", "BANKRUPT")),
+                                )
+                            ).scalars())
+                            if dead_keys:
+                                chosen.update(dead_keys)
+                                live = [
+                                    r for r in live
+                                    if company_warehouse.candidate_key(r) not in dead_keys
+                                ]
+                                logger.info("live filter: %d ликвидированных отсеяно по складу", len(dead_keys))
+                    except Exception:
+                        logger.debug("dead-status live filter failed", exc_info=True)
                         db.rollback()
                     # Re-select the dose from the freshly-seeded warehouse so the
                     # whole selection stays single-sourced and consistently ranked.
@@ -504,6 +566,7 @@ def collect_leads_task(job_id: str) -> None:
                     prompt=user_prompt, excluded_segments=excluded_segments,
                     website_preference=website_preference,
                     organization_id=str(job.organization_id),
+                    rejected_examples=rejected_examples,
                 )
             except Exception:
                 logger.warning("dose LLM filter failed — delivering unfiltered dose", exc_info=True)
@@ -551,6 +614,7 @@ def collect_leads_task(job_id: str) -> None:
                         prompt=user_prompt, excluded_segments=excluded_segments,
                         website_preference=website_preference,
                         organization_id=str(job.organization_id),
+                        rejected_examples=rejected_examples,
                     )
                 except Exception:
                     logger.warning("top-up LLM filter failed — keeping unfiltered top-up", exc_info=True)
@@ -736,6 +800,9 @@ def collect_leads_task(job_id: str) -> None:
                 # +8/+16 segment bonus. Previously omitted, which silently
                 # cost real B2B buyers ~10 points relative to seller noise.
                 segments=effective_segments,
+                # Складская строка может уже знать статус юрлица (DaData
+                # write-back прошлых обогащений) — мёртвым кап сразу.
+                legal_status=str(c.get("legal_status") or ""),
             )
             # Extract a stable external id we can link back to (2GIS firm_id,
             # rusprofile entity id, etc.). Preference order: explicit firm_id
@@ -750,6 +817,21 @@ def collect_leads_task(job_id: str) -> None:
             raw_relevance = int(c.get("relevance_score", 0))
             notes_prefix = f"relevance={raw_relevance}; " if raw_relevance else ""
             notes_prefix += "demo=true; " if c.get("demo") else ""
+            # Качество компании (батч «поиск v2»): рейтинг/отзывы с карт,
+            # ЕГРЮЛ-идентичность и соцсети из кандидата (2GIS/склад).
+            rating_val = c.get("rating")
+            if not (isinstance(rating_val, (int, float)) and 0 < float(rating_val) <= 5):
+                rating_val = None
+            else:
+                rating_val = round(float(rating_val), 1)
+            reviews_val = c.get("review_count")
+            if not (isinstance(reviews_val, int) and reviews_val >= 0):
+                reviews_val = None
+            social_json = {}
+            for _sk in ("vk", "telegram"):
+                _sv = sanitize_social(_sk, c.get(_sk) if isinstance(c.get(_sk), str) else "")
+                if _sv:
+                    social_json[_sk] = _sv
             lead = Lead(
                 organization_id=job.organization_id,
                 project_id=project.id,
@@ -769,6 +851,11 @@ def collect_leads_task(job_id: str) -> None:
                 score=base_score,
                 notes=notes_prefix + c.get("snippet", ""),
                 demo=bool(c.get("demo", False)),
+                rating=rating_val,
+                review_count=reviews_val,
+                inn=_clip(str(c.get("inn") or ""), 20),
+                legal_status=_clip(str(c.get("legal_status") or ""), 20),
+                contacts_json=social_json,
             )
             db.add(lead)
             # Bug #1 fix: use a SAVEPOINT for each lead so an IntegrityError
@@ -1006,11 +1093,20 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         # Enrichable = never enriched, OR still missing an actionable contact
         # (no email AND no phone). Address is intentionally NOT part of this
         # check — a lead with only an address still needs a phone/email.
+        # Кап попыток (закрывает TODO ниже): лид, у которого N проходов подряд
+        # не нашли контактов, перестаёт занимать слоты автообогащения — НО при
+        # явном выборе лидов пользователем (lead_ids) кап не давит.
+        attempts_cap = max(1, int(getattr(get_settings(), "enrich_attempts_cap", 3)))
+        recheck_contactless = (Lead.email == "") & (Lead.phone == "")
+        if not lead_ids:
+            recheck_contactless = and_(
+                recheck_contactless, Lead.enrich_attempts < attempts_cap
+            )
         query = select(Lead).where(
             Lead.project_id == job.project_id,
             or_(
                 Lead.enriched.is_(False),
-                (Lead.email == "") & (Lead.phone == ""),
+                recheck_contactless,
             ),
         )
         if lead_ids:
@@ -1056,6 +1152,17 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
         # (инцидент 14.07: 2GIS-тариф без contact_groups + Geosearch 403 +
         # скрейп под капчей → у клиента 20/20 лидов без телефона).
         web_lookup_budget = max(0, int(getattr(get_settings(), "enrich_web_lookup_max_per_job", 20)))
+        # ЕГРЮЛ-справка (DaData: ИНН/статус юрлица) и сигнал найма (hh.ru) —
+        # свои бюджеты на джобу; оба сервиса кэшируют вердикты, так что
+        # повторные проходы почти бесплатны.
+        dadata_budget = (
+            max(0, int(getattr(get_settings(), "dadata_max_per_job", 25)))
+            if dadata.is_configured() else 0
+        )
+        hh_budget = (
+            max(0, int(getattr(get_settings(), "hh_max_per_job", 15)))
+            if getattr(get_settings(), "hh_enabled", True) else 0
+        )
         for lead in leads:
             website = lead.website or ""
             if website.startswith("maps://"):
@@ -1176,6 +1283,13 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                         lead.company[:40], bool(found.get("phone")),
                         bool(found.get("email")), bool(found_site), web_lookup_budget,
                     )
+            # Соцсети: vk/telegram, собранные при сборе (2GIS/склад), не должны
+            # теряться, если свежий проход краулера их не нашёл.
+            prev_cj = lead.contacts_json or {}
+            if isinstance(contacts, dict):
+                for _sk in ("vk", "telegram"):
+                    if prev_cj.get(_sk) and not contacts.get(_sk):
+                        contacts[_sk] = prev_cj[_sk]
             lead.contacts = contacts
             lead.contacts_json = contacts
             # «О компании»: meta-description главной — лучший короткий ответ,
@@ -1247,6 +1361,84 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
             else:
                 lead.email_status = ""
 
+            # ── ЕГРЮЛ-справка (DaData): ИНН + статус юрлица ────────────────
+            # Ликвидированная компания — не лид: честный тег + жёсткий кап
+            # скора (в score_lead ниже). ИНН заодно уходит write-back'ом в
+            # склад и усиливает кросс-складской дедуп.
+            party: dict = {}
+            if not (lead.inn or "").strip() and (lead.company or "").strip() and dadata.is_configured():
+                # Кэш-хиты бесплатны для бюджета джобы (ревью 21.07: бюджет
+                # сгорал на хитах, хвост лидов не обогащался).
+                cached_party = dadata.peek_party(lead.company, lead.city or "")
+                if cached_party is not None:
+                    party = cached_party
+                elif dadata_budget > 0:
+                    dadata_budget -= 1
+                    try:
+                        party = dadata.find_party(lead.company, lead.city or "")
+                    except Exception:
+                        party = {}
+                        logger.debug("dadata lookup failed for %s", lead.company, exc_info=True)
+            if party.get("inn"):
+                lead.inn = _clip(str(party["inn"]), 20)
+                lead.legal_status = _clip(str(party.get("status") or ""), 20)
+                dead_tag = ""
+                if lead.legal_status in ("LIQUIDATED", "BANKRUPT"):
+                    dead_tag = "ликвидирована"
+                elif lead.legal_status == "LIQUIDATING":
+                    dead_tag = "в стадии ликвидации"
+                if dead_tag:
+                    tags = list(lead.tags or [])
+                    if dead_tag not in tags:
+                        lead.tags = tags + [dead_tag]
+                # Write-back в склад: ИНН/статус/ОКВЭД/дата регистрации —
+                # общий актив; статус обновляем всегда (актуальность),
+                # остальное — fill-empty. Дедуп по ИНН (ревью 21.07): если
+                # ИНН уже держит ДРУГАЯ строка склада — второго держателя не
+                # плодим (inn остаётся у старейшей), но статус обновляем обеим.
+                try:
+                    with db.begin_nested():
+                        wh_party = company_warehouse.find_company_for_lead(
+                            db, domain=lead.domain or "",
+                            company=lead.company or "", city=lead.city or "",
+                        )
+                        inn_holder = db.execute(
+                            select(Company)
+                            .where(Company.inn == lead.inn)
+                            .order_by(Company.first_seen_at.asc(), Company.id.asc())
+                        ).scalars().first()
+                        targets = [t for t in (wh_party, inn_holder) if t is not None]
+                        if inn_holder is not None and inn_holder is wh_party:
+                            targets = [wh_party]
+                        for wh_row in targets:
+                            wh_row.legal_status = lead.legal_status
+                            if party.get("okved") and not (wh_row.okved or "").strip():
+                                wh_row.okved = str(party["okved"])[:160]
+                            if party.get("registered_at") and wh_row.registered_at is None:
+                                wh_row.registered_at = party["registered_at"]
+                        # ИНН текущей строке — только когда другого держателя
+                        # нет: два держателя одного ИНН = дубль склада.
+                        if wh_party is not None and inn_holder is None and not (wh_party.inn or "").strip():
+                            wh_party.inn = lead.inn
+                        if targets:
+                            db.flush()
+                except Exception:
+                    logger.debug("dadata warehouse write-back failed", exc_info=True)
+
+            # ── Сигнал «компания нанимает» (hh.ru, открытый API) ───────────
+            # Кэш-хиты бесплатны для бюджета (тот же принцип, что DaData).
+            if (lead.hiring_vacancies is None and (lead.company or "").strip()
+                    and getattr(get_settings(), "hh_enabled", True)):
+                cache_hit, vac = hh.peek_vacancies(lead.company)
+                if not cache_hit and hh_budget > 0:
+                    hh_budget -= 1
+                    try:
+                        vac = hh.open_vacancies(lead.company)
+                    except Exception:
+                        vac = None
+                if vac is not None:
+                    lead.hiring_vacancies = vac
+
             lead.enriched = True
             # Treat no_mx / syntax as no-email for scoring: a bouncy address
             # is worse than no address at all (it wastes sales-rep time).
@@ -1273,7 +1465,13 @@ def enrich_leads_task(job_id: str, lead_ids: list[str] | None = None) -> None:
                 demo=lead.demo,
                 relevance_score=stored_relevance,
                 segments=project_segments,
+                hiring=bool(lead.hiring_vacancies),
+                legal_status=lead.legal_status or "",
             )
+            # Кап попыток: проход не дал контактов → счётчик++ (после cap
+            # безконтактный лид перестаёт занимать слоты автообогащения).
+            if not (lead.email or lead.phone):
+                lead.enrich_attempts = (lead.enrich_attempts or 0) + 1
             enriched += 1
 
             # Push to CRM webhook if configured (Bitrix24 / AmoCRM / custom).

@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -268,6 +269,20 @@ class Lead(Base):
     external_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     enriched: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # ── Качество компании (батч «поиск v2», 21.07.2026) ────────────────────
+    # Рейтинг и число отзывов с карт (2GIS reviews). None = источник не отдал.
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    # ИНН и статус юрлица из ЕГРЮЛ (DaData): "" (не проверяли) | ACTIVE |
+    # LIQUIDATING | LIQUIDATED | BANKRUPT | REORGANIZING. Мёртвый статус
+    # капит скор (см. scoring.score_lead) и даёт тег «ликвидирована».
+    inn: Mapped[str] = mapped_column(String(20), default="", nullable=False, server_default="")
+    legal_status: Mapped[str] = mapped_column(String(20), default="", nullable=False, server_default="")
+    # Сигнал «компания нанимает» (hh.ru open_vacancies). None = не проверяли.
+    hiring_vacancies: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
+    # Проходы обогащения, закончившиеся БЕЗ контактов — кап против вечного
+    # рескрейпа безконтактных лидов (закрывает TODO из enrich_leads_task).
+    enrich_attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     # Bumped on every UPDATE (onupdate) — tracks last activity on the lead so
     # GDPR/152-ФЗ retention purge (purge_old_leads) can delete by inactivity,
@@ -642,6 +657,18 @@ class Company(Base):
     twogis_firm_id: Mapped[str] = mapped_column(String(80), default="", nullable=False, index=True)
     rusprofile_id: Mapped[str] = mapped_column(String(80), default="", nullable=False)
     inn: Mapped[str] = mapped_column(String(20), default="", nullable=False, index=True)
+    # Статус юрлица из ЕГРЮЛ (DaData): "" | ACTIVE | LIQUIDATING | LIQUIDATED |
+    # BANKRUPT | REORGANIZING. Мёртвые (LIQUIDATED/BANKRUPT) не выдаются в дозы
+    # (SQL-фильтр в search_warehouse).
+    legal_status: Mapped[str] = mapped_column(String(20), default="", nullable=False, server_default="")
+    # Основной ОКВЭД («62.01») и дата регистрации юрлица — для будущих фильтров
+    # («компании младше года») и карточки лида.
+    okved: Mapped[str] = mapped_column(String(160), default="", nullable=False, server_default="")
+    registered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, default=None)
+    # Рейтинг/отзывы с карт (2GIS): при апсерте обновляются на свежайшие
+    # не-пустые значения (отзывы накапливаются со временем).
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True, default=None)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True, default=None)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     contacts_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     best_score: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

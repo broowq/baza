@@ -633,7 +633,24 @@ export function LeadsTable({
                       <SourceBadge source={lead.source} externalId={lead.external_id} />
                       <span className="min-w-0 break-words">{lead.company}</span>
                     </p>
-                    {lead.city && <p className="mt-0.5 truncate text-xs text-[var(--t-48)]">{lead.city}</p>}
+                    {(lead.city || typeof lead.rating === "number") && (
+                      <p className="mt-0.5 truncate text-xs text-[var(--t-48)]">
+                        {typeof lead.rating === "number" && (
+                          <span title="Рейтинг на картах">★ {lead.rating.toFixed(1)}{lead.city ? " · " : ""}</span>
+                        )}
+                        {lead.city}
+                      </p>
+                    )}
+                    {(lead.legal_status === "LIQUIDATED" || lead.legal_status === "BANKRUPT") && (
+                      <p className="mt-0.5 text-xs" style={{ color: "var(--rose)" }} title="Статус юрлица по ЕГРЮЛ">
+                        ликвидирована
+                      </p>
+                    )}
+                    {typeof lead.hiring_vacancies === "number" && lead.hiring_vacancies > 0 && (
+                      <p className="mt-0.5 text-xs text-[var(--t-48)]" title="Открытые вакансии на hh.ru">
+                        нанимает · {lead.hiring_vacancies}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -802,6 +819,27 @@ export function LeadsTable({
                             )}
                             {lead.tags?.includes("есть сайт") && (
                               <Badge variant="online" className="text-[10px]">есть сайт</Badge>
+                            )}
+                            {typeof lead.rating === "number" && (
+                              <span
+                                className="inline-flex items-center text-[11px] text-[var(--t-48)]"
+                                title={`Рейтинг на картах${lead.review_count ? ` · ${lead.review_count} отзывов` : ""}`}
+                              >
+                                ★ {lead.rating.toFixed(1)}
+                              </span>
+                            )}
+                            {(lead.legal_status === "LIQUIDATED" || lead.legal_status === "BANKRUPT") && (
+                              <span className="text-[11px]" style={{ color: "var(--rose)" }} title="Статус юрлица по ЕГРЮЛ">
+                                ликвидирована
+                              </span>
+                            )}
+                            {typeof lead.hiring_vacancies === "number" && lead.hiring_vacancies > 0 && (
+                              <span
+                                className="text-[11px] text-[var(--t-48)]"
+                                title="Открытые вакансии на hh.ru — компания растёт"
+                              >
+                                нанимает
+                              </span>
                             )}
                           </span>
                         </div>

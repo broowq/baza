@@ -47,6 +47,12 @@ class LeadOut(BaseModel):
     external_id: str = ""
     enriched: bool
     demo: bool
+    # ── Качество компании (батч «поиск v2», 21.07.2026) ──────────────────
+    rating: float | None = None          # рейтинг с карт (2GIS), 0–5
+    review_count: int | None = None      # число отзывов
+    inn: str = ""                        # ИНН из ЕГРЮЛ (DaData)
+    legal_status: str = ""               # "" | ACTIVE | LIQUIDATING | LIQUIDATED | BANKRUPT | REORGANIZING
+    hiring_vacancies: int | None = None  # открытые вакансии на hh.ru (None = не проверяли)
     created_at: datetime
     # Name of the owning project. Default "" keeps every existing endpoint
     # backward-compatible; only the org-wide /leads/all endpoint populates it.

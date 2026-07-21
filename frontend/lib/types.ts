@@ -81,6 +81,12 @@ export type Lead = {
   external_id?: string;
   enriched: boolean;
   demo?: boolean;
+  // Качество компании (батч «поиск v2», 21.07.2026)
+  rating?: number | null;          // рейтинг с карт (2GIS), 0–5
+  review_count?: number | null;    // число отзывов
+  inn?: string;                    // ИНН из ЕГРЮЛ (DaData)
+  legal_status?: string;           // "" | ACTIVE | LIQUIDATING | LIQUIDATED | BANKRUPT | REORGANIZING
+  hiring_vacancies?: number | null; // открытые вакансии на hh.ru
   // Set by the org-wide GET /leads/all endpoint so a lead row can show which
   // project it belongs to. Absent on per-project responses.
   project_id?: string;
