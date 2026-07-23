@@ -29,6 +29,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.services.audit import log_action
+from app.services.login_guard import ensure_login_not_locked, note_failed_login, note_successful_login
 from app.services.notifications import email_delivery_configured
 from app.utils.logredact import mask_email
 from app.services.quota import apply_plan_limits
@@ -226,8 +227,13 @@ def _set_refresh_cookie(response: Response, refresh_token: str, minutes: int) ->
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     normalized_email = payload.email.lower().strip()
+    # Анти-брутфорс: если по аккаунту превышен порог неудачных попыток —
+    # 429 ДО сверки пароля (и до дорогого argon2-verify). Одинаково для
+    # существующего/несуществующего email (без enumeration).
+    ensure_login_not_locked(normalized_email)
     user = db.execute(select(User).where(User.email == normalized_email)).scalar_one_or_none()
     if not user or not verify_password(payload.password, user.hashed_password):
+        note_failed_login(normalized_email)
         client_ip = request.client.host if request.client else "unknown"
         _auth_logger.warning(
             "Failed login attempt for email=%s from ip=%s",
@@ -237,6 +243,8 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         raise HTTPException(status_code=401, detail="Неверный логин или пароль")
     if settings.email_verification_required and not user.email_verified:
         raise HTTPException(status_code=403, detail="Подтвердите email перед входом")
+    # Успешная аутентификация — сбрасываем счётчик неудач.
+    note_successful_login(normalized_email)
     token = create_access_token(str(user.id), expires_delta=timedelta(minutes=settings.access_token_expire_minutes))
     minutes = _refresh_minutes(payload.remember_me)
     refresh_token = create_refresh_token(

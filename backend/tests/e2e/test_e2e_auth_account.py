@@ -294,6 +294,41 @@ def test_login_unknown_email_401(client):
     assert r.json()["detail"] == "Неверный логин или пароль"
 
 
+def test_login_bruteforce_lockout(make_account, monkeypatch):
+    """Аудит: после N неудачных попыток аккаунт блокируется на кулдаун (429),
+    даже с верным паролем; успех после сброса снова открывает вход.
+
+    Гвард отключён в dev — включаем прод-режим ПОСЛЕ регистрации (иначе
+    сработал бы суточный IP-потолок регистраций)."""
+    from app.services import login_guard as lg
+
+    acct = make_account()
+    monkeypatch.setattr(lg.settings, "app_env", "production")
+    monkeypatch.setattr(lg.settings, "login_max_failed_attempts", 5)
+    # На всякий случай — свежий счётчик именно этого email.
+    try:
+        lg._redis.delete(lg._fail_key(acct.email))
+    except Exception:
+        pass
+
+    # 5 неудачных попыток — все 401.
+    for _ in range(5):
+        r = acct.client.post("/api/auth/login",
+                             json={"email": acct.email, "password": "wrong-pw"})
+        assert r.status_code == 401, r.text
+    # 6-я (даже с ВЕРНЫМ паролем) — 429 + Retry-After.
+    blocked = acct.client.post("/api/auth/login",
+                               json={"email": acct.email, "password": acct.password})
+    assert blocked.status_code == 429, blocked.text
+    assert "retry-after" in {k.lower() for k in blocked.headers}
+
+    # Сброс счётчика (эмуляция истёкшего кулдауна) → верный пароль снова входит.
+    lg._redis.delete(lg._fail_key(acct.email))
+    ok = acct.client.post("/api/auth/login",
+                          json={"email": acct.email, "password": acct.password})
+    assert ok.status_code == 200, ok.text
+
+
 # ── refresh ─────────────────────────────────────────────────────────────────
 
 def test_refresh_issues_new_access_token(make_account):
